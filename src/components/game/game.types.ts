@@ -94,6 +94,9 @@ export interface PromptActionSpec {
     color: string;
     onOpen: () => void;
     pulse?: boolean;
+    /** Canvas-local center where the pill should sit; omit to keep it inside
+     *  the compact action cluster. */
+    anchor?: { x: number; y: number };
   };
   onOpenCombat?: () => void;
   targetCompletionLabel?: string | null;

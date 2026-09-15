@@ -61,6 +61,7 @@ const COMPACT_PHASE_TOUCH_HEIGHT = 48;
 
 export class PromptLayer extends PromptModalLayer {
   private phasePulseFired = false;
+  private phaseBounds: Rectangle | null = null;
   private readonly unsubscribePromptPreferences: () => void;
   private readonly unsubscribePreferences: () => void;
   private readonly unsubscribeKeybindings: () => void;
@@ -181,6 +182,7 @@ export class PromptLayer extends PromptModalLayer {
   hitTest(x: number, y: number): boolean {
     if (!this.container.visible) return false;
     if (this.modalOpen) return true;
+    if (this.phaseBounds?.contains(x, y)) return true;
     return this.actionBounds?.contains(x, y) ?? false;
   }
 
@@ -289,6 +291,7 @@ export class PromptLayer extends PromptModalLayer {
     this.clearScryCardTiles();
     this.clearReorderCardVisuals();
     this.actionBounds = null;
+    this.phaseBounds = null;
     this.autopassFill = null;
     this.priorityButtons = null;
     this.actionGlow = null;
@@ -374,7 +377,8 @@ export class PromptLayer extends PromptModalLayer {
     if (!showActionContext) this.actionContextOpen = false;
     const fixedWidth = minimal ? null : shortScreen ? 230 : 300;
     const fixedContentWidth = fixedWidth == null ? this.viewportWidth - 24 : fixedWidth - 16;
-    const controls = minimal ? this.makeCompactActionControls() : null;
+    const phaseAnchor = action.compactPhaseControl?.anchor ?? null;
+    const controls = minimal ? this.makeCompactActionControls(phaseAnchor === null) : null;
     const viewAvailableWidth = fixedContentWidth - (controls ? controls.width + 4 : 0);
     const view = this.buildActionView(viewKey, viewAvailableWidth, minimal, touch, preview);
     const rowWidth = view.width + (controls ? 4 + controls.width : 0);
@@ -520,6 +524,19 @@ export class PromptLayer extends PromptModalLayer {
 
     this.container.addChild(panel);
     this.actionBounds = new Rectangle(x, y, width, panelHeight);
+    if (phaseAnchor) {
+      const phase = this.makeCompactPhaseButton();
+      if (phase) {
+        phase.container.position.set(phaseAnchor.x, phaseAnchor.y - COMPACT_PHASE_TOUCH_HEIGHT / 2);
+        this.container.addChild(phase.container);
+        this.phaseBounds = new Rectangle(
+          phaseAnchor.x,
+          phaseAnchor.y - COMPACT_PHASE_TOUCH_HEIGHT / 2,
+          phase.width,
+          COMPACT_PHASE_TOUCH_HEIGHT,
+        );
+      }
+    }
     if (this.actionContextOpen && showActionContext) {
       this.renderActionContextPopover(
         x,
@@ -1509,8 +1526,8 @@ export class PromptLayer extends PromptModalLayer {
     return container;
   }
 
-  private makeCompactActionControls(): ActionViewLayout {
-    const phase = this.makeCompactPhaseButton();
+  private makeCompactActionControls(includePhase: boolean): ActionViewLayout {
+    const phase = includePhase ? this.makeCompactPhaseButton() : null;
     const menu = this.makeActionMenuButton(true);
     const controlViews = this.leftHanded
       ? phase

@@ -61,6 +61,7 @@ import type {
   GameCanvasCallbacks,
   HandState,
   PlayZoneRect,
+  ScreenBounds,
   ScreenPos,
 } from "../types";
 import type { StackAnchorProvider } from "../stack/stack.types";
@@ -1488,7 +1489,10 @@ export class BoardScene {
   setZoneTilesLocked(locked: boolean): void {
     if (this.zoneTilesLocked === locked) return;
     this.zoneTilesLocked = locked;
-    for (const rec of this.regions.values()) rec.region.setZoneTilesLocked(locked);
+  }
+
+  getLocalCapsuleBounds(): ScreenBounds | null {
+    return this.localPlayerId ? this.playerBars.getCapsuleBounds(this.localPlayerId) : null;
   }
 
   setStackAnchorProvider(provider: StackAnchorProvider | null): void {

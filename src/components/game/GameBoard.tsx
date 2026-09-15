@@ -792,6 +792,7 @@ export function GameBoard({
       : activeOpponentSeat
         ? playerColors[activeOpponentSeat]
         : gameTheme.textMuted;
+  const localCapsuleBounds = overlayScene?.getLocalCapsuleBounds() ?? null;
   const compactPromptOverlaySpec = useMemo<PromptOverlaySpec | null>(() => {
     if (!promptOverlaySpec) return null;
     const armedStopReached = PHASE_CONTROLS.some(
@@ -806,10 +807,24 @@ export function GameBoard({
           color: activePhaseColor,
           onOpen: openMobilePhaseStops,
           pulse: armedStopReached,
+          anchor: localCapsuleBounds
+            ? {
+                x: localCapsuleBounds.x + localCapsuleBounds.width + GAP,
+                y: localCapsuleBounds.y + localCapsuleBounds.height / 2,
+              }
+            : undefined,
         },
       },
     };
-  }, [activePhaseColor, compactBoard, openMobilePhaseStops, promptOverlaySpec, selfStops, step]);
+  }, [
+    activePhaseColor,
+    compactBoard,
+    localCapsuleBounds,
+    openMobilePhaseStops,
+    promptOverlaySpec,
+    selfStops,
+    step,
+  ]);
 
   // The opponent whose field auto-expands: the active one on their turn,
   // otherwise the sticky one on ours (defaulting to the first opponent). The

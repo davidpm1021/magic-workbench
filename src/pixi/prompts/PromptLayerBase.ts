@@ -420,6 +420,8 @@ function sameActionPresentation(
       left.compactPhaseControl?.color === right.compactPhaseControl?.color &&
       !!left.compactPhaseControl?.onOpen === !!right.compactPhaseControl?.onOpen &&
       !!left.compactPhaseControl?.pulse === !!right.compactPhaseControl?.pulse &&
+      left.compactPhaseControl?.anchor?.x === right.compactPhaseControl?.anchor?.x &&
+      left.compactPhaseControl?.anchor?.y === right.compactPhaseControl?.anchor?.y &&
       left.isMyTurn === right.isMyTurn &&
       left.step === right.step &&
       samePayManaInfo(left.payManaCostInfo, right.payManaCostInfo) &&
