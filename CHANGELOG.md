@@ -1,5 +1,25 @@
 # Changelog
 
+## [3.44.1](https://github.com/witchesofthehill/manabrew/compare/v3.44.0...v3.44.1) (2026-09-15)
+
+### Fixes
+
+* better scroll ([#933](https://github.com/witchesofthehill/manabrew/issues/933)) ([bf7c66b](https://github.com/witchesofthehill/manabrew/commit/bf7c66bb33a3921747be206b877d86e6686c92a5))
+
+## [3.44.0](https://github.com/witchesofthehill/manabrew/compare/v3.43.2...v3.44.0) (2026-09-15)
+
+### Features
+
+* **ui:** major battlefield improvements ([#873](https://github.com/witchesofthehill/manabrew/issues/873)) ([4ae76d4](https://github.com/witchesofthehill/manabrew/commit/4ae76d45a1875b77ec0cc911231c24c91ee1c94c))
+
+## [3.43.2](https://github.com/witchesofthehill/manabrew/compare/v3.43.1...v3.43.2) (2026-09-15)
+
+### Fixes
+
+* **ui:** show the onboarding card on Firefox ESR ([#930](https://github.com/witchesofthehill/manabrew/issues/930)) ([f3a6f10](https://github.com/witchesofthehill/manabrew/commit/f3a6f105e0ad813ec99ceead1f17331a64e6966b))
+
+## [3.43.1](https://github.com/witchesofthehill/manabrew/compare/v3.43.0...v3.43.1) (2026-09-14)
+
 ## [3.43.0](https://github.com/witchesofthehill/manabrew/compare/v3.42.7...v3.43.0) (2026-09-14)
 
 ### Features
