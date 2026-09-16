@@ -12,6 +12,7 @@ import {
 
 interface PendingCue {
   definition: DisplayEventAudioDefinition;
+  reason: string;
   generation: number;
 }
 
@@ -70,7 +71,7 @@ function playNextCue(): void {
             return;
           }
           activePlayback.instance = instance;
-          logSoundPlayback(DISPLAY_EVENT_AUDIO_ASSETS[cue.assetKey].src);
+          logSoundPlayback(DISPLAY_EVENT_AUDIO_ASSETS[cue.assetKey].src, cue.reason);
           instance.once("end", () => finishPlayback(token));
           instance.once("stop", () => finishPlayback(token));
         })
@@ -150,7 +151,11 @@ export function presentDisplayEventAudio(event: DisplayEvent): void {
   }
 
   const voiceKey = definition.variants.join("\u0000");
-  pendingBurst.set(voiceKey, { definition, generation: sessionGeneration });
+  pendingBurst.set(voiceKey, {
+    definition,
+    reason: event.eventType,
+    generation: sessionGeneration,
+  });
   if (event.eventType.startsWith("prompt.") || event.eventType.startsWith("game.outcome.")) {
     flushBurst();
   } else {
