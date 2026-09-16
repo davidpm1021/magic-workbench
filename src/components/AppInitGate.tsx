@@ -211,9 +211,12 @@ export function AppInitGate({ children }: { children: ReactNode }) {
               shortTouch && "h-full min-h-0 gap-3 py-2",
             )}
           >
+            {/* No `filter` here: Firefox (ESR 140 and older, bug 2011747) drops
+                any descendant that uses `backdrop-filter`, which hid the
+                onboarding card. The card carries its own `shadow-2xl`. */}
             <div
               className={cn(
-                "flex w-full flex-col items-center gap-10 drop-shadow-2xl",
+                "flex w-full flex-col items-center gap-10",
                 showOnboarding ? "max-w-5xl" : "max-w-2xl",
                 isTouch && "gap-6",
                 shortTouch && "h-full min-h-0 max-w-5xl gap-3",

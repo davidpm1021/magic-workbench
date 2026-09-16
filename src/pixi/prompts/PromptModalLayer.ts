@@ -73,6 +73,8 @@ const COMPACT_SCRY_FOOTER_HEIGHT = 52;
 const COMPACT_SCRY_STACK_DEPTH = 16;
 const COMPACT_SCRY_VERTICAL_RESERVE = 280;
 const COMPACT_SCRY_ZONE_GAP = 28;
+const MODAL_SCROLL_HALF_LIFE_MS = 28;
+const MODAL_SCROLL_SNAP_PIXELS = 0.5;
 type PromptModalHeaderLayout = "stacked" | "inline-guidance";
 
 export abstract class PromptModalLayer extends PromptLayerBase {
@@ -453,11 +455,14 @@ export abstract class PromptModalLayer extends PromptLayerBase {
       -MODAL_SCROLL_MAX_STEP,
       Math.min(MODAL_SCROLL_MAX_STEP, rawDelta * MODAL_SCROLL_SCALE),
     );
-    this.modalScrollOffset = Math.max(
+    this.modalScrollTarget = Math.max(
       0,
-      Math.min(this.modalScrollMax, this.modalScrollOffset + delta),
+      Math.min(this.modalScrollMax, this.modalScrollTarget + delta),
     );
-    this.syncModalScrollPosition();
+    if (!animationsEnabled()) {
+      this.modalScrollOffset = this.modalScrollTarget;
+      this.syncModalScrollPosition();
+    }
   }
 
   protected finalizeModalScroll(): void {
@@ -524,6 +529,7 @@ export abstract class PromptModalLayer extends PromptLayerBase {
     const overflow = contentHeight - state.viewportHeight;
     this.modalScrollMax = overflow > 1 ? overflow : 0;
     this.modalScrollOffset = Math.min(this.modalScrollOffset, this.modalScrollMax);
+    this.modalScrollTarget = Math.min(this.modalScrollTarget, this.modalScrollMax);
     const scrollable = this.modalScrollMax > 0 && state.viewportHeight > 0;
     state.scrollTrack.visible = scrollable;
     state.scrollThumb.visible = scrollable;
@@ -549,6 +555,26 @@ export abstract class PromptModalLayer extends PromptLayerBase {
     const thumbHeight = state.scrollThumb.height;
     const travel = Math.max(0, state.viewportHeight - thumbHeight);
     state.scrollThumb.y = state.bodyTop + travel * (this.modalScrollOffset / this.modalScrollMax);
+  }
+
+  protected updateScrollMotion(deltaMs: number): void {
+    const blend = 1 - Math.pow(0.5, Math.min(deltaMs, 50) / MODAL_SCROLL_HALF_LIFE_MS);
+    if (this.modalScrollOffset !== this.modalScrollTarget) {
+      const gap = this.modalScrollTarget - this.modalScrollOffset;
+      this.modalScrollOffset =
+        Math.abs(gap) < MODAL_SCROLL_SNAP_PIXELS
+          ? this.modalScrollTarget
+          : this.modalScrollOffset + gap * blend;
+      this.syncModalScrollPosition();
+    }
+    if (this.scryPoolScrollOffset !== this.scryPoolScrollTarget) {
+      const gap = this.scryPoolScrollTarget - this.scryPoolScrollOffset;
+      this.setScryPoolScrollOffset(
+        Math.abs(gap) < MODAL_SCROLL_SNAP_PIXELS
+          ? this.scryPoolScrollTarget
+          : this.scryPoolScrollOffset + gap * blend,
+      );
+    }
   }
 
   protected renderBoolean(
@@ -2192,7 +2218,12 @@ export abstract class PromptModalLayer extends PromptLayerBase {
       -MODAL_SCROLL_MAX_STEP,
       Math.min(MODAL_SCROLL_MAX_STEP, rawDelta * MODAL_SCROLL_SCALE),
     );
-    this.setScryPoolScrollOffset(this.scryPoolScrollOffset + delta);
+    this.scryPoolScrollTarget = Math.max(
+      0,
+      Math.min(this.scryPoolScrollMax, this.scryPoolScrollTarget + delta),
+    );
+    if (!animationsEnabled()) this.setScryPoolScrollOffset(this.scryPoolScrollTarget);
+    this.callbacks.onRenderRequested?.();
   }
 
   protected setScryPoolScrollOffset(offset: number): void {

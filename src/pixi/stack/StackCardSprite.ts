@@ -74,6 +74,7 @@ export class StackCardSprite {
     this.face.onVisualChange = onRenderRequested;
     this.face.scale.set(this.faceScale);
     this.face.setHandRulesView(rulesView);
+    this.face.setHandRulesHighlight(spec.sourceAbilityText ?? "");
     this.face.on("pointerdown", (event: FederatedPointerEvent) => {
       if (this.face.usesHandRulesView && event.pointerType !== "touch") event.stopPropagation();
     });

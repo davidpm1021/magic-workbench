@@ -87,11 +87,15 @@ export const CARD_BADGES = {
 export const ACTION_DRAWER_BUMP_EVENT = "actiondrawer:bump";
 
 const PREVIEW_CARD_SIZE = { width: 300, height: 420 } as const;
+const PROMPT_CARD_LINEAR_SCALE = Math.sqrt(0.7);
 
 export const GAME_CARD_SIZES = {
   battlefield: { width: 70, height: 98 },
   hand: { width: 130, height: 182 },
-  prompt: PREVIEW_CARD_SIZE,
+  prompt: {
+    width: PREVIEW_CARD_SIZE.width * PROMPT_CARD_LINEAR_SCALE,
+    height: PREVIEW_CARD_SIZE.height * PROMPT_CARD_LINEAR_SCALE,
+  },
   preview: PREVIEW_CARD_SIZE,
 } as const;
 export const CARD_W = GAME_CARD_SIZES.battlefield.width;

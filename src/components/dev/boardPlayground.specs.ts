@@ -100,7 +100,9 @@ export function buildPlaygroundSpecs(
         onOpen: topCard ? () => openZone(player.id, zone) : undefined,
       });
     }
-    zoneTiles[player.id] = compact ? [] : tiles;
+    zoneTiles[player.id] = compact
+      ? tiles.filter((tile) => tile.key === ZONE_TILE_KEY.command)
+      : tiles;
     const badges = buildPlayerHudBadges(
       { ...table.playerStates[player.id]!, handCount },
       theme.badges,

@@ -509,6 +509,7 @@ export abstract class PromptLayerBase {
   protected scryItems: Record<string, string[]> = {};
   protected scrySelectedId: string | null = null;
   protected scryPoolScrollOffset = 0;
+  protected scryPoolScrollTarget = 0;
   protected scryPoolScrollMax = 0;
   protected scryPoolScrollToEnd = false;
   protected scryPoolSlotX = new Map<string, number>();
@@ -584,6 +585,7 @@ export abstract class PromptLayerBase {
     y: number;
   } | null = null;
   protected modalScrollOffset = 0;
+  protected modalScrollTarget = 0;
   protected modalScrollMax = 0;
   protected modalBody: {
     panel: Container;
