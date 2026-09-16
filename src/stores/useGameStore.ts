@@ -140,6 +140,7 @@ async function initializeGame({
   commanderName,
   engine,
   isLaunchCurrent,
+  forceBrowserForge = false,
 }: {
   deck: Deck;
   opponentDecks?: Deck[];
@@ -149,6 +150,7 @@ async function initializeGame({
   set: (partial: Partial<GameState>) => void;
   get: () => GameState;
   isLaunchCurrent: () => boolean;
+  forceBrowserForge?: boolean;
 }): Promise<void> {
   deck = withResolvedDeckName(deck);
   const selectedFormatId = formatId ?? deck.format ?? "standard";
@@ -156,8 +158,18 @@ async function initializeGame({
   const startingLife = format?.deckRules.startingLife ?? DEFAULT_STARTING_LIFE;
 
   const platformType = getPlatform().type;
+  const wasmSupported = isForgeWasmSupported();
+  const hostedAvailable = isHostedEngineAvailable();
+  const preferHostedFourPlayerCommander =
+    platformType === "web" &&
+    wasmSupported &&
+    selectedFormatId.toLowerCase() === "commander" &&
+    opponentDecks?.length === 3;
   const useHostedBrowserForge =
-    platformType === "web" && !isForgeWasmSupported() && isHostedEngineAvailable();
+    platformType === "web" &&
+    !forceBrowserForge &&
+    hostedAvailable &&
+    (!wasmSupported || preferHostedFourPlayerCommander);
   if (
     engine === "Forge" &&
     opponentDecks?.length &&
@@ -243,6 +255,20 @@ async function initializeGame({
       if (error instanceof GameLaunchCancelledError) throw error;
       if (!isLaunchCurrent()) throw new GameLaunchCancelledError();
       set({ isMultiplayer: false, isHost: false });
+      if (preferHostedFourPlayerCommander) {
+        toast.warning("Hosted Forge unavailable — using the browser engine.");
+        return initializeGame({
+          deck,
+          opponentDecks,
+          formatId,
+          set,
+          get,
+          commanderName,
+          engine,
+          isLaunchCurrent,
+          forceBrowserForge: true,
+        });
+      }
       throw error;
     }
   }
