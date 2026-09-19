@@ -64,7 +64,7 @@ export function DeckVsSelector({
 }: DeckVsSelectorProps) {
   const denseDecks = useIsShortScreen();
   const isTouch = useIsTouch();
-  const shortTouch = denseDecks && isTouch;
+  const shortTouch = isTouch;
   const currentDeck = useDeckStore((state) => state.currentDeck);
   const savedDecks = useOwnedDecks();
   const preSelectedSavedDeck = savedDecks.find((saved) => saved.id === preSelectedDeckId);
