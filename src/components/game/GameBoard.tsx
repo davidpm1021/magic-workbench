@@ -380,7 +380,8 @@ export function GameBoard({
       const nextPromptId = state.currentPrompt?.promptId;
       if (nextPromptId !== activePromptId) {
         activePromptId = nextPromptId;
-        if (!handSelectionMode) setMobileHandOpen(false);
+        if (state.currentPrompt?.input.type === "mulligan") setMobileHandOpen(true);
+        else if (!handSelectionMode) setMobileHandOpen(false);
       }
       if (!state.gameView?.gameOver) return;
       setSheetPlayerId(null);

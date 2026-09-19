@@ -309,7 +309,7 @@ export const usePreferencesStore = create<PreferencesState>()(
           lockZoneTiles: false,
           setLockZoneTiles: (lockZoneTiles) => set({ lockZoneTiles }),
 
-          battlefieldCardStyle: "realistic",
+          battlefieldCardStyle: "art",
           setBattlefieldCardStyle: (battlefieldCardStyle) => set({ battlefieldCardStyle }),
 
           boardBackgroundId: DEFAULT_BOARD_BACKGROUND_ID,
@@ -410,7 +410,15 @@ export const usePreferencesStore = create<PreferencesState>()(
       },
       {
         name: STORAGE_KEYS.PREFERENCES,
-        version: 1,
+        version: 2,
+        migrate: (persistedState, version) => {
+          if (!persistedState || typeof persistedState !== "object") return {};
+          const persisted = persistedState as Record<string, unknown>;
+          if (version < 2 && persisted.battlefieldCardStyle === "realistic") {
+            persisted.battlefieldCardStyle = "art";
+          }
+          return persisted;
+        },
         merge: (persistedState, currentState) => ({
           ...currentState,
           ...pickPersistedPreferences(persistedState),
