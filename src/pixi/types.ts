@@ -103,6 +103,12 @@ export interface GameCanvasCallbacks {
   onDismissHoverPreview?: () => void;
 }
 
+export interface CombatRowTarget {
+  attackerId: string;
+  targetId: string;
+  targetKind: "player" | "card";
+}
+
 export interface BattlefieldState {
   cards: CardDto[];
   pendingCardIds?: string[];
@@ -124,6 +130,7 @@ export interface BattlefieldState {
   ownerRingByCard?: Record<string, string>;
   combatRowAttackerIds?: string[];
   combatRowBlocks?: CombatAssignmentDto[];
+  combatRowTargets?: CombatRowTarget[];
 }
 
 export interface HandState {
