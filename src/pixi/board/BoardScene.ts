@@ -298,6 +298,7 @@ export class BoardScene {
   private handInsetLeft = 0;
   private handInsetRight = 0;
   private mobileHandControlBlocker: BlockingRect | null = null;
+  private mobileHandReserve = 0;
   private lastCapsuleRects = new Map<string, string>();
   private autoSort = false;
   private zoneTilesLocked = false;
@@ -1531,6 +1532,7 @@ export class BoardScene {
         }
       : null;
     const current = this.mobileHandControlBlocker;
+    if (next) this.mobileHandReserve = next.height;
     if (
       current?.x === next?.x &&
       current?.y === next?.y &&
@@ -1680,7 +1682,11 @@ export class BoardScene {
       wireSprite: (sprite) => this.wireSprite(sprite, playerId, isLocal),
       screenXToLocalX: (screenX) => screenX - this.canvasRect().left,
       getHandReserveBottom: () =>
-        isLocal && !this.compactMode ? this.handReserveBottom() * HAND_RESERVE_TRIM : 0,
+        !isLocal
+          ? 0
+          : this.compactMode
+            ? this.mobileHandReserve
+            : this.handReserveBottom() * HAND_RESERVE_TRIM,
       spawnFloatingText: (x, y, content, color) => this.spawnFloatingText(x, y, content, color),
       previewCard: (card, bounds) => {
         if (!card) {

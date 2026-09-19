@@ -101,6 +101,7 @@ export const computeGridLayout = (
   cardScale: number,
   leftAlign = false,
   cardHeight: number = CARD_H,
+  bottomAnchor = false,
 ): GridLayoutInfo => {
   const cardW = CARD_W * cardScale;
   const cardH = cardHeight * cardScale;
@@ -134,7 +135,8 @@ export const computeGridLayout = (
   const originX = leftAlign
     ? zone.x + leftPad + Math.max(0, (usableW - gridW) / 2)
     : zoneCenterX - midCol * cellW - cardW / 2;
-  const topMargin = Math.max(0, (usableH - gridH) / 2);
+  const freeH = Math.max(0, usableH - gridH);
+  const topMargin = bottomAnchor ? freeH : freeH / 2;
   const originY = zone.y + topMargin;
 
   const cells: GridCell[] = new Array(cols * rows);

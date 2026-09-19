@@ -290,6 +290,7 @@ export class BoardRegion {
       this.cardScale,
       this.zoneTileKeys.length > 0,
       this.cardHeight(),
+      this.compactMode && !this.mirrored,
     );
   }
 
@@ -456,6 +457,7 @@ export class BoardRegion {
   }
 
   private collectLocalBlockers(): BlockingRect[] {
+    if (this.compactMode && !this.mirrored) return [];
     return this.host.collectBlockers().map((r) => {
       const p1 = this.canvasToLocal(r.x, r.y);
       const p2 = this.canvasToLocal(r.x + r.width, r.y + r.height);
@@ -1689,15 +1691,15 @@ export class BoardRegion {
   }
 
   private playArea(): PlayZoneRect {
-    const z = this.usableZone();
+    const zone = this.compactMode && !this.mirrored ? this.zone : this.usableZone();
     const reserve = this.combatRowReserved
       ? combatRowReserve(this.cardScale, this.cardHeight())
       : 0;
     return {
-      x: z.x,
-      y: z.y + (this.mirrored ? 0 : FIELD_INNER_EDGE_PAD_PX + reserve),
-      width: Math.max(1, z.width),
-      height: Math.max(1, z.height - FIELD_INNER_EDGE_PAD_PX - reserve),
+      x: zone.x,
+      y: zone.y + (this.mirrored ? 0 : FIELD_INNER_EDGE_PAD_PX + reserve),
+      width: Math.max(1, zone.width),
+      height: Math.max(1, zone.height - FIELD_INNER_EDGE_PAD_PX - reserve),
     };
   }
 

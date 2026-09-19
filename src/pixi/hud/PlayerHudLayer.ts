@@ -12,7 +12,7 @@ export const SELF_PLAYER_HUD_MIN_WIDTH_PX = 272;
 export const MOBILE_PLAYER_HUD_MAX_WIDTH_PX = 96;
 export const MOBILE_PLAYER_HUD_MIN_WIDTH_PX = 88;
 export const PLAYER_HUD_HAND_GAP_PX = 8;
-export const MOBILE_PLAYER_HUD_HEIGHT_PX = 40;
+export const MOBILE_PLAYER_HUD_HEIGHT_PX = 36;
 
 // Above this y a capsule is a top-anchored opponent, so its tooltip drops below
 // the badge instead of rising above it (off the top edge).

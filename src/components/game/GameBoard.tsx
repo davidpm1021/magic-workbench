@@ -306,11 +306,14 @@ export function GameBoard({
   const vScale = useHandScale();
   const compactBoard = useIsMobileGame();
   const layoutPolicy = compactBoard ? MOBILE_BATTLEFIELD_LAYOUT : DESKTOP_BATTLEFIELD_LAYOUT;
+  const [mobileHandControlBounds, setMobileHandControlBounds] = useState<DOMRect | null>(null);
   const selfBottomReserve = layoutPolicy.reserveHandSpace
     ? Math.round(
         ((1 - HAND_BOTTOM_SINK_FRAC) * HAND_CARD_BASE.cardH * vScale + GAP) * HAND_RESERVE_TRIM,
       )
-    : 0;
+    : mobileHandControlBounds
+      ? mobileHandControlBounds.height + GAP
+      : 0;
   const opponentLayout = usePreferencesStore((s) => s.opponentLayout);
 
   const isTargetingPrompt = promptType === "chooseBoardTargets";
@@ -342,7 +345,6 @@ export function GameBoard({
   const mobileHandOpen =
     compactBoard &&
     (!!handSelectionMode || (mobileHandState.compact === compactBoard && mobileHandState.open));
-  const [mobileHandControlBounds, setMobileHandControlBounds] = useState<DOMRect | null>(null);
   const setMobileHandOpen = useCallback(
     (open: boolean) => {
       setMobileHandState({ compact: compactBoard, open });
@@ -799,10 +801,13 @@ export function GameBoard({
       (phase) => selfStops.has(phase.id) && phase.currentSteps.includes(step),
     );
     if (!compactBoard) return promptOverlaySpec;
+    const handOwnsChrome =
+      mobileHandOpen && promptType !== "mulligan" && promptType !== "mulliganPutBack";
     return {
       ...promptOverlaySpec,
       action: {
         ...promptOverlaySpec.action,
+        dimmed: handOwnsChrome || (promptOverlaySpec.action.dimmed ?? false),
         compactPhaseControl: {
           color: activePhaseColor,
           onOpen: openMobilePhaseStops,
@@ -820,8 +825,10 @@ export function GameBoard({
     activePhaseColor,
     compactBoard,
     localCapsuleBounds,
+    mobileHandOpen,
     openMobilePhaseStops,
     promptOverlaySpec,
+    promptType,
     selfStops,
     step,
   ]);

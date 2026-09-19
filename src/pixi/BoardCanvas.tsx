@@ -440,7 +440,15 @@ export function BoardCanvas({
     const oppScale = compact
       ? Math.min(uncappedOppScale, selfScale * opponentScaleRatio)
       : uncappedOppScale;
-    s.configure(players, layout, { self: selfScale, opponent: oppScale }, combatRowReserved);
+    const compactSharedScale = Math.min(selfScale, oppScale);
+    s.configure(
+      players,
+      layout,
+      compact
+        ? { self: compactSharedScale, opponent: compactSharedScale }
+        : { self: selfScale, opponent: oppScale },
+      combatRowReserved,
+    );
     s.setHandScale(compact ? 1 : handViewportScale);
     const next: BoardCanvasLayout = {
       self: layout.self,

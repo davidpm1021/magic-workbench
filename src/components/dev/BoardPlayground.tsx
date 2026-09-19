@@ -3,6 +3,7 @@ import type { ClientCardDto } from "@/stores/gameStore.types";
 import type { CardDto, ZoneKind } from "@/protocol/game";
 import { GAME_CARD_DEFAULTS, isFacelessCard } from "@/lib/gameCard";
 import { BoardCanvas } from "@/pixi/BoardCanvas";
+import { GAP } from "@/pixi/constants";
 import { BoardOverlayCanvas, type BoardOverlayPreviewSpec } from "@/pixi/BoardOverlayCanvas";
 import type { BoardScene } from "@/pixi/board/BoardScene";
 import {
@@ -84,6 +85,8 @@ export function BoardPlayground({ themeEditor = false }: { themeEditor?: boolean
   const compact = useIsMobileGame();
   const [mobileHandOpen, setMobileHandOpen] = useState(false);
   const [mobileHandControlBounds, setMobileHandControlBounds] = useState<DOMRect | null>(null);
+  const selfBottomReserve =
+    compact && mobileHandControlBounds ? mobileHandControlBounds.height + GAP : 0;
   const theme = useTheme().gameTheme;
   const previewStyle = usePreferencesStore((state) => state.inGameCardPreviewStyle);
   const setPreviewStyle = usePreferencesStore((state) => state.setInGameCardPreviewStyle);
@@ -765,6 +768,7 @@ export function BoardPlayground({ themeEditor = false }: { themeEditor?: boolean
               }),
           }}
           layoutPolicy={compact ? MOBILE_BATTLEFIELD_LAYOUT : DESKTOP_BATTLEFIELD_LAYOUT}
+          selfBottomReserve={selfBottomReserve}
           mobileHandOpen={compact && mobileHandOpen}
           mobileHandControlBounds={mobileHandControlBounds}
           opponentLayout={overview ? "overview" : "focused"}
