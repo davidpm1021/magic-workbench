@@ -21,6 +21,11 @@ chosen more than once.
 
 <ProtocolType slug="choose-from-selection" />
 
+`kind`, when present, names the list: spell modes, optional costs, a number,
+a counter type, a pile. On `optionalCost` lists each option carries its `cost`
+and whether the player can `afford` it now. Engines that do not know leave
+them out.
+
 ## Rendering
 
 The control depends on how many options may be chosen.
