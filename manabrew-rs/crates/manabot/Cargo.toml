@@ -27,3 +27,7 @@ web-sys = { version = "0.3", features = ["console", "Window", "Storage"] }
 [[bin]]
 name = "manabot-train"
 path = "src/bin/manabot_train.rs"
+
+[[bin]]
+name = "manabot-featurize"
+path = "src/bin/manabot_featurize.rs"

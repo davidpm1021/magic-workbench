@@ -1,5 +1,5 @@
 use manabot::{BotAgent, BotConfig, BotState, SimpleAi};
-use manabrew_agent_interface::prompt::{AgentPrompt, ClientToServerMessage, PromptInput};
+use manabrew_agent_interface::prompt::{AgentPrompt, ClientToServerMessage};
 use manabrew_agent_interface::protocol::ServerMessage;
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
@@ -52,20 +52,23 @@ impl WasmManabot {
             .map_err(|e| JsValue::from_str(&e))
     }
 
-    /// Bench only: `[{"id": string|null, "feats": [u32]}]`, pass last.
+    /// Bench only: `{"kind", "units": [{"unit", "cands": [{"id", "feats"}]}]}`.
     pub fn features(&mut self, prompt_json: &str) -> Result<String, JsValue> {
         let prompt: AgentPrompt = serde_json::from_str(prompt_json)
             .map_err(|e| JsValue::from_str(&format!("invalid agent prompt: {e}")))?;
-        let PromptInput::ChooseAction(input) = &prompt.input else {
-            return Ok("[]".to_string());
-        };
-        let rows: Vec<serde_json::Value> = self
-            .agent
-            .choose_action_features(&prompt.deciding_player_id, &input.actions)
+        let (kind, units) = self.agent.prompt_features(&prompt);
+        let units: Vec<serde_json::Value> = units
             .into_iter()
-            .map(|(id, feats)| serde_json::json!({ "id": id, "feats": feats }))
+            .map(|unit| {
+                let cands: Vec<serde_json::Value> = unit
+                    .cands
+                    .into_iter()
+                    .map(|(id, feats)| serde_json::json!({ "id": id, "feats": feats }))
+                    .collect();
+                serde_json::json!({ "unit": unit.unit, "cands": cands })
+            })
             .collect();
-        Ok(serde_json::Value::Array(rows).to_string())
+        Ok(serde_json::json!({ "kind": kind, "units": units }).to_string())
     }
 
     pub fn observe_state(&mut self, state_json: &str) -> Result<(), JsValue> {

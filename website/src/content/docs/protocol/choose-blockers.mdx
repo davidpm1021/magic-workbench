@@ -18,6 +18,9 @@ two or more creatures, or a creature that must be blocked if able.
 
 <ProtocolType slug="choose-blockers" />
 
+`aiAssignments` appears only when the host asked the engine for its own AI's
+opinion on a seat (a diagnostic; no shipped client requests it): the blocks the engine's AI would declare now, empty when it would not block. Absent everywhere otherwise.
+
 ## Response
 
 ```ts

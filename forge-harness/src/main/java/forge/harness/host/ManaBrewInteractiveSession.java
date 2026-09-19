@@ -2354,7 +2354,20 @@ public final class ManaBrewInteractiveSession {
                     defenderId(defender), defender.getName(),
                     enumFromWire(defenderKind(defender), AttackTargetKind.class)));
         }
-        publishAgentPrompt("player-" + playerId, null, new ChooseAttackersInput(attackers, attackTargets));
+        List<AttackAssignment> aiAssignments = null;
+        if (hintSeats.contains(playerId)) {
+            final List<Map.Entry<Card, GameEntity>> picked =
+                    aiHints.declareAttackers(game.getRegisteredPlayers().get(playerId));
+            if (picked != null) {
+                aiAssignments = new java.util.ArrayList<>();
+                for (final Map.Entry<Card, GameEntity> pair : picked) {
+                    aiAssignments.add(new AttackAssignment(
+                            SnapshotExtractor.javaCardId(pair.getKey()), defenderId(pair.getValue())));
+                }
+            }
+        }
+        publishAgentPrompt("player-" + playerId, null,
+                new ChooseAttackersInput(attackers, attackTargets, aiAssignments));
     }
 
     private void publishBlockersPrompt(
@@ -2384,8 +2397,19 @@ public final class ManaBrewInteractiveSession {
         for (final Card blocker : availableBlockers) {
             availableBlockerIds.add(SnapshotExtractor.javaCardId(blocker));
         }
+        List<BlockAssignment> aiAssignments = null;
+        if (hintSeats.contains(playerId) && game.getCombat() != null) {
+            final List<Map.Entry<Card, Card>> picked = aiHints.declareBlockers(defendingPlayer, game.getCombat());
+            if (picked != null) {
+                aiAssignments = new java.util.ArrayList<>();
+                for (final Map.Entry<Card, Card> pair : picked) {
+                    aiAssignments.add(new BlockAssignment(
+                            SnapshotExtractor.javaCardId(pair.getKey()), SnapshotExtractor.javaCardId(pair.getValue())));
+                }
+            }
+        }
         publishAgentPrompt("player-" + playerId, null,
-                new ChooseBlockersInput(attackerOptions, availableBlockerIds, error));
+                new ChooseBlockersInput(attackerOptions, availableBlockerIds, error, aiAssignments));
     }
 
     private void publishDamageAssignmentOrderPrompt(

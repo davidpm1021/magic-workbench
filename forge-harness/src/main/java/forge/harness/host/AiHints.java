@@ -4,10 +4,15 @@ import forge.ai.ComputerUtilCard;
 import forge.ai.LobbyPlayerAi;
 import forge.ai.PlayerControllerAi;
 import forge.game.Game;
+import forge.game.GameEntity;
+import forge.game.GameObject;
+import forge.game.IEntityMap;
 import forge.game.card.Card;
+import forge.game.combat.Combat;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 
+import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,8 +39,7 @@ final class AiHints {
             return scores;
         }
         final Game game = player.getGame();
-        final PlayerControllerAi ai = brains.computeIfAbsent(player, p ->
-                new PlayerControllerAi(game, p, new LobbyPlayerAi(p.getName(), null)));
+        final PlayerControllerAi ai = brain(player);
         final AtomicReference<List<SpellAbility>> picked = new AtomicReference<>();
         final int seatTimeout = game.AI_TIMEOUT;
         game.AI_TIMEOUT = HINT_TIMEOUT_SECONDS;
@@ -75,6 +79,73 @@ final class AiHints {
             }
         }
         return matched ? scores : null;
+    }
+
+    // The attack Forge's AI would declare from a fresh Combat, as (attacker,
+    // defender) pairs; null when its declaration failed.
+    List<Map.Entry<Card, GameEntity>> declareAttackers(final Player player) {
+        final PlayerControllerAi ai = brain(player);
+        final Combat scratch = new Combat(player);
+        try {
+            player.runWithController(() -> ai.declareAttackers(player, scratch), ai);
+        } catch (RuntimeException error) {
+            if (failures++ < 3) {
+                System.err.println("[mana-brew] ai attack hint failed for " + player.getName() + ": " + error);
+            }
+            return null;
+        }
+        final List<Map.Entry<Card, GameEntity>> pairs = new ArrayList<>();
+        for (final Card attacker : scratch.getAttackers()) {
+            pairs.add(Map.entry(attacker, scratch.getDefenderByAttacker(attacker)));
+        }
+        return pairs;
+    }
+
+    // The blocks Forge's AI would declare on a copy of the live combat, as
+    // (blocker, attacker) pairs; null when its declaration failed.
+    List<Map.Entry<Card, Card>> declareBlockers(final Player player, final Combat combat) {
+        final PlayerControllerAi ai = brain(player);
+        final Combat scratch = new Combat(combat, new IdentityMap(player.getGame()));
+        try {
+            player.runWithController(() -> ai.declareBlockers(player, scratch), ai);
+        } catch (RuntimeException error) {
+            if (failures++ < 3) {
+                System.err.println("[mana-brew] ai block hint failed for " + player.getName() + ": " + error);
+            }
+            return null;
+        }
+        final List<Map.Entry<Card, Card>> pairs = new ArrayList<>();
+        for (final Card attacker : scratch.getAttackers()) {
+            for (final Card blocker : scratch.getBlockers(attacker)) {
+                if (blocker.getController() == player) {
+                    pairs.add(Map.entry(blocker, attacker));
+                }
+            }
+        }
+        return pairs;
+    }
+
+    private PlayerControllerAi brain(final Player player) {
+        return brains.computeIfAbsent(player, p ->
+                new PlayerControllerAi(p.getGame(), p, new LobbyPlayerAi(p.getName(), null)));
+    }
+
+    private static final class IdentityMap implements IEntityMap {
+        private final Game game;
+
+        IdentityMap(final Game game) {
+            this.game = game;
+        }
+
+        @Override
+        public Game getGame() {
+            return game;
+        }
+
+        @Override
+        public GameObject map(final GameObject o) {
+            return o;
+        }
     }
 
     // alternative-cost abilities are fresh copies on every enumeration

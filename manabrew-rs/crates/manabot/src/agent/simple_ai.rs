@@ -10,7 +10,7 @@ use manabrew_protocol::prompts::choose_from_selection::SelectionKind;
 use super::BotAgent;
 
 mod model;
-pub use model::LinearModel;
+pub use model::{FeatureUnit, LinearModel};
 
 /// How many recent prompts to remember when detecting a stuck loop.
 const LOOP_WINDOW: usize = 6;
@@ -542,6 +542,68 @@ impl SimpleAi {
         })
     }
 
+    fn rule_attacks(
+        &self,
+        attackers: &[manabrew_protocol::prompts::choose_attackers::AttackerOptionDto],
+        attack_targets: &[manabrew_protocol::prompts::common::AttackTargetDto],
+        player_id: &str,
+    ) -> Vec<AttackAssignment> {
+        let default_target = attack_targets
+            .iter()
+            .max_by_key(|target| self.attack_target_score(&target.id))
+            .map(|target| target.id.clone())
+            .unwrap_or_else(|| "player-1".to_string());
+        let attack_power = attackers
+            .iter()
+            .filter_map(|attacker| self.card(&attacker.attacker_id))
+            .filter_map(|card| card.power.as_deref())
+            .filter_map(|power| power.parse::<i32>().ok())
+            .sum::<i32>();
+        let lethal_target = self.view.as_ref().is_some_and(|view| {
+            view.players
+                .iter()
+                .find(|player| player.id == default_target)
+                .is_some_and(|player| player.life > 0 && attack_power >= player.life)
+        });
+        let keep = if lethal_target {
+            HashSet::new()
+        } else {
+            self.blockers_to_keep(
+                player_id,
+                &attackers
+                    .iter()
+                    .map(|a| a.attacker_id.clone())
+                    .collect::<Vec<_>>(),
+            )
+        };
+        let mut assignments = Vec::new();
+        for a in attackers {
+            if keep.contains(&a.attacker_id) && !a.must_attack {
+                continue;
+            }
+            let target_id = match a
+                .valid_target_ids
+                .iter()
+                .filter(|target| !self.failed_attack_targets.contains(*target))
+                .max_by_key(|target| self.attack_target_score(target))
+            {
+                Some(t) => t.clone(),
+                None if a.valid_target_ids.is_empty() => default_target.clone(),
+                None => continue,
+            };
+            if a.must_attack
+                || (lethal_target && target_id == default_target)
+                || self.should_attack(&a.attacker_id, &target_id)
+            {
+                assignments.push(AttackAssignment {
+                    attacker_id: a.attacker_id.clone(),
+                    target_id,
+                });
+            }
+        }
+        assignments
+    }
+
     fn stat(value: Option<&str>) -> i32 {
         value
             .and_then(|value| value.parse::<i32>().ok())
@@ -1020,7 +1082,7 @@ impl BotAgent for SimpleAi {
                                 ))
                     })
                     .max_by_key(|action| self.action_score(action, &deciding_player_id));
-                let pick = match &self.model {
+                let pick = match self.model_for(model::KIND_ACTION) {
                     Some(model) => {
                         let candidates: Vec<&AvailableAction> = actions
                             .iter()
@@ -1032,11 +1094,18 @@ impl BotAgent for SimpleAi {
                             ))
                             .collect();
                         let ctx = self.prompt_context(&deciding_player_id, candidates.len());
-                        let pass_score = model.score(&self.candidate_features(None, &ctx));
+                        let pass_score =
+                            model.score(model::KIND_ACTION, &self.candidate_features(None, &ctx));
                         candidates
                             .iter()
                             .map(|action| {
-                                (*action, model.score(&self.candidate_features(Some(action), &ctx)))
+                                (
+                                    *action,
+                                    model.score(
+                                        model::KIND_ACTION,
+                                        &self.candidate_features(Some(action), &ctx),
+                                    ),
+                                )
                             })
                             .filter(|(_, score)| *score > pass_score)
                             .max_by(|a, b| a.1.total_cmp(&b.1))
@@ -1068,23 +1137,6 @@ impl BotAgent for SimpleAi {
                 attack_targets,
                 ..
             }) => {
-                let default_target = attack_targets
-                    .iter()
-                    .max_by_key(|target| self.attack_target_score(&target.id))
-                    .map(|target| target.id.clone())
-                    .unwrap_or_else(|| "player-1".to_string());
-                let attack_power = attackers
-                    .iter()
-                    .filter_map(|attacker| self.card(&attacker.attacker_id))
-                    .filter_map(|card| card.power.as_deref())
-                    .filter_map(|power| power.parse::<i32>().ok())
-                    .sum::<i32>();
-                let lethal_target = self.view.as_ref().is_some_and(|view| {
-                    view.players
-                        .iter()
-                        .find(|player| player.id == default_target)
-                        .is_some_and(|player| player.life > 0 && attack_power >= player.life)
-                });
                 let signature = format!(
                     "attack:{}|{}",
                     attackers
@@ -1099,40 +1151,39 @@ impl BotAgent for SimpleAi {
                         .join(",")
                 );
                 let reprompted = self.looping_on_consecutive(signature);
-                let keep = if lethal_target {
-                    HashSet::new()
-                } else {
-                    self.blockers_to_keep(
-                        &deciding_player_id,
-                        &attackers.iter().map(|a| a.attacker_id.clone()).collect::<Vec<_>>(),
-                    )
-                };
                 let mut assignments = Vec::new();
-                if !reprompted {
+                if let Some(model) = self.model_for(model::KIND_ATTACKERS) {
+                    let ctx = self.prompt_context(&deciding_player_id, attackers.len());
                     for a in &attackers {
-                        if keep.contains(&a.attacker_id) && !a.must_attack {
-                            continue;
-                        }
-                        let target_id = match a
-                            .valid_target_ids
+                        let unit = self.attacker_unit(a, &attackers, &attack_targets, &ctx);
+                        let best = unit
+                            .cands
                             .iter()
-                            .filter(|target| !self.failed_attack_targets.contains(*target))
-                            .max_by_key(|target| self.attack_target_score(target))
-                        {
-                            Some(t) => t.clone(),
-                            None if a.valid_target_ids.is_empty() => default_target.clone(),
-                            None => continue,
-                        };
-                        if a.must_attack
-                            || (lethal_target && target_id == default_target)
-                            || self.should_attack(&a.attacker_id, &target_id)
-                        {
-                            assignments.push(AttackAssignment {
-                                attacker_id: a.attacker_id.clone(),
-                                target_id,
+                            .filter(|(target, _)| {
+                                target.as_ref().is_none_or(|t| !self.failed_attack_targets.contains(t))
+                            })
+                            .max_by(|x, y| {
+                                model
+                                    .score(model::KIND_ATTACKERS, &x.1)
+                                    .total_cmp(&model.score(model::KIND_ATTACKERS, &y.1))
+                            })
+                            .and_then(|(target, _)| target.clone())
+                            .or_else(|| {
+                                a.must_attack
+                                    .then(|| a.valid_target_ids.first().cloned())
+                                    .flatten()
                             });
+                        if let Some(target_id) = best {
+                            if !reprompted || a.must_attack {
+                                assignments.push(AttackAssignment {
+                                    attacker_id: a.attacker_id.clone(),
+                                    target_id,
+                                });
+                            }
                         }
                     }
+                } else if !reprompted {
+                    assignments = self.rule_attacks(&attackers, &attack_targets, &deciding_player_id);
                 }
                 self.last_attack_declaration = assignments
                     .iter()
@@ -1147,8 +1198,30 @@ impl BotAgent for SimpleAi {
                 available_blocker_ids,
                 ..
             }) => {
-                let assignments =
-                    self.declare_blockers(&attackers, &available_blocker_ids, &deciding_player_id);
+                let assignments = match self.model_for(model::KIND_BLOCKERS) {
+                    Some(model) => {
+                        let ctx = self.prompt_context(&deciding_player_id, attackers.len());
+                        available_blocker_ids
+                            .iter()
+                            .filter_map(|blocker| {
+                                let unit = self.blocker_unit(blocker, &available_blocker_ids, &attackers, &ctx);
+                                unit.cands
+                                    .iter()
+                                    .max_by(|x, y| {
+                                        model
+                                            .score(model::KIND_BLOCKERS, &x.1)
+                                            .total_cmp(&model.score(model::KIND_BLOCKERS, &y.1))
+                                    })
+                                    .and_then(|(attacker, _)| attacker.clone())
+                                    .map(|attacker_id| BlockAssignment {
+                                        blocker_id: blocker.clone(),
+                                        attacker_id,
+                                    })
+                            })
+                            .collect()
+                    }
+                    None => self.declare_blockers(&attackers, &available_blocker_ids, &deciding_player_id),
+                };
                 Some(PromptOutput::ChooseBlockers(ChooseBlockersOutput::DeclareBlockers { assignments }))
             }
             PromptInput::ChooseBoardTargets(manabrew_protocol::prompts::choose_board_targets::ChooseBoardTargetsInput {

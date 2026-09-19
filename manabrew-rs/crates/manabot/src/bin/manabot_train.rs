@@ -8,11 +8,29 @@ const DIM: usize = 1 << 18;
 
 #[derive(Deserialize)]
 struct Row {
+    #[serde(default = "default_kind")]
+    kind: String,
     seed: u64,
     step: Option<String>,
     label: usize,
     bot: Option<usize>,
     cands: Vec<Vec<u32>>,
+    #[serde(default)]
+    won: Option<bool>,
+    #[serde(default)]
+    reason: Option<String>,
+    #[serde(default = "one")]
+    weight: f32,
+    #[serde(default, rename = "viewOk")]
+    view_ok: Option<bool>,
+}
+
+fn one() -> f32 {
+    1.0
+}
+
+fn default_kind() -> String {
+    "chooseAction".to_string()
 }
 
 fn arg(name: &str, fallback: &str) -> String {
@@ -51,6 +69,9 @@ fn main() {
     let lr: f32 = arg("--lr", "0.2").parse().unwrap();
     let l2: f32 = arg("--l2", "1e-6").parse().unwrap();
     let holdout: u64 = arg("--holdout", "5").parse().unwrap();
+    let won_weight: f32 = arg("--won-weight", "1").parse().unwrap();
+    let lost_weight: f32 = arg("--lost-weight", "1").parse().unwrap();
+    let skip_reason = arg("--skip-reason", "");
 
     let rows: Vec<Row> = BufReader::new(fs::File::open(&input).expect("open input"))
         .lines()
@@ -58,12 +79,54 @@ fn main() {
         .filter(|l| !l.trim().is_empty())
         .map(|l| serde_json::from_str(&l).expect("row"))
         .filter(|r: &Row| r.cands.len() > 1)
+        .filter(|r: &Row| {
+            skip_reason.is_empty() || r.reason.as_deref() != Some(skip_reason.as_str())
+        })
+        .filter(|r: &Row| r.view_ok != Some(false))
+        .map(|mut r: Row| {
+            r.weight = match r.won {
+                Some(true) => won_weight,
+                Some(false) => lost_weight,
+                None => 1.0,
+            };
+            r
+        })
         .collect();
-    let (test, train): (Vec<&Row>, Vec<&Row>) = rows
-        .iter()
-        .partition(|r| holdout > 0 && r.seed % holdout == 0);
-    println!("rows: train {} test {}", train.len(), test.len());
+    let mut kinds: Vec<String> = rows.iter().map(|r| r.kind.clone()).collect();
+    kinds.sort();
+    kinds.dedup();
+    let mut tables: HashMap<String, Vec<(u32, f32)>> = HashMap::new();
+    for kind in &kinds {
+        let (test, train): (Vec<&Row>, Vec<&Row>) = rows
+            .iter()
+            .filter(|r| &r.kind == kind)
+            .partition(|r| holdout > 0 && r.seed % holdout == 0);
+        println!("== {kind}: train {} test {}", train.len(), test.len());
+        let w = fit(&train, &test, epochs, lr, l2);
+        report_by_step(&w, &test);
+        tables.insert(
+            kind.clone(),
+            w.iter()
+                .enumerate()
+                .filter(|(_, v)| **v != 0.0)
+                .map(|(i, v)| (i as u32, *v))
+                .collect(),
+        );
+    }
+    let mut out = fs::File::create(&output).expect("create output");
+    out.write_all(
+        serde_json::to_string(&serde_json::json!({ "dim": DIM, "kinds": tables }))
+            .unwrap()
+            .as_bytes(),
+    )
+    .unwrap();
+    for (kind, table) in &tables {
+        println!("{kind}: {} nonzero weights", table.len());
+    }
+    println!("wrote {output}");
+}
 
+fn fit(train: &[&Row], test: &[&Row], epochs: usize, lr: f32, l2: f32) -> Vec<f32> {
     let bot_agree = |rows: &[&Row]| {
         let with = rows.iter().filter(|r| r.bot.is_some()).count();
         let hit = rows.iter().filter(|r| r.bot == Some(r.label)).count();
@@ -71,8 +134,8 @@ fn main() {
     };
     println!(
         "rule bot agreement: train {:.3} test {:.3}",
-        bot_agree(&train),
-        bot_agree(&test)
+        bot_agree(train),
+        bot_agree(test)
     );
 
     let mut w = vec![0.0f32; DIM];
@@ -95,7 +158,7 @@ fn main() {
             let z: f32 = exp.iter().sum();
             loss -= (exp[row.label] / z).ln() as f64;
             for (k, cand) in row.cands.iter().enumerate() {
-                let grad = exp[k] / z - if k == row.label { 1.0 } else { 0.0 };
+                let grad = row.weight * (exp[k] / z - if k == row.label { 1.0 } else { 0.0 });
                 if grad.abs() < 1e-6 {
                     continue;
                 }
@@ -109,19 +172,22 @@ fn main() {
         }
         println!(
             "epoch {epoch}: loss {:.4} train {:.3} test {:.3}",
-            loss / train.len() as f64,
-            agreement(&w, &train),
-            agreement(&w, &test)
+            loss / train.len().max(1) as f64,
+            agreement(&w, train),
+            agreement(&w, test)
         );
     }
+    w
+}
 
+fn report_by_step(w: &[f32], test: &[&Row]) {
     let mut by_step: HashMap<String, (usize, usize)> = HashMap::new();
-    for r in &test {
+    for r in test {
         let e = by_step
             .entry(r.step.clone().unwrap_or_default())
             .or_default();
         e.1 += 1;
-        if argmax(&scores(&w, r)) == r.label {
+        if argmax(&scores(w, r)) == r.label {
             e.0 += 1;
         }
     }
@@ -133,19 +199,4 @@ fn main() {
             hit as f32 / n as f32
         );
     }
-
-    let sparse: Vec<(u32, f32)> = w
-        .iter()
-        .enumerate()
-        .filter(|(_, v)| **v != 0.0)
-        .map(|(i, v)| (i as u32, *v))
-        .collect();
-    let mut out = fs::File::create(&output).expect("create output");
-    out.write_all(
-        serde_json::to_string(&serde_json::json!({ "dim": DIM, "weights": sparse }))
-            .unwrap()
-            .as_bytes(),
-    )
-    .unwrap();
-    println!("wrote {} nonzero weights to {output}", sparse.len());
 }

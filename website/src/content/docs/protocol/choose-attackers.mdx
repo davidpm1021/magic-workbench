@@ -18,6 +18,9 @@ opponent's face while leaving an untapped blocker back.
 
 <ProtocolType slug="choose-attackers" />
 
+`aiAssignments` appears only when the host asked the engine for its own AI's
+opinion on a seat (a diagnostic; no shipped client requests it): the attack the engine's AI would declare now, empty when it would not attack. Absent everywhere otherwise.
+
 ## Response
 
 ```ts

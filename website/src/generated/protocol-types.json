@@ -24,10 +24,12 @@
   "shared": [
     "ActivatableAbilityInfo",
     "AlternativeCostKind",
+    "AttackAssignment",
     "AttackTargetDto",
     "AttackTargetKind",
     "AttackerOptionDto",
     "AvailableAction",
+    "BlockAssignment",
     "BlockableAttackerDto",
     "BooleanChoiceKind",
     "DiceRollEntry",
@@ -102,6 +104,11 @@
       "rust": "/// Mirrors the engine's `AlternativeCost` (itself a mirror of Java's).\n#[serde(rename_all = \"camelCase\")]\npub enum AlternativeCostKind {\n    Flashback,\n    Spectacle,\n    Evoke,\n    Dash,\n    Blitz,\n    Escape,\n    Overload,\n    Madness,\n    Foretell,\n    Emerge,\n    Suspend,\n    Morph,\n    Megamorph,\n    Bestow,\n    Warp,\n    SacrificeAlt,\n    Plot,\n    Awaken,\n    Disturb,\n    Harmonize,\n    Freerunning,\n    Impending,\n    Mayhem,\n    #[serde(rename = \"moreThanMeetsTheEye\")]\n    MTMtE,\n    Mutate,\n    Prowl,\n    Sneak,\n    Surge,\n    WebSlinging,\n    Plotted,\n}",
       "refs": []
     },
+    "AttackAssignment": {
+      "ts": "interface AttackAssignment {\n  attackerId: string;\n  targetId: string;\n}",
+      "rust": "#[serde(rename_all = \"camelCase\")]\npub struct AttackAssignment {\n    pub attacker_id: String,\n    pub target_id: String,\n}",
+      "refs": []
+    },
     "AttackTargetDto": {
       "ts": "interface AttackTargetDto {\n  id: string;\n  label: string;\n  kind: AttackTargetKind;\n}",
       "rust": "#[serde(rename_all = \"camelCase\")]\npub struct AttackTargetDto {\n    pub id: String,\n    pub label: String,\n    pub kind: AttackTargetKind,\n}",
@@ -121,6 +128,11 @@
       "ts": "type AvailableAction = { id: string; aiScore?: number } & (\n  | { type: \"cast\"; cardId: string; mode: PlayCardMode; label: string }\n  | ({ type: \"activateAbility\" } & ActivatableAbilityInfo)\n  | { type: \"undoMana\"; cardId: string }\n);",
       "rust": "#[serde(rename_all = \"camelCase\")]\npub struct AvailableAction {\n    pub id: String,\n    #[serde(flatten)]\n    pub kind: AvailableActionKind,\n    // Diagnostic, only when the host asked the engine for its own AI's opinion\n    // on the seat: the action Forge's AI would take now scores above zero,\n    // every other action it weighed zero, cards it never plays carry none.\n    #[serde(default, skip_serializing_if = \"Option::is_none\")]\n    pub ai_score: Option<i32>,\n}",
       "refs": ["ActivatableAbilityInfo", "PlayCardMode"]
+    },
+    "BlockAssignment": {
+      "ts": "interface BlockAssignment {\n  blockerId: string;\n  attackerId: string;\n}",
+      "rust": "#[serde(rename_all = \"camelCase\")]\npub struct BlockAssignment {\n    pub blocker_id: String,\n    pub attacker_id: String,\n}",
+      "refs": []
     },
     "BlockableAttackerDto": {
       "ts": "interface BlockableAttackerDto {\n  attackerId: string;\n  validBlockerIds: Array<string>;\n  minBlockers: number;\n  maxBlockers?: number;\n  mustBeBlocked: boolean;\n}",
@@ -183,14 +195,14 @@
       "refs": ["AvailableAction"]
     },
     "ChooseAttackersInput": {
-      "ts": "interface ChooseAttackersInput {\n  attackers: Array<AttackerOptionDto>;\n  attackTargets: Array<AttackTargetDto>;\n}",
-      "rust": "#[serde(rename_all = \"camelCase\")]\npub struct ChooseAttackersInput {\n    pub attackers: Vec<AttackerOptionDto>,\n    pub attack_targets: Vec<AttackTargetDto>,\n}",
-      "refs": ["AttackTargetDto", "AttackerOptionDto"]
+      "ts": "interface ChooseAttackersInput {\n  attackers: Array<AttackerOptionDto>;\n  attackTargets: Array<AttackTargetDto>;\n  aiAssignments?: Array<AttackAssignment>;\n}",
+      "rust": "#[serde(rename_all = \"camelCase\")]\npub struct ChooseAttackersInput {\n    pub attackers: Vec<AttackerOptionDto>,\n    pub attack_targets: Vec<AttackTargetDto>,\n    // Diagnostic, only when the host asked the engine for its own AI's opinion\n    // on the seat: the attack Forge's AI would declare now, empty when it\n    // would not attack.\n    #[serde(default, skip_serializing_if = \"Option::is_none\")]\n    pub ai_assignments: Option<Vec<AttackAssignment>>,\n}",
+      "refs": ["AttackAssignment", "AttackTargetDto", "AttackerOptionDto"]
     },
     "ChooseBlockersInput": {
-      "ts": "interface ChooseBlockersInput {\n  attackers: Array<BlockableAttackerDto>;\n  availableBlockerIds: Array<string>;\n  error?: string;\n}",
-      "rust": "#[serde(rename_all = \"camelCase\")]\npub struct ChooseBlockersInput {\n    pub attackers: Vec<BlockableAttackerDto>,\n    pub available_blocker_ids: Vec<String>,\n    #[serde(default, skip_serializing_if = \"Option::is_none\")]\n    pub error: Option<String>,\n}",
-      "refs": ["BlockableAttackerDto"]
+      "ts": "interface ChooseBlockersInput {\n  attackers: Array<BlockableAttackerDto>;\n  availableBlockerIds: Array<string>;\n  error?: string;\n  aiAssignments?: Array<BlockAssignment>;\n}",
+      "rust": "#[serde(rename_all = \"camelCase\")]\npub struct ChooseBlockersInput {\n    pub attackers: Vec<BlockableAttackerDto>,\n    pub available_blocker_ids: Vec<String>,\n    #[serde(default, skip_serializing_if = \"Option::is_none\")]\n    pub error: Option<String>,\n    // Same diagnostic as `ChooseAttackersInput::ai_assignments`, for blocks.\n    #[serde(default, skip_serializing_if = \"Option::is_none\")]\n    pub ai_assignments: Option<Vec<BlockAssignment>>,\n}",
+      "refs": ["BlockAssignment", "BlockableAttackerDto"]
     },
     "ChooseBoardTargetsInput": {
       "ts": "interface ChooseBoardTargetsInput {\n  presentation: PromptPresentation;\n  candidates: Array<TargetRef>;\n  hostile: boolean;\n  intent: TargetingIntent;\n  minTargets: number;\n  maxTargets: number;\n  chosenTargets: number;\n  cancellable: boolean;\n}",

@@ -13,7 +13,9 @@
 // (aiScore, bench-only) and counts how often the bot agrees; --disagreements
 // writes each prompt where it did not, with the bot's view, for rule mining.
 // --decisions writes every hinted prompt as feature rows for `manabot-train`;
-// --model plays with a trained weight file instead of the hand-written scorer.
+// --model plays with a trained weight file instead of the hand-written scorer;
+// --raw keeps every hinted prompt with its view so `manabot-featurize` can
+// rebuild the rows after a featurizer change without replaying games.
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -44,6 +46,7 @@ const hints = process.argv.includes("--hints");
 const disagreements = option("disagreements", null);
 const decisions = option("decisions", null);
 const modelFile = option("model", null);
+const rawLog = option("raw", null);
 const trace = process.argv.includes("--trace");
 const timeoutS = Number(option("timeout", 900));
 const output = option("out", null);
@@ -137,7 +140,17 @@ const startedAt = Date.now();
 const seats = Object.fromEntries(
   botSeats.map((seat) => [
     seat,
-    { prompts: 0, acts: 0, passes: 0, hinted: 0, hintAgreed: 0, hintDisagreed: 0, botMs: 0 },
+    {
+      prompts: 0,
+      acts: 0,
+      passes: 0,
+      hinted: 0,
+      hintAgreed: 0,
+      hintDisagreed: 0,
+      combatHinted: 0,
+      combatAgreed: 0,
+      botMs: 0,
+    },
   ]),
 );
 let lastPromptId = null;
@@ -192,17 +205,12 @@ while (true) {
       const name = (a) => (a ? (a.label ?? a.description ?? a.id) : null);
       const agreed = name(chosen) === name(forgePick) || (chosen && chosen.aiScore == null);
       if (decisions) {
-        const rows = JSON.parse(bot.features(JSON.stringify(prompt)));
-        const label = rows.findIndex((row) =>
-          forgePick ? row.id === forgePick.id : row.id === null,
+        const { units } = JSON.parse(bot.features(JSON.stringify(prompt)));
+        const forgeId = forgePick ? forgePick.id : null;
+        const chosenId = chosen ? chosen.id : null;
+        logDecision("chooseAction", parsedView, seat, units[0], forgeId, chosenId, (id) =>
+          id === null ? "pass" : name(actions.find((a) => a.id === id)),
         );
-        const botIndex = rows.findIndex((row) => (chosen ? row.id === chosen.id : row.id === null));
-        if (label !== -1) {
-          appendFileSync(
-            decisions,
-            `${JSON.stringify({ seed, seat, turn, step: parsedView?.step, label, bot: botIndex === -1 ? null : botIndex, names: rows.map((row) => name(actions.find((a) => a.id === row.id)) ?? "pass"), cands: rows.map((row) => row.feats) })}\n`,
-          );
-        }
       }
       if (agreed) stats.hintAgreed += 1;
       else {
@@ -216,7 +224,53 @@ while (true) {
       }
     }
   }
+  if (
+    rawLog &&
+    (prompt.input?.aiAssignments || prompt.input?.actions?.some((a) => a.aiScore != null))
+  ) {
+    appendFileSync(
+      rawLog,
+      `${JSON.stringify({ seed, seat, turn, step: parsedView?.step, view: parsedView, prompt, output: action.output })}\n`,
+    );
+  }
+  if (decisions && prompt.input?.aiAssignments) {
+    const kind = prompt.input.type;
+    const { units } = JSON.parse(bot.features(JSON.stringify(prompt)));
+    const mine = action.output?.assignments ?? [];
+    const ai = prompt.input.aiAssignments;
+    for (const unit of units) {
+      const attacking = kind === "chooseAttackers";
+      const key = attacking ? "attackerId" : "blockerId";
+      const value = attacking ? "targetId" : "attackerId";
+      const forgeId = ai.find((a) => a[key] === unit.unit)?.[value] ?? null;
+      const chosenId = mine.find((a) => a[key] === unit.unit)?.[value] ?? null;
+      stats.combatHinted += 1;
+      if (forgeId === chosenId) stats.combatAgreed += 1;
+      logDecision(kind, parsedView, seat, unit, forgeId, chosenId, (id) => id ?? "none");
+    }
+  }
   await call({ command: "submitAction", sessionId: session, payload: JSON.stringify(action) });
+}
+
+function logDecision(kind, parsedView, seat, unit, forgeId, chosenId, describe) {
+  const label = unit.cands.findIndex((c) => c.id === forgeId);
+  if (label === -1) return;
+  const bot = unit.cands.findIndex((c) => c.id === chosenId);
+  appendFileSync(
+    decisions,
+    `${JSON.stringify({
+      kind,
+      seed,
+      seat,
+      turn,
+      step: parsedView?.step,
+      unit: unit.unit,
+      label,
+      bot: bot === -1 ? null : bot,
+      names: unit.cands.map((c) => describe(c.id)),
+      cands: unit.cands.map((c) => c.feats),
+    })}\n`,
+  );
 }
 
 const finalView = JSON.parse(

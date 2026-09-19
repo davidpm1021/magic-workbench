@@ -26,6 +26,10 @@ pub struct ChooseBlockersInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub error: Option<String>,
+    // Same diagnostic as `ChooseAttackersInput::ai_assignments`, for blocks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub ai_assignments: Option<Vec<BlockAssignment>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

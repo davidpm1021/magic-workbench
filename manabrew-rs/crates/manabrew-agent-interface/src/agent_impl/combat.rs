@@ -51,6 +51,7 @@ pub(super) fn choose_attackers<T: Responder>(
             manabrew_protocol::prompts::choose_attackers::ChooseAttackersInput {
                 attackers,
                 attack_targets,
+                ai_assignments: None,
             },
         ),
         None,
@@ -103,6 +104,7 @@ pub(super) fn choose_blockers<T: Responder>(
                 attackers,
                 available_blocker_ids,
                 error: None,
+                ai_assignments: None,
             },
         ),
         None,

@@ -1,24 +1,27 @@
 //! Training reads the feature indices this file emits (`WasmManabot::features`),
 //! so the featurizer is the contract between `manabot-train` and the bot.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
-use manabrew_protocol::prompts::common::{AvailableAction, AvailableActionKind};
+use manabrew_agent_interface::prompt::{AgentPrompt, PromptInput};
+use manabrew_protocol::prompts::choose_attackers::AttackerOptionDto;
+use manabrew_protocol::prompts::choose_blockers::BlockableAttackerDto;
+use manabrew_protocol::prompts::common::{AttackTargetDto, AvailableAction, AvailableActionKind};
 use serde::Deserialize;
 
-use super::SimpleAi;
+use super::{Combatant, SimpleAi};
 use manabrew_agent_interface::game_view_dto::{CardDto, ZoneKind};
 
 pub const DIM: usize = 1 << 18;
 
 pub struct LinearModel {
-    weights: Vec<f32>,
+    kinds: HashMap<String, Vec<f32>>,
 }
 
 #[derive(Deserialize)]
 struct ModelFile {
     dim: usize,
-    weights: Vec<(u32, f32)>,
+    kinds: HashMap<String, Vec<(u32, f32)>>,
 }
 
 impl LinearModel {
@@ -27,17 +30,31 @@ impl LinearModel {
         if file.dim != DIM {
             return Err(format!("model dim {} != featurizer dim {DIM}", file.dim));
         }
-        let mut weights = vec![0.0; DIM];
-        for (index, weight) in file.weights {
-            weights[index as usize & (DIM - 1)] = weight;
-        }
-        Ok(Self { weights })
+        let kinds = file
+            .kinds
+            .into_iter()
+            .map(|(kind, sparse)| {
+                let mut weights = vec![0.0; DIM];
+                for (index, weight) in sparse {
+                    weights[index as usize & (DIM - 1)] = weight;
+                }
+                (kind, weights)
+            })
+            .collect();
+        Ok(Self { kinds })
     }
 
-    pub fn score(&self, features: &[u32]) -> f32 {
+    pub fn has(&self, kind: &str) -> bool {
+        self.kinds.contains_key(kind)
+    }
+
+    pub fn score(&self, kind: &str, features: &[u32]) -> f32 {
+        let Some(weights) = self.kinds.get(kind) else {
+            return 0.0;
+        };
         features
             .iter()
-            .map(|&index| self.weights[index as usize & (DIM - 1)])
+            .map(|&index| weights[index as usize & (DIM - 1)])
             .sum()
     }
 }
@@ -70,6 +87,7 @@ fn text_tokens(text: &str) -> BTreeSet<String> {
 }
 
 pub struct PromptContext {
+    player_id: String,
     plain: Vec<String>,
     step: String,
     own_turn: bool,
@@ -79,7 +97,7 @@ pub struct PromptContext {
     best_opp_creature: usize,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Feats {
     plain: Vec<String>,
     conj: Vec<String>,
@@ -91,6 +109,19 @@ impl Feats {
     }
     fn conj(&mut self, f: impl Into<String>) {
         self.conj.push(f.into());
+    }
+
+    fn hash(&self, ctx: &PromptContext) -> Vec<u32> {
+        let mut out = Vec::with_capacity(self.plain.len() + 3 * self.conj.len());
+        for token in &self.plain {
+            out.push(fnv1a(token));
+        }
+        for token in &self.conj {
+            out.push(fnv1a(token));
+            out.push(fnv1a(&format!("{token}|step={}", ctx.step)));
+            out.push(fnv1a(&format!("{token}|own={}", ctx.own_turn)));
+        }
+        out
     }
 }
 
@@ -174,6 +205,7 @@ impl SimpleAi {
             format!("c:ncand={}", bucket(candidates as i32, &[2, 3, 5, 8])),
         ];
         PromptContext {
+            player_id: player_id.to_string(),
             plain,
             step,
             own_turn,
@@ -307,18 +339,18 @@ impl SimpleAi {
                 f.conj("kind=undo");
             }
         }
-        let mut out = Vec::with_capacity(f.plain.len() + 3 * f.conj.len());
-        for token in &f.plain {
-            out.push(fnv1a(token));
-        }
-        for token in &f.conj {
-            out.push(fnv1a(token));
-            out.push(fnv1a(&format!("{token}|step={}", ctx.step)));
-            out.push(fnv1a(&format!("{token}|own={}", ctx.own_turn)));
-        }
-        out
+        f.hash(ctx)
     }
 }
+
+pub struct FeatureUnit {
+    pub unit: Option<String>,
+    pub cands: Vec<(Option<String>, Vec<u32>)>,
+}
+
+pub const KIND_ACTION: &str = "chooseAction";
+pub const KIND_ATTACKERS: &str = "chooseAttackers";
+pub const KIND_BLOCKERS: &str = "chooseBlockers";
 
 impl SimpleAi {
     pub fn set_model(&mut self, json: &str) -> Result<(), String> {
@@ -326,32 +358,374 @@ impl SimpleAi {
         Ok(())
     }
 
-    pub fn has_model(&self) -> bool {
-        self.model.is_some()
+    pub fn has_view(&mut self) -> bool {
+        self.ensure_view();
+        self.view.is_some()
     }
 
-    pub fn choose_action_features(
-        &mut self,
-        player_id: &str,
-        actions: &[AvailableAction],
-    ) -> Vec<(Option<String>, Vec<u32>)> {
+    pub(crate) fn model_for(&self, kind: &str) -> Option<&LinearModel> {
+        self.model.as_ref().filter(|model| model.has(kind))
+    }
+
+    pub fn prompt_features(&mut self, prompt: &AgentPrompt) -> (String, Vec<FeatureUnit>) {
         self.ensure_view();
-        let candidates: Vec<&AvailableAction> = actions
-            .iter()
-            .filter(|action| Self::scoreable(action))
-            .collect();
-        let ctx = self.prompt_context(player_id, candidates.len());
-        let mut out: Vec<(Option<String>, Vec<u32>)> = candidates
-            .iter()
-            .map(|action| {
+        let player_id = prompt.deciding_player_id.as_str();
+        match &prompt.input {
+            PromptInput::ChooseAction(input) => {
+                let candidates: Vec<&AvailableAction> = input
+                    .actions
+                    .iter()
+                    .filter(|action| Self::scoreable(action))
+                    .collect();
+                let ctx = self.prompt_context(player_id, candidates.len());
+                let mut cands: Vec<(Option<String>, Vec<u32>)> = candidates
+                    .iter()
+                    .map(|action| {
+                        (
+                            Some(action.id.clone()),
+                            self.candidate_features(Some(action), &ctx),
+                        )
+                    })
+                    .collect();
+                cands.push((None, self.candidate_features(None, &ctx)));
                 (
-                    Some(action.id.clone()),
-                    self.candidate_features(Some(action), &ctx),
+                    KIND_ACTION.to_string(),
+                    vec![FeatureUnit { unit: None, cands }],
                 )
+            }
+            PromptInput::ChooseAttackers(input) => {
+                let ctx = self.prompt_context(player_id, input.attackers.len());
+                let units = input
+                    .attackers
+                    .iter()
+                    .map(|attacker| {
+                        self.attacker_unit(attacker, &input.attackers, &input.attack_targets, &ctx)
+                    })
+                    .collect();
+                (KIND_ATTACKERS.to_string(), units)
+            }
+            PromptInput::ChooseBlockers(input) => {
+                let ctx = self.prompt_context(player_id, input.attackers.len());
+                let units = input
+                    .available_blocker_ids
+                    .iter()
+                    .map(|blocker| {
+                        self.blocker_unit(
+                            blocker,
+                            &input.available_blocker_ids,
+                            &input.attackers,
+                            &ctx,
+                        )
+                    })
+                    .collect();
+                (KIND_BLOCKERS.to_string(), units)
+            }
+            _ => (String::new(), Vec::new()),
+        }
+    }
+
+    fn creature_feats(prefix: &str, card: &CardDto, f: &mut Feats) {
+        let power = Self::stat(card.power.as_deref());
+        let toughness = Self::stat(card.toughness.as_deref());
+        f.plain(format!("{prefix}name={}", card.identity.name));
+        f.conj(format!("{prefix}pow={}", power.clamp(0, 8)));
+        f.conj(format!(
+            "{prefix}tou={}",
+            (toughness - card.damage).clamp(0, 8)
+        ));
+        f.conj(format!(
+            "{prefix}val={}",
+            bucket(Self::card_value(card), &[5, 10, 20, 30, 45])
+        ));
+        for kw in &card.keywords {
+            f.conj(format!("{prefix}kw={}", kw.to_ascii_lowercase()));
+        }
+        let text = card.text.to_ascii_lowercase();
+        f.conj(format!(
+            "{prefix}atkTrig={}",
+            text.contains("whenever") && text.contains(" attacks")
+        ));
+        f.conj(format!("{prefix}cmdr={}", card.commander_tax.is_some()));
+        f.conj(format!("{prefix}sick={}", card.summoning_sick));
+        f.conj(format!("{prefix}tapped={}", card.tapped));
+    }
+
+    fn pair_feats(prefix: &str, striker: &Combatant, target: &Combatant, f: &mut Feats) {
+        f.conj(format!(
+            "{prefix}kills={}",
+            Self::can_destroy(striker, target)
+        ));
+        f.conj(format!(
+            "{prefix}dies={}",
+            Self::can_destroy(target, striker)
+        ));
+        f.conj(format!(
+            "{prefix}trade={}",
+            bucket(striker.value - target.value, &[-20, -8, 0, 8, 20])
+        ));
+    }
+
+    pub(crate) fn attacker_unit(
+        &self,
+        attacker: &AttackerOptionDto,
+        all: &[AttackerOptionDto],
+        targets: &[AttackTargetDto],
+        ctx: &PromptContext,
+    ) -> FeatureUnit {
+        let card = self.card(&attacker.attacker_id);
+        let me = self.combatant(&attacker.attacker_id);
+        let mut base = Feats::default();
+        base.conj(format!("must={}", attacker.must_attack));
+        if let Some(card) = card {
+            Self::creature_feats("a:", card, &mut base);
+        }
+        for c in &ctx.plain {
+            base.plain(c.clone());
+        }
+        let my_power: i32 = self
+            .battlefield(&ctx.player_id)
+            .filter(|c| c.types.iter().any(|t| t == "Creature") && !c.tapped && !c.summoning_sick)
+            .map(|c| Self::stat(c.power.as_deref()).max(0))
+            .sum();
+        let opponents: Vec<String> = self
+            .view
+            .as_ref()
+            .map(|v| {
+                v.players
+                    .iter()
+                    .filter(|p| p.id != ctx.player_id && p.life > 0)
+                    .map(|p| p.id.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let their_power: i32 = opponents
+            .iter()
+            .flat_map(|opp| self.battlefield(opp))
+            .filter(|c| c.types.iter().any(|t| t == "Creature"))
+            .map(|c| Self::stat(c.power.as_deref()).max(0))
+            .sum();
+        let my_life = self
+            .view
+            .as_ref()
+            .and_then(|v| v.players.iter().find(|p| p.id == ctx.player_id))
+            .map_or(0, |p| p.life);
+        base.conj(format!(
+            "race={}",
+            bucket(my_power - their_power, &[-10, -4, 0, 4, 10])
+        ));
+        base.conj(format!(
+            "lifeMargin={}",
+            bucket(my_life - their_power, &[-1, 5, 12, 25])
+        ));
+        base.conj(format!("myPower={}", bucket(my_power, &[1, 4, 8, 15, 25])));
+        let valid: Vec<&AttackTargetDto> = targets
+            .iter()
+            .filter(|t| attacker.valid_target_ids.contains(&t.id))
+            .collect();
+        let rule_scores: Vec<i32> = valid
+            .iter()
+            .map(|t| self.attack_target_score(&t.id))
+            .collect();
+        let lives: Vec<i32> = valid
+            .iter()
+            .map(|t| {
+                self.view
+                    .as_ref()
+                    .and_then(|v| v.players.iter().find(|p| p.id == t.id))
+                    .map_or(i32::MAX, |p| p.life)
             })
             .collect();
-        out.push((None, self.candidate_features(None, &ctx)));
-        out
+        let rule = self
+            .rule_attacks(all, targets, &ctx.player_id)
+            .into_iter()
+            .find(|a| a.attacker_id == attacker.attacker_id)
+            .map(|a| a.target_id);
+        base.conj(format!("ruleAttacks={}", rule.is_some()));
+        let mut cands = Vec::new();
+        let mut none = base.clone();
+        none.conj("atk=none");
+        cands.push((None, none.hash(ctx)));
+        for (index, target) in valid.iter().enumerate() {
+            let mut f = base.clone();
+            f.conj("atk=go");
+            f.conj(format!(
+                "ruleTarget={}",
+                rule.as_deref() == Some(target.id.as_str())
+            ));
+            f.conj(format!("tkind={:?}", target.kind));
+            f.conj(format!(
+                "tRankRule={}",
+                rule_scores
+                    .iter()
+                    .filter(|&&s| s > rule_scores[index])
+                    .count()
+                    .min(3)
+            ));
+            f.conj(format!(
+                "tRankLife={}",
+                lives.iter().filter(|&&l| l < lives[index]).count().min(3)
+            ));
+            f.conj(format!(
+                "tRuleBest={}",
+                rule_scores.iter().all(|&s| s <= rule_scores[index])
+            ));
+            f.conj(format!("tOrder={}", index.min(3)));
+            let life = self
+                .view
+                .as_ref()
+                .and_then(|v| v.players.iter().find(|p| p.id == target.id).map(|p| p.life));
+            if let Some(life) = life {
+                f.conj(format!("tlife={}", bucket(life, &[6, 11, 21, 31])));
+                if let Some(me) = &me {
+                    f.conj(format!("lethalAlone={}", me.power >= life));
+                }
+            }
+            let blockers: Vec<Combatant> = self
+                .battlefield(&target.id)
+                .filter(|c| c.types.iter().any(|t| t == "Creature") && !c.tapped)
+                .filter_map(|c| self.combatant(&c.id))
+                .collect();
+            f.conj(format!(
+                "tblockers={}",
+                bucket(blockers.len() as i32, &[1, 2, 4, 6])
+            ));
+            if let Some(me) = &me {
+                let killed_by = blockers.iter().filter(|b| Self::can_destroy(b, me)).count();
+                let kills = blockers.iter().filter(|b| Self::can_destroy(me, b)).count();
+                let safe = blockers
+                    .iter()
+                    .all(|b| !Self::can_destroy(b, me) || Self::can_destroy(me, b));
+                f.conj(format!("killedBy={}", bucket(killed_by as i32, &[1, 2, 4])));
+                f.conj(format!("kills={}", bucket(kills as i32, &[1, 2, 4])));
+                f.conj(format!("safe={safe}"));
+                let outcome = match (killed_by > 0, kills > 0) {
+                    (false, _) => "free",
+                    (true, true) => "trade",
+                    (true, false) => "chump",
+                };
+                f.conj(format!("atkOutcome={outcome}"));
+                f.plain(format!(
+                    "atkOutcome={outcome}|tblockers={}",
+                    bucket(blockers.len() as i32, &[1, 2, 4, 6])
+                ));
+                f.plain(format!(
+                    "atkOutcome={outcome}|race={}",
+                    bucket(my_power - their_power, &[-10, -4, 0, 4, 10])
+                ));
+                f.plain(format!(
+                    "atkOutcome={outcome}|a:val={}",
+                    bucket(me.value, &[5, 10, 20, 30, 45])
+                ));
+                let best = blockers.iter().max_by_key(|b| b.power);
+                if let Some(best) = best {
+                    Self::pair_feats("vsBest:", me, best, &mut f);
+                }
+            }
+            cands.push((Some(target.id.clone()), f.hash(ctx)));
+        }
+        FeatureUnit {
+            unit: Some(attacker.attacker_id.clone()),
+            cands,
+        }
+    }
+
+    pub(crate) fn blocker_unit(
+        &self,
+        blocker_id: &str,
+        all: &[String],
+        attackers: &[BlockableAttackerDto],
+        ctx: &PromptContext,
+    ) -> FeatureUnit {
+        let me = self.combatant(blocker_id);
+        let mut base = Feats::default();
+        if let Some(card) = self.card(blocker_id) {
+            Self::creature_feats("b:", card, &mut base);
+        }
+        let incoming: i32 = attackers
+            .iter()
+            .filter_map(|a| self.combatant(&a.attacker_id))
+            .map(|a| a.power)
+            .sum();
+        let life = self
+            .view
+            .as_ref()
+            .and_then(|v| v.players.iter().find(|p| p.id == ctx.player_id))
+            .map_or(0, |p| p.life);
+        base.conj(format!("incoming={}", bucket(incoming, &[1, 4, 8, 15, 25])));
+        base.conj(format!(
+            "lifeAfter={}",
+            bucket(life - incoming, &[-1, 1, 5, 10, 20])
+        ));
+        base.conj(format!(
+            "nAtk={}",
+            bucket(attackers.len() as i32, &[1, 2, 4, 6])
+        ));
+        for c in &ctx.plain {
+            base.plain(c.clone());
+        }
+        let rule = self
+            .declare_blockers(attackers, all, &ctx.player_id)
+            .into_iter()
+            .find(|b| b.blocker_id == blocker_id)
+            .map(|b| b.attacker_id);
+        base.conj(format!("ruleBlocks={}", rule.is_some()));
+        let mut cands = Vec::new();
+        let mut none = base.clone();
+        none.conj("blk=none");
+        cands.push((None, none.hash(ctx)));
+        for attacker in attackers
+            .iter()
+            .filter(|a| a.valid_blocker_ids.iter().any(|b| b == blocker_id))
+        {
+            let mut f = base.clone();
+            f.conj("blk=go");
+            f.conj(format!(
+                "ruleBlock={}",
+                rule.as_deref() == Some(attacker.attacker_id.as_str())
+            ));
+            f.conj(format!("mustBlock={}", attacker.must_be_blocked));
+            if let Some(card) = self.card(&attacker.attacker_id) {
+                Self::creature_feats("x:", card, &mut f);
+            }
+            if let (Some(me), Some(them)) = (&me, self.combatant(&attacker.attacker_id)) {
+                Self::pair_feats("vs:", me, &them, &mut f);
+                f.conj(format!("absorb={}", bucket(them.power, &[1, 3, 5, 8])));
+                f.conj(format!(
+                    "lifeIfUnblocked={}",
+                    bucket(life - them.power, &[-1, 1, 5, 10])
+                ));
+                let outcome = match (Self::can_destroy(&them, me), Self::can_destroy(me, &them)) {
+                    (false, false) => "wall",
+                    (false, true) => "free",
+                    (true, true) => "trade",
+                    (true, false) => "chump",
+                };
+                f.conj(format!("blkOutcome={outcome}"));
+                f.plain(format!(
+                    "blkOutcome={outcome}|lifeAfter={}",
+                    bucket(life - incoming, &[-1, 1, 5, 10, 20])
+                ));
+                f.plain(format!(
+                    "blkOutcome={outcome}|x:val={}",
+                    bucket(them.value, &[5, 10, 20, 30, 45])
+                ));
+                f.plain(format!(
+                    "blkOutcome={outcome}|b:val={}",
+                    bucket(me.value, &[5, 10, 20, 30, 45])
+                ));
+                let bigger = attackers
+                    .iter()
+                    .filter_map(|a| self.combatant(&a.attacker_id))
+                    .filter(|a| a.power > them.power)
+                    .count();
+                f.conj(format!("xRankPower={}", bigger.min(3)));
+            }
+            cands.push((Some(attacker.attacker_id.clone()), f.hash(ctx)));
+        }
+        FeatureUnit {
+            unit: Some(blocker_id.to_string()),
+            cands,
+        }
     }
 
     pub(crate) fn scoreable(action: &AvailableAction) -> bool {

@@ -91,11 +91,13 @@ fn main() {
         ChooseAttackers(choose_attackers::ChooseAttackersInput {
             attackers: vec![],
             attack_targets: vec![],
+            ai_assignments: None,
         }),
         ChooseBlockers(choose_blockers::ChooseBlockersInput {
             attackers: vec![],
             available_blocker_ids: vec![],
             error: None,
+            ai_assignments: None,
         }),
         ChooseBoardTargets(choose_board_targets::ChooseBoardTargetsInput {
             presentation: common::PromptPresentation {
