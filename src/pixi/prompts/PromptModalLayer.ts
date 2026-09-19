@@ -1037,6 +1037,10 @@ export abstract class PromptModalLayer extends PromptLayerBase {
     if (cardRow) {
       const panLimit = cardAreaWidth - compactRevealRowWidth;
       const rowsHeight = rows * (cardHeight + PROMPT_CARD_ROW_GAP);
+      const pitch = cardWidth + compactCardSpacing;
+      const panStatus = promptText("", 11, this.theme.appTheme["muted-foreground"], {
+        weight: "600",
+      });
       cardRow.mask = new Graphics()
         .rect(
           CARD_TILE_EDGE_INSET,
@@ -1048,25 +1052,63 @@ export abstract class PromptModalLayer extends PromptLayerBase {
       let panning = false;
       let panStartX = 0;
       let panOrigin = 0;
+      let panLastX = 0;
+      let panLastAt = 0;
+      let panVelocity = 0;
+      const updatePanStatus = () => {
+        const first = Math.min(
+          cards.length,
+          Math.max(1, Math.round((CARD_TILE_EDGE_INSET - cardRow.x) / pitch) + 1),
+        );
+        panStatus.text = `${first} / ${cards.length}`;
+        panStatus.position.set(
+          PANEL_PADDING + cardAreaWidth - panStatus.width,
+          startY + rowsHeight + 8,
+        );
+      };
       body.eventMode = "static";
       body.hitArea = new Rectangle(0, 0, width, height);
       body.cursor = "grab";
       body.on("pointerdown", (event: FederatedPointerEvent) => {
+        gsap.killTweensOf(cardRow);
         panning = true;
         panStartX = event.global.x;
         panOrigin = cardRow.x;
+        panLastX = event.global.x;
+        panLastAt = performance.now();
+        panVelocity = 0;
         cardRow.cursor = "grabbing";
       });
       body.on("pointermove", (event: FederatedPointerEvent) => {
         if (!panning) return;
         cardRow.x = Math.min(0, Math.max(panLimit, panOrigin + (event.global.x - panStartX)));
+        const now = performance.now();
+        const elapsed = now - panLastAt;
+        if (elapsed > 0) {
+          panVelocity = 0.7 * panVelocity + 0.3 * ((event.global.x - panLastX) / elapsed);
+          panLastX = event.global.x;
+          panLastAt = now;
+        }
+        updatePanStatus();
       });
       const stopPan = () => {
+        if (!panning) return;
         panning = false;
         cardRow.cursor = "grab";
+        const projected = Math.min(0, Math.max(panLimit, cardRow.x + panVelocity * 180));
+        if (Math.abs(projected - cardRow.x) > 2) {
+          gsap.to(cardRow, {
+            x: projected,
+            duration: 0.4,
+            ease: "power3.out",
+            onUpdate: updatePanStatus,
+          });
+        }
       };
       body.on("pointerup", stopPan);
       body.on("pointerupoutside", stopPan);
+      body.addChild(panStatus);
+      updatePanStatus();
     }
     const chosen = [...this.selectedIds];
     const canConfirm = reveal || (chosen.length >= min && chosen.length <= max);
@@ -1091,6 +1133,13 @@ export abstract class PromptModalLayer extends PromptLayerBase {
     );
     confirm.position.set(width - PANEL_PADDING * 2 - confirm.buttonWidth, 0);
     footer.addChild(confirm);
+    if (compactRevealRow && compactRevealOverflow && this.spec?.action.onBrowseRevealGrid) {
+      const grid = this.makeButton("GRID", () => this.spec!.action.onBrowseRevealGrid?.(), {
+        width: 96,
+      });
+      grid.position.set(confirm.x - grid.buttonWidth - 8, 0);
+      footer.addChild(grid);
+    }
   }
 
   protected createCardTile(

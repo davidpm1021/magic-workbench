@@ -22,6 +22,7 @@ import {
   HAND_BOTTOM_SINK_FRAC,
   HAND_BOTTOM_SINK_FRAC_COMPACT,
   HAND_BOTTOM_SINK_FRAC_SHEET,
+  HAND_BOTTOM_SINK_FRAC_PEEK,
   HAND_HOVER_HOLD_MS,
   HAND_LERP,
   HAND_REORDER_LERP,
@@ -53,6 +54,7 @@ export class HandController {
   private vScale = 1;
   private compact = false;
   private sheetOpen = false;
+  private peek = false;
   private rulesViewDefault = false;
   private reorderIndex: number | null = null;
   private hoverDebugGfx: Graphics;
@@ -122,7 +124,14 @@ export class HandController {
     this.relayout();
   }
 
+  setPeek(active: boolean): void {
+    if (this.peek === active) return;
+    this.peek = active;
+    this.relayout();
+  }
+
   private bottomSinkFrac(): number {
+    if (this.peek) return HAND_BOTTOM_SINK_FRAC_PEEK;
     if (this.sheetOpen) return HAND_BOTTOM_SINK_FRAC_SHEET;
     return this.compact ? HAND_BOTTOM_SINK_FRAC_COMPACT : HAND_BOTTOM_SINK_FRAC;
   }

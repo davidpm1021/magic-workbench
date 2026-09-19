@@ -447,7 +447,7 @@ export class PlayerHudCapsule {
     this.width = width;
     this.height = height;
     this.column = column;
-    this.container.hitArea = new Rectangle(0, 0, width, height);
+    this.container.hitArea = new Rectangle(-4, -4, width + 8, height + 8);
     this.render();
   }
 

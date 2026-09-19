@@ -132,6 +132,7 @@ export interface PromptActionSpec {
   mulliganPutBackCount?: number;
   mulliganSelectedCount?: number;
   onMulliganPutBackConfirm?: () => void;
+  onBrowseRevealGrid?: () => void;
   selfClusterMaxHeight?: number;
   dividerY?: number;
   dimmed?: boolean;

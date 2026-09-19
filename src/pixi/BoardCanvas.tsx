@@ -101,6 +101,7 @@ interface BoardCanvasProps {
   phaseStripCallbacks?: PhaseStripCallbacks;
   layoutPolicy?: BattlefieldLayoutPolicy;
   mobileHandOpen?: boolean;
+  mobileHandPeek?: boolean;
   mobileHandControlBounds?: DOMRect | null;
   opponentLayout?: "focused" | "overview";
   focusLocked?: boolean;
@@ -147,6 +148,7 @@ export function BoardCanvas({
   phaseStripCallbacks,
   layoutPolicy = DESKTOP_BATTLEFIELD_LAYOUT,
   mobileHandOpen = false,
+  mobileHandPeek = false,
   mobileHandControlBounds,
   opponentLayout = "focused",
   focusLocked = false,
@@ -488,6 +490,10 @@ export function BoardCanvas({
   useEffect(() => {
     scene?.setMobileHandOpen(layoutPolicy.handPresentation === "sheet" && mobileHandOpen);
   }, [scene, layoutPolicy.handPresentation, mobileHandOpen]);
+
+  useEffect(() => {
+    scene?.setHandPeek(layoutPolicy.handPresentation === "sheet" && mobileHandPeek);
+  }, [scene, layoutPolicy.handPresentation, mobileHandPeek]);
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!scene || !canvas) return;

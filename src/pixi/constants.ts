@@ -93,6 +93,7 @@ export const HAND_RESERVE_TRIM = 0.85;
 export const HAND_BOTTOM_SINK_FRAC = 0.45;
 export const HAND_BOTTOM_SINK_FRAC_COMPACT = 0.68;
 export const HAND_BOTTOM_SINK_FRAC_SHEET = 0.43;
+export const HAND_BOTTOM_SINK_FRAC_PEEK = 0.08;
 export const COMBAT_BLOCKER_OVERLAP_FRAC = 0.4;
 export const COMBAT_ROW_STEP_FRAC = 1.12;
 export const Z_STAGED_REGION = 8000;

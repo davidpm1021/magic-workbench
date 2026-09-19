@@ -299,6 +299,7 @@ export class BoardScene {
   private handInsetRight = 0;
   private mobileHandControlBlocker: BlockingRect | null = null;
   private mobileHandReserve = 0;
+  private handPeek = false;
   private lastCapsuleRects = new Map<string, string>();
   private autoSort = false;
   private zoneTilesLocked = false;
@@ -1176,12 +1177,14 @@ export class BoardScene {
   }
   private syncMobileHandPresentation(): void {
     const open = this.compactMode && this.mobileHandOpen;
+    const peek = this.compactMode && this.handPeek && !open;
     this.hand?.setSheetOpen(open);
-    if (this.hand) this.hand.container.visible = !this.compactMode || open;
+    this.hand?.setPeek(peek);
+    if (this.hand) this.hand.container.visible = !this.compactMode || open || peek;
     this.mobileHandBackdrop.visible = open;
     this.mobileHandBackdrop.eventMode = open ? "static" : "none";
     const handRect = this.hand?.getBlockerRect() ?? null;
-    this.dragHandler.setHandExclusion(this.compactMode && !open ? null : handRect);
+    this.dragHandler.setHandExclusion(this.compactMode && !open && !peek ? null : handRect);
   }
 
   private onFeltDown(e: FederatedPointerEvent): void {
@@ -1493,6 +1496,12 @@ export class BoardScene {
     if (this.mobileHandOpen === open) return;
     this.mobileHandOpen = open;
     if (!open) this.hand?.resetHover();
+    this.syncMobileHandPresentation();
+  }
+
+  setHandPeek(active: boolean): void {
+    if (this.handPeek === active) return;
+    this.handPeek = active;
     this.syncMobileHandPresentation();
   }
 

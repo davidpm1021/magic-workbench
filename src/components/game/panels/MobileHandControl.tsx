@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { X } from "lucide-react";
 
 import { CardsInHandIcon } from "@/components/game/panels/CardsInHandIcon";
@@ -6,12 +6,16 @@ import { usePreferencesStore } from "@/stores/usePreferencesStore";
 
 import { cn } from "@/lib/utils";
 
+const PEEK_HOLD_MS = 160;
+
 interface MobileHandControlProps {
   count: number;
   open: boolean;
   locked: boolean;
   actionable: boolean;
   onToggle: () => void;
+  onPeekStart?: () => void;
+  onPeekEnd?: () => void;
   onBoundsChange?: (bounds: DOMRect | null) => void;
 }
 
@@ -21,9 +25,35 @@ export function MobileHandControl({
   locked,
   actionable,
   onToggle,
+  onPeekStart,
+  onPeekEnd,
   onBoundsChange,
 }: MobileHandControlProps) {
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const peekTimer = useRef<number | null>(null);
+  const peeked = useRef(false);
+
+  const cancelPeekTimer = () => {
+    if (peekTimer.current !== null) {
+      window.clearTimeout(peekTimer.current);
+      peekTimer.current = null;
+    }
+  };
+  const startPeekHold = () => {
+    if (open || locked || count === 0) return;
+    cancelPeekTimer();
+    peekTimer.current = window.setTimeout(() => {
+      peekTimer.current = null;
+      peeked.current = true;
+      onPeekStart?.();
+    }, PEEK_HOLD_MS);
+  };
+  const endPeekHold = () => {
+    cancelPeekTimer();
+    onPeekEnd?.();
+  };
+
+  useEffect(() => () => cancelPeekTimer(), []);
 
   const leftHanded = usePreferencesStore((s) => s.mobileHandedness === "left");
   useLayoutEffect(() => {
@@ -64,7 +94,17 @@ export function MobileHandControl({
         (locked || count === 0) && "opacity-70",
       )}
       disabled={locked || count === 0}
-      onClick={onToggle}
+      onClick={() => {
+        if (peeked.current) {
+          peeked.current = false;
+          return;
+        }
+        onToggle();
+      }}
+      onPointerDown={startPeekHold}
+      onPointerUp={endPeekHold}
+      onPointerLeave={endPeekHold}
+      onPointerCancel={endPeekHold}
     >
       {open ? (
         <X className="h-4 w-4" aria-hidden />

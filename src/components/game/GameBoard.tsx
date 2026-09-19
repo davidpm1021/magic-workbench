@@ -31,6 +31,13 @@ import { PlayerSheetModal } from "@/components/game/panels/PlayerSheetModal";
 import { GlobalStateRail } from "@/components/game/panels/GlobalStateRail";
 import { MobilePhaseStops } from "@/components/game/panels/MobilePhaseStops";
 import { MobileHandControl } from "@/components/game/panels/MobileHandControl";
+import { DialogCardBrowser } from "@/components/game/modals/DialogCardBrowser";
+import { Modal } from "@/components/game/modals/Modal";
+import { Button } from "@/components/ui/button";
+import {
+  PROMPT_CARD_MODAL_MAX_WIDTH_CLASS,
+  PROMPT_MODAL_HEIGHT_CLASS,
+} from "@/components/game/game.constants";
 import type { ZoneTileSpec } from "@/pixi/board/BoardZoneTiles";
 import { usePreferencesStore } from "@/stores/usePreferencesStore";
 import { useAssetUrl } from "@/stores/useAssetStore";
@@ -307,6 +314,8 @@ export function GameBoard({
   const compactBoard = useIsMobileGame();
   const layoutPolicy = compactBoard ? MOBILE_BATTLEFIELD_LAYOUT : DESKTOP_BATTLEFIELD_LAYOUT;
   const [mobileHandControlBounds, setMobileHandControlBounds] = useState<DOMRect | null>(null);
+  const [mobileHandPeek, setMobileHandPeek] = useState(false);
+  const [revealBrowseCards, setRevealBrowseCards] = useState<CardDto[] | null>(null);
   const selfBottomReserve = layoutPolicy.reserveHandSpace
     ? Math.round(
         ((1 - HAND_BOTTOM_SINK_FRAC) * HAND_CARD_BASE.cardH * vScale + GAP) * HAND_RESERVE_TRIM,
@@ -624,6 +633,7 @@ export function GameBoard({
   );
   const mobileHandActionable =
     promptType === "chooseAction" && orderedHand.some((card) => playableIds.has(card.id));
+  const mulliganAction = promptType === "mulligan" ? promptOverlaySpec?.action : null;
 
   const pixiCallbacks = useMemo(
     (): GameCanvasCallbacks => ({
@@ -802,13 +812,19 @@ export function GameBoard({
       (phase) => selfStops.has(phase.id) && phase.currentSteps.includes(step),
     );
     if (!compactBoard) return promptOverlaySpec;
-    const handOwnsChrome =
-      mobileHandOpen && promptType !== "mulligan" && promptType !== "mulliganPutBack";
+    const handOwnsChrome = mobileHandOpen && promptType !== "mulliganPutBack";
     return {
       ...promptOverlaySpec,
       action: {
         ...promptOverlaySpec.action,
         dimmed: handOwnsChrome || (promptOverlaySpec.action.dimmed ?? false),
+        onBrowseRevealGrid:
+          promptOverlaySpec.currentPrompt?.input.type === "revealCards"
+            ? () => {
+                const input = promptOverlaySpec.currentPrompt?.input;
+                setRevealBrowseCards(input?.type === "revealCards" ? input.cards : []);
+              }
+            : undefined,
         compactPhaseControl: {
           color: activePhaseColor,
           onOpen: openMobilePhaseStops,
@@ -831,6 +847,7 @@ export function GameBoard({
     promptOverlaySpec,
     promptType,
     selfStops,
+    setRevealBrowseCards,
     step,
   ]);
 
@@ -1936,6 +1953,7 @@ export function GameBoard({
             promptType === "chooseBlockers" ||
             !!draggingCardId
           }
+          mobileHandPeek={mobileHandPeek}
           arrowSpecs={arrowSpecs ?? []}
           castingArrow={castingArrow}
           declareBlockers={promptType === "chooseBlockers"}
@@ -1976,8 +1994,43 @@ export function GameBoard({
             locked={!!handSelectionMode}
             actionable={mobileHandActionable}
             onToggle={toggleMobileHand}
+            onPeekStart={() => setMobileHandPeek(true)}
+            onPeekEnd={() => setMobileHandPeek(false)}
             onBoundsChange={setMobileHandControlBounds}
           />
+        )}
+        {compactBoard && promptType === "mulligan" && mobileHandOpen && mulliganAction && (
+          <div className="absolute left-1/2 top-2 z-[5] flex -translate-x-1/2 items-center gap-2">
+            {mulliganAction.mulliganCount ? (
+              <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+                mulligan {mulliganAction.mulliganCount}
+              </span>
+            ) : null}
+            <Button variant="primary" size="sm" onClick={mulliganAction.onMulliganKeep}>
+              KEEP
+            </Button>
+            <Button variant="outline" size="sm" onClick={mulliganAction.onMulliganDraw}>
+              MULLIGAN
+            </Button>
+          </div>
+        )}
+        {revealBrowseCards && (
+          <Modal
+            onClose={() => setRevealBrowseCards(null)}
+            maxWidth={PROMPT_CARD_MODAL_MAX_WIDTH_CLASS}
+            className={PROMPT_MODAL_HEIGHT_CLASS}
+          >
+            <Modal.Header onClose={() => setRevealBrowseCards(null)}>
+              <h2 className="text-base font-semibold">Revealed cards</h2>
+              <p className="text-xs text-muted-foreground">
+                {revealBrowseCards.length} card{revealBrowseCards.length === 1 ? "" : "s"}
+              </p>
+            </Modal.Header>
+            <DialogCardBrowser
+              items={revealBrowseCards.map((card) => ({ id: card.id, card }))}
+              picker
+            />
+          </Modal>
         )}
       </div>
       <div className="absolute inset-0 z-[9000] pointer-events-none">
