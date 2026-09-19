@@ -957,13 +957,16 @@ export abstract class PromptModalLayer extends PromptLayerBase {
           ),
         );
     const rows = compactLayout ? Math.min(1, cards.length) : Math.ceil(cards.length / columns);
+    const compactRevealRow = compactLayout && reveal;
     const compactCardSpacing =
       cards.length <= 1
         ? 0
-        : Math.min(
-            cardWidth + PROMPT_CARD_GAP,
-            Math.max(0, (cardAreaWidth - cardWidth) / (cards.length - 1)),
-          );
+        : compactRevealRow
+          ? cardWidth + PROMPT_CARD_GAP
+          : Math.min(
+              cardWidth + PROMPT_CARD_GAP,
+              Math.max(0, (cardAreaWidth - cardWidth) / (cards.length - 1)),
+            );
     const height = Math.min(
       this.viewportHeight - 24,
       244 + rows * (cardHeight + PROMPT_CARD_ROW_GAP),
@@ -985,6 +988,14 @@ export abstract class PromptModalLayer extends PromptLayerBase {
       true,
     );
     const startY = 4;
+    const compactRevealRowWidth =
+      cards.length * cardWidth + Math.max(0, cards.length - 1) * compactCardSpacing;
+    const compactRevealOverflow = compactRevealRow && compactRevealRowWidth > cardAreaWidth;
+    const cardRow = compactRevealOverflow ? new Container() : null;
+    if (cardRow) {
+      cardRow.eventMode = "static";
+      body.addChild(cardRow);
+    }
     cards.forEach((card, index) => {
       const selected = this.selectedIds.has(card.id);
       const disabled = !reveal && max !== 1 && this.selectedIds.size >= max && !selected;
@@ -1021,8 +1032,42 @@ export abstract class PromptModalLayer extends PromptLayerBase {
           (cardWidth - cardSize.width) / 2,
         startY + row * (cardHeight + PROMPT_CARD_ROW_GAP) + (cardHeight - cardSize.height) / 2,
       );
-      body.addChild(tile);
+      (cardRow ?? body).addChild(tile);
     });
+    if (cardRow) {
+      const panLimit = cardAreaWidth - compactRevealRowWidth;
+      const rowsHeight = rows * (cardHeight + PROMPT_CARD_ROW_GAP);
+      cardRow.mask = new Graphics()
+        .rect(
+          CARD_TILE_EDGE_INSET,
+          startY - CARD_TILE_EDGE_INSET,
+          cardAreaWidth + PANEL_PADDING + CARD_TILE_EDGE_INSET,
+          rowsHeight + CARD_H,
+        )
+        .fill({ color: 0xffffff });
+      let panning = false;
+      let panStartX = 0;
+      let panOrigin = 0;
+      body.eventMode = "static";
+      body.hitArea = new Rectangle(0, 0, width, height);
+      body.cursor = "grab";
+      body.on("pointerdown", (event: FederatedPointerEvent) => {
+        panning = true;
+        panStartX = event.global.x;
+        panOrigin = cardRow.x;
+        cardRow.cursor = "grabbing";
+      });
+      body.on("pointermove", (event: FederatedPointerEvent) => {
+        if (!panning) return;
+        cardRow.x = Math.min(0, Math.max(panLimit, panOrigin + (event.global.x - panStartX)));
+      });
+      const stopPan = () => {
+        panning = false;
+        cardRow.cursor = "grab";
+      };
+      body.on("pointerup", stopPan);
+      body.on("pointerupoutside", stopPan);
+    }
     const chosen = [...this.selectedIds];
     const canConfirm = reveal || (chosen.length >= min && chosen.length <= max);
     const status = promptText(
