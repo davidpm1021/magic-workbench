@@ -989,7 +989,7 @@ export abstract class PromptModalLayer extends PromptLayerBase {
     );
     const startY = 4;
     const compactScrollRowWidth =
-      cards.length * cardWidth + Math.max(0, cards.length - 1) * compactCardSpacing;
+      cards.length > 0 ? (cards.length - 1) * compactCardSpacing + cardWidth : 0;
     const compactScrollOverflow = compactScrollRow && compactScrollRowWidth > cardAreaWidth;
     const cardRow = compactScrollOverflow ? new Container() : null;
     if (cardRow) {
@@ -1050,7 +1050,7 @@ export abstract class PromptModalLayer extends PromptLayerBase {
         .rect(
           CARD_TILE_EDGE_INSET,
           startY - CARD_TILE_EDGE_INSET,
-          cardAreaWidth + PANEL_PADDING + CARD_TILE_EDGE_INSET,
+          cardAreaWidth,
           rowsHeight + CARD_H,
         )
         .fill({ color: 0xffffff });
