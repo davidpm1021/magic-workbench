@@ -501,6 +501,7 @@ export abstract class PromptLayerBase {
   protected actionBounds: Rectangle | null = null;
   protected modalOpen = false;
   protected selectedIds = new Set<string>();
+  protected compactScrollPan: { promptId: string | null; x: number } | null = null;
   protected counts = new Map<number | string, number>();
   protected numberValue = 0;
   protected numberBuffer = "";

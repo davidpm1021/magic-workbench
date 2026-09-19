@@ -957,11 +957,11 @@ export abstract class PromptModalLayer extends PromptLayerBase {
           ),
         );
     const rows = compactLayout ? Math.min(1, cards.length) : Math.ceil(cards.length / columns);
-    const compactRevealRow = compactLayout && reveal;
+    const compactScrollRow = compactLayout;
     const compactCardSpacing =
       cards.length <= 1
         ? 0
-        : compactRevealRow
+        : compactScrollRow
           ? cardWidth + PROMPT_CARD_GAP
           : Math.min(
               cardWidth + PROMPT_CARD_GAP,
@@ -988,10 +988,10 @@ export abstract class PromptModalLayer extends PromptLayerBase {
       true,
     );
     const startY = 4;
-    const compactRevealRowWidth =
+    const compactScrollRowWidth =
       cards.length * cardWidth + Math.max(0, cards.length - 1) * compactCardSpacing;
-    const compactRevealOverflow = compactRevealRow && compactRevealRowWidth > cardAreaWidth;
-    const cardRow = compactRevealOverflow ? new Container() : null;
+    const compactScrollOverflow = compactScrollRow && compactScrollRowWidth > cardAreaWidth;
+    const cardRow = compactScrollOverflow ? new Container() : null;
     if (cardRow) {
       cardRow.eventMode = "static";
       body.addChild(cardRow);
@@ -1035,9 +1035,14 @@ export abstract class PromptModalLayer extends PromptLayerBase {
       (cardRow ?? body).addChild(tile);
     });
     if (cardRow) {
-      const panLimit = cardAreaWidth - compactRevealRowWidth;
+      const panLimit = cardAreaWidth - compactScrollRowWidth;
       const rowsHeight = rows * (cardHeight + PROMPT_CARD_ROW_GAP);
       const pitch = cardWidth + compactCardSpacing;
+      const promptId = this.spec?.currentPrompt?.promptId ?? null;
+      if (this.compactScrollPan?.promptId !== promptId) {
+        this.compactScrollPan = { promptId, x: CARD_TILE_EDGE_INSET };
+      }
+      cardRow.x = Math.min(CARD_TILE_EDGE_INSET, Math.max(panLimit, this.compactScrollPan.x));
       const panStatus = promptText("", 11, this.theme.appTheme["muted-foreground"], {
         weight: "600",
       });
@@ -1050,12 +1055,14 @@ export abstract class PromptModalLayer extends PromptLayerBase {
         )
         .fill({ color: 0xffffff });
       let panning = false;
+      let panMoved = false;
       let panStartX = 0;
       let panOrigin = 0;
       let panLastX = 0;
       let panLastAt = 0;
       let panVelocity = 0;
       const updatePanStatus = () => {
+        if (this.compactScrollPan) this.compactScrollPan.x = cardRow.x;
         const first = Math.min(
           cards.length,
           Math.max(1, Math.round((CARD_TILE_EDGE_INSET - cardRow.x) / pitch) + 1),
@@ -1072,6 +1079,8 @@ export abstract class PromptModalLayer extends PromptLayerBase {
       body.on("pointerdown", (event: FederatedPointerEvent) => {
         gsap.killTweensOf(cardRow);
         panning = true;
+        panMoved = false;
+        for (const child of cardRow.children) this.suppressedTapItems.delete(child);
         panStartX = event.global.x;
         panOrigin = cardRow.x;
         panLastX = event.global.x;
@@ -1082,6 +1091,11 @@ export abstract class PromptModalLayer extends PromptLayerBase {
       body.on("pointermove", (event: FederatedPointerEvent) => {
         if (!panning) return;
         cardRow.x = Math.min(0, Math.max(panLimit, panOrigin + (event.global.x - panStartX)));
+        if (this.compactScrollPan) this.compactScrollPan.x = cardRow.x;
+        if (!panMoved && Math.abs(event.global.x - panStartX) > 8) {
+          panMoved = true;
+          for (const child of cardRow.children) this.suppressedTapItems.add(child);
+        }
         const now = performance.now();
         const elapsed = now - panLastAt;
         if (elapsed > 0) {
@@ -1133,7 +1147,7 @@ export abstract class PromptModalLayer extends PromptLayerBase {
     );
     confirm.position.set(width - PANEL_PADDING * 2 - confirm.buttonWidth, 0);
     footer.addChild(confirm);
-    if (compactRevealRow && compactRevealOverflow && this.spec?.action.onBrowseRevealGrid) {
+    if (compactScrollRow && compactScrollOverflow && this.spec?.action.onBrowseRevealGrid) {
       const grid = this.makeButton("GRID", () => this.spec!.action.onBrowseRevealGrid?.(), {
         width: 96,
       });
