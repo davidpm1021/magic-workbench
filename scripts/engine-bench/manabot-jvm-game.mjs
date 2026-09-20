@@ -188,7 +188,7 @@ while (true) {
   const action = JSON.parse(decided);
   if (trace) {
     process.stderr.write(
-      `${turn} ${parsedView?.step} seat${seat} ${prompt.input?.type} ${prompt.input?.presentation?.title ?? ""} -> ${JSON.stringify(action.output).slice(0, 160)}\n`,
+      `${turn} ${parsedView?.step} seat${seat} ${prompt.input?.type} ${prompt.input?.presentation?.title ?? ""} -> ${JSON.stringify(action.output).slice(0, 4000)}\n`,
     );
   }
   if (prompt.input?.type === "chooseAction") {

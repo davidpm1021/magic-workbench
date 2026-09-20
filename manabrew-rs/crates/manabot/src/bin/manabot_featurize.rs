@@ -239,6 +239,7 @@ fn main() {
                 "reason": raw.reason,
                 "unit": unit.unit,
                 "label": label,
+                "labels": unit.labels,
                 "bot": bot_index,
                 "names": names,
                 "cands": cands,

@@ -349,6 +349,7 @@ pub struct FeatureUnit {
     pub unit: Option<String>,
     pub cands: Vec<(Option<String>, Vec<u32>)>,
     pub label: Option<usize>,
+    pub labels: Vec<usize>,
 }
 
 pub const KIND_ACTION: &str = "chooseAction";
@@ -397,6 +398,7 @@ impl SimpleAi {
                         unit: None,
                         cands,
                         label: None,
+                        labels: Vec::new(),
                     }],
                 )
             }
@@ -657,6 +659,7 @@ impl SimpleAi {
             unit: Some(attacker.attacker_id.clone()),
             cands,
             label: None,
+            labels: Vec::new(),
         }
     }
 
@@ -745,10 +748,23 @@ impl SimpleAi {
             let Some(label) = label else {
                 break;
             };
+            let labels: Vec<usize> = match next {
+                None => vec![0],
+                Some(_) => order[step..]
+                    .iter()
+                    .filter_map(|t| {
+                        let id = format!("{}>{}", t.attacker_id, t.target_id);
+                        cands
+                            .iter()
+                            .position(|(c, _)| c.as_deref() == Some(id.as_str()))
+                    })
+                    .collect(),
+            };
             units.push(FeatureUnit {
                 unit: Some(step.to_string()),
                 cands,
                 label: Some(label),
+                labels,
             });
             if let Some(next) = next {
                 set.push((*next).clone());
@@ -937,6 +953,7 @@ impl SimpleAi {
             unit: Some(blocker_id.to_string()),
             cands,
             label: None,
+            labels: Vec::new(),
         }
     }
 

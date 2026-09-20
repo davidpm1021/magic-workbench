@@ -13,6 +13,8 @@ struct Row {
     seed: u64,
     step: Option<String>,
     label: usize,
+    #[serde(default)]
+    labels: Vec<usize>,
     bot: Option<usize>,
     cands: Vec<Vec<u32>>,
     #[serde(default)]
@@ -54,11 +56,17 @@ fn argmax(s: &[f32]) -> usize {
         .fold(0, |best, (i, v)| if *v > s[best] { i } else { best })
 }
 
+fn hit(w: &[f32], r: &Row) -> bool {
+    let best = argmax(&scores(w, r));
+    if r.labels.is_empty() {
+        best == r.label
+    } else {
+        r.labels.contains(&best)
+    }
+}
+
 fn agreement(w: &[f32], rows: &[&Row]) -> f32 {
-    let hits = rows
-        .iter()
-        .filter(|r| argmax(&scores(w, r)) == r.label)
-        .count();
+    let hits = rows.iter().filter(|r| hit(w, r)).count();
     hits as f32 / rows.len().max(1) as f32
 }
 
@@ -156,9 +164,20 @@ fn fit(train: &[&Row], test: &[&Row], epochs: usize, lr: f32, l2: f32) -> Vec<f3
             let max = s.iter().cloned().fold(f32::MIN, f32::max);
             let exp: Vec<f32> = s.iter().map(|v| (v - max).exp()).collect();
             let z: f32 = exp.iter().sum();
-            loss -= (exp[row.label] / z).ln() as f64;
+            let positives: &[usize] = if row.labels.is_empty() {
+                std::slice::from_ref(&row.label)
+            } else {
+                &row.labels
+            };
+            let mass: f32 = positives.iter().map(|&k| exp[k]).sum::<f32>() / z;
+            loss -= mass.max(1e-9).ln() as f64;
             for (k, cand) in row.cands.iter().enumerate() {
-                let grad = row.weight * (exp[k] / z - if k == row.label { 1.0 } else { 0.0 });
+                let target = if positives.contains(&k) {
+                    exp[k] / z / mass.max(1e-9)
+                } else {
+                    0.0
+                };
+                let grad = row.weight * (exp[k] / z - target);
                 if grad.abs() < 1e-6 {
                     continue;
                 }
@@ -187,7 +206,7 @@ fn report_by_step(w: &[f32], test: &[&Row]) {
             .entry(r.step.clone().unwrap_or_default())
             .or_default();
         e.1 += 1;
-        if argmax(&scores(w, r)) == r.label {
+        if hit(w, r) {
             e.0 += 1;
         }
     }
