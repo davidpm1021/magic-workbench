@@ -1153,34 +1153,13 @@ impl BotAgent for SimpleAi {
                 let reprompted = self.looping_on_consecutive(signature);
                 let mut assignments = Vec::new();
                 if let Some(model) = self.model_for(model::KIND_ATTACKERS) {
-                    let ctx = self.prompt_context(&deciding_player_id, attackers.len());
-                    for a in &attackers {
-                        let unit = self.attacker_unit(a, &attackers, &attack_targets, &ctx);
-                        let best = unit
-                            .cands
-                            .iter()
-                            .filter(|(target, _)| {
-                                target.as_ref().is_none_or(|t| !self.failed_attack_targets.contains(t))
-                            })
-                            .max_by(|x, y| {
-                                model
-                                    .score(model::KIND_ATTACKERS, &x.1)
-                                    .total_cmp(&model.score(model::KIND_ATTACKERS, &y.1))
-                            })
-                            .and_then(|(target, _)| target.clone())
-                            .or_else(|| {
-                                a.must_attack
-                                    .then(|| a.valid_target_ids.first().cloned())
-                                    .flatten()
-                            });
-                        if let Some(target_id) = best {
-                            if !reprompted || a.must_attack {
-                                assignments.push(AttackAssignment {
-                                    attacker_id: a.attacker_id.clone(),
-                                    target_id,
-                                });
-                            }
-                        }
+                    if !reprompted {
+                        let input = manabrew_protocol::prompts::choose_attackers::ChooseAttackersInput {
+                            attackers: attackers.clone(),
+                            attack_targets: attack_targets.clone(),
+                            ai_assignments: None,
+                        };
+                        assignments = self.greedy_attacks(model, &input, &deciding_player_id);
                     }
                 } else if !reprompted {
                     assignments = self.rule_attacks(&attackers, &attack_targets, &deciding_player_id);

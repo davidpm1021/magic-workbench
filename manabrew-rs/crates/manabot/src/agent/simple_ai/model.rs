@@ -4,9 +4,11 @@
 use std::collections::{BTreeSet, HashMap};
 
 use manabrew_agent_interface::prompt::{AgentPrompt, PromptInput};
-use manabrew_protocol::prompts::choose_attackers::AttackerOptionDto;
+use manabrew_protocol::prompts::choose_attackers::{AttackerOptionDto, ChooseAttackersInput};
 use manabrew_protocol::prompts::choose_blockers::BlockableAttackerDto;
-use manabrew_protocol::prompts::common::{AttackTargetDto, AvailableAction, AvailableActionKind};
+use manabrew_protocol::prompts::common::{
+    AttackAssignment, AttackTargetDto, AvailableAction, AvailableActionKind,
+};
 use serde::Deserialize;
 
 use super::{Combatant, SimpleAi};
@@ -346,6 +348,7 @@ impl SimpleAi {
 pub struct FeatureUnit {
     pub unit: Option<String>,
     pub cands: Vec<(Option<String>, Vec<u32>)>,
+    pub label: Option<usize>,
 }
 
 pub const KIND_ACTION: &str = "chooseAction";
@@ -390,20 +393,14 @@ impl SimpleAi {
                 cands.push((None, self.candidate_features(None, &ctx)));
                 (
                     KIND_ACTION.to_string(),
-                    vec![FeatureUnit { unit: None, cands }],
+                    vec![FeatureUnit {
+                        unit: None,
+                        cands,
+                        label: None,
+                    }],
                 )
             }
-            PromptInput::ChooseAttackers(input) => {
-                let ctx = self.prompt_context(player_id, input.attackers.len());
-                let units = input
-                    .attackers
-                    .iter()
-                    .map(|attacker| {
-                        self.attacker_unit(attacker, &input.attackers, &input.attack_targets, &ctx)
-                    })
-                    .collect();
-                (KIND_ATTACKERS.to_string(), units)
-            }
+            PromptInput::ChooseAttackers(_) => (KIND_ATTACKERS.to_string(), Vec::new()),
             PromptInput::ChooseBlockers(input) => {
                 let ctx = self.prompt_context(player_id, input.attackers.len());
                 let units = input
@@ -470,12 +467,31 @@ impl SimpleAi {
         attacker: &AttackerOptionDto,
         all: &[AttackerOptionDto],
         targets: &[AttackTargetDto],
+        set: &[AttackAssignment],
         ctx: &PromptContext,
     ) -> FeatureUnit {
         let card = self.card(&attacker.attacker_id);
         let me = self.combatant(&attacker.attacker_id);
         let mut base = Feats::default();
         base.conj(format!("must={}", attacker.must_attack));
+        let set_power: i32 = set
+            .iter()
+            .filter_map(|a| self.combatant(&a.attacker_id))
+            .map(|a| a.power)
+            .sum();
+        let potential = self
+            .battlefield(&ctx.player_id)
+            .filter(|c| c.types.iter().any(|t| t == "Creature") && !c.tapped && !c.summoning_sick)
+            .count() as i32;
+        base.conj(format!("setN={}", (set.len() as i32).min(5)));
+        base.conj(format!(
+            "setPower={}",
+            bucket(set_power, &[1, 4, 8, 15, 25])
+        ));
+        base.conj(format!(
+            "homeAfter={}",
+            bucket(potential - set.len() as i32 - 1, &[0, 1, 2, 4])
+        ));
         if let Some(card) = card {
             Self::creature_feats("a:", card, &mut base);
         }
@@ -548,6 +564,20 @@ impl SimpleAi {
         for (index, target) in valid.iter().enumerate() {
             let mut f = base.clone();
             f.conj("atk=go");
+            let on_target: Vec<&AttackAssignment> =
+                set.iter().filter(|a| a.target_id == target.id).collect();
+            let power_on_target: i32 = on_target
+                .iter()
+                .filter_map(|a| self.combatant(&a.attacker_id))
+                .map(|a| a.power)
+                .sum();
+            f.conj(format!("onTarget={}", (on_target.len() as i32).min(4)));
+            if let (Some(me), Some(life)) = (&me, lives.get(index).filter(|l| **l != i32::MAX)) {
+                f.conj(format!(
+                    "lethalWithSet={}",
+                    power_on_target + me.power >= *life
+                ));
+            }
             f.conj(format!(
                 "ruleTarget={}",
                 rule.as_deref() == Some(target.id.as_str())
@@ -626,7 +656,188 @@ impl SimpleAi {
         FeatureUnit {
             unit: Some(attacker.attacker_id.clone()),
             cands,
+            label: None,
         }
+    }
+
+    fn attack_step(
+        &self,
+        input: &ChooseAttackersInput,
+        set: &[AttackAssignment],
+        ctx: &PromptContext,
+    ) -> Vec<(Option<String>, Vec<u32>)> {
+        let mut cands = Vec::new();
+        let mut stop = Feats::default();
+        let set_power: i32 = set
+            .iter()
+            .filter_map(|a| self.combatant(&a.attacker_id))
+            .map(|a| a.power)
+            .sum();
+        stop.conj("atk=stop");
+        stop.conj(format!("setN={}", (set.len() as i32).min(5)));
+        stop.conj(format!(
+            "setPower={}",
+            bucket(set_power, &[1, 4, 8, 15, 25])
+        ));
+        stop.conj(format!(
+            "remaining={}",
+            (input.attackers.len() as i32 - set.len() as i32).min(5)
+        ));
+        for c in &ctx.plain {
+            stop.plain(format!("stop|{c}"));
+        }
+        cands.push((None, stop.hash(ctx)));
+        for attacker in input
+            .attackers
+            .iter()
+            .filter(|a| !set.iter().any(|s| s.attacker_id == a.attacker_id))
+        {
+            let unit =
+                self.attacker_unit(attacker, &input.attackers, &input.attack_targets, set, ctx);
+            for (target, feats) in unit.cands.into_iter().skip(1) {
+                let target = target.unwrap_or_default();
+                cands.push((Some(format!("{}>{}", attacker.attacker_id, target)), feats));
+            }
+        }
+        cands
+    }
+
+    pub fn attack_steps(
+        &mut self,
+        prompt: &AgentPrompt,
+        truth: &[AttackAssignment],
+    ) -> Vec<FeatureUnit> {
+        self.ensure_view();
+        let PromptInput::ChooseAttackers(input) = &prompt.input else {
+            return Vec::new();
+        };
+        let ctx = self.prompt_context(&prompt.deciding_player_id, input.attackers.len());
+        let mut order: Vec<&AttackAssignment> = truth
+            .iter()
+            .filter(|t| {
+                input
+                    .attackers
+                    .iter()
+                    .any(|a| a.attacker_id == t.attacker_id)
+            })
+            .collect();
+        order.sort_by_key(|t| {
+            std::cmp::Reverse(self.combatant(&t.attacker_id).map_or(0, |c| c.power))
+        });
+        let mut set: Vec<AttackAssignment> = Vec::new();
+        let mut units = Vec::new();
+        for (step, next) in order
+            .iter()
+            .map(Some)
+            .chain(std::iter::once(None))
+            .enumerate()
+        {
+            let cands = self.attack_step(input, &set, &ctx);
+            let label = match next {
+                None => Some(0),
+                Some(next) => {
+                    let id = format!("{}>{}", next.attacker_id, next.target_id);
+                    cands
+                        .iter()
+                        .position(|(c, _)| c.as_deref() == Some(id.as_str()))
+                }
+            };
+            let Some(label) = label else {
+                break;
+            };
+            units.push(FeatureUnit {
+                unit: Some(step.to_string()),
+                cands,
+                label: Some(label),
+            });
+            if let Some(next) = next {
+                set.push((*next).clone());
+            }
+        }
+        units
+    }
+
+    pub fn attack_agreement(
+        &mut self,
+        prompt: &AgentPrompt,
+        truth: &[AttackAssignment],
+    ) -> Option<(usize, usize, usize)> {
+        self.ensure_view();
+        let PromptInput::ChooseAttackers(input) = &prompt.input else {
+            return None;
+        };
+        let player = prompt.deciding_player_id.clone();
+        let model = self.model_for(KIND_ATTACKERS);
+        let learned = model.map(|m| self.greedy_attacks(m, input, &player));
+        let rule = self.rule_attacks(&input.attackers, &input.attack_targets, &player);
+        let pick = |set: &[AttackAssignment], id: &str| {
+            set.iter()
+                .find(|a| a.attacker_id == id)
+                .map(|a| a.target_id.clone())
+        };
+        let mut model_hits = 0;
+        let mut rule_hits = 0;
+        for attacker in &input.attackers {
+            let want = pick(truth, &attacker.attacker_id);
+            if learned
+                .as_ref()
+                .is_some_and(|set| pick(set, &attacker.attacker_id) == want)
+            {
+                model_hits += 1;
+            }
+            if pick(&rule, &attacker.attacker_id) == want {
+                rule_hits += 1;
+            }
+        }
+        Some((input.attackers.len(), model_hits, rule_hits))
+    }
+
+    pub(crate) fn greedy_attacks(
+        &self,
+        model: &LinearModel,
+        input: &ChooseAttackersInput,
+        player_id: &str,
+    ) -> Vec<AttackAssignment> {
+        let ctx = self.prompt_context(player_id, input.attackers.len());
+        let mut set: Vec<AttackAssignment> = Vec::new();
+        for _ in 0..input.attackers.len() {
+            let cands = self.attack_step(input, &set, &ctx);
+            let best = cands
+                .iter()
+                .filter(|(id, _)| {
+                    id.as_ref().is_none_or(|id| {
+                        !self
+                            .failed_attack_targets
+                            .contains(id.split('>').nth(1).unwrap_or_default())
+                    })
+                })
+                .max_by(|x, y| {
+                    model
+                        .score(KIND_ATTACKERS, &x.1)
+                        .total_cmp(&model.score(KIND_ATTACKERS, &y.1))
+                });
+            match best.and_then(|(id, _)| id.clone()) {
+                None => break,
+                Some(id) => {
+                    let (attacker, target) = id.split_once('>').unwrap_or_default();
+                    set.push(AttackAssignment {
+                        attacker_id: attacker.to_string(),
+                        target_id: target.to_string(),
+                    });
+                }
+            }
+        }
+        for attacker in input.attackers.iter().filter(|a| a.must_attack) {
+            if !set.iter().any(|s| s.attacker_id == attacker.attacker_id) {
+                if let Some(target) = attacker.valid_target_ids.first() {
+                    set.push(AttackAssignment {
+                        attacker_id: attacker.attacker_id.clone(),
+                        target_id: target.clone(),
+                    });
+                }
+            }
+        }
+        set
     }
 
     pub(crate) fn blocker_unit(
@@ -725,6 +936,7 @@ impl SimpleAi {
         FeatureUnit {
             unit: Some(blocker_id.to_string()),
             cands,
+            label: None,
         }
     }
 

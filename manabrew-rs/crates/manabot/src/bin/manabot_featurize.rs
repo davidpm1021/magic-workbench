@@ -1,9 +1,13 @@
 use std::fs;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 
+use manabot::BotAgent;
 use manabot::SimpleAi;
 use manabrew_agent_interface::game_view_dto::GameViewDto;
-use manabrew_agent_interface::prompt::{AgentPrompt, PromptInput};
+use manabrew_agent_interface::prompt::{
+    AgentPrompt, ChooseActionOutput, ChooseBlockersOutput, PromptInput, PromptOutput,
+};
+use manabrew_protocol::prompts::common::AttackAssignment;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -43,6 +47,11 @@ fn main() {
     let mut out = BufWriter::new(fs::File::create(&output).expect("create output"));
     let mut rows = 0usize;
     let mut unparsed = 0usize;
+    let eval_model = arg("--eval-model", "");
+    let eval_holdout: u64 = arg("--holdout", "5").parse().unwrap();
+    let eval_weights =
+        (!eval_model.is_empty()).then(|| fs::read_to_string(&eval_model).expect("model"));
+    let mut eval = (0usize, 0usize, 0usize);
     let mut no_view = 0usize;
     let reader: Box<dyn BufRead> = if input == "-" {
         Box::new(BufReader::new(std::io::stdin()))
@@ -72,21 +81,62 @@ fn main() {
                 }
             }
         }
-        let (kind, units) = bot.prompt_features(&raw.prompt);
+        let (kind, mut units) = bot.prompt_features(&raw.prompt);
+        if let PromptInput::ChooseAttackers(attack) = &raw.prompt.input {
+            let truth: Vec<AttackAssignment> = attack
+                .ai_assignments
+                .clone()
+                .or_else(|| {
+                    raw.output
+                        .get("assignments")
+                        .and_then(|a| serde_json::from_value(a.clone()).ok())
+                })
+                .unwrap_or_default();
+            if attack.ai_assignments.is_none() && raw.output.get("assignments").is_none() {
+                continue;
+            }
+            units = bot.attack_steps(&raw.prompt, &truth);
+            if let Some(weights) = &eval_weights {
+                if eval_holdout > 0 && raw.seed.is_multiple_of(eval_holdout) {
+                    bot.set_model(weights).expect("model");
+                    if let Some((n, model_hits, rule_hits)) =
+                        bot.attack_agreement(&raw.prompt, &truth)
+                    {
+                        eval.0 += n;
+                        eval.1 += model_hits;
+                        eval.2 += rule_hits;
+                    }
+                }
+            }
+        }
         let empty = Vec::new();
         let (forge, mine, key, value): (Vec<Value>, Vec<Value>, &str, &str) =
             match &raw.prompt.input {
                 PromptInput::ChooseAction(action) => {
-                    let pick = action
-                        .actions
-                        .iter()
-                        .find(|a| a.ai_score.is_some_and(|s| s > 0))
-                        .map(|a| a.id.clone());
+                    let hinted = action.actions.iter().any(|a| a.ai_score.is_some());
                     let chosen = raw
                         .output
                         .get("actionId")
                         .and_then(Value::as_str)
                         .map(str::to_string);
+                    let (pick, chosen) = if hinted {
+                        (
+                            action
+                                .actions
+                                .iter()
+                                .find(|a| a.ai_score.is_some_and(|s| s > 0))
+                                .map(|a| a.id.clone()),
+                            chosen,
+                        )
+                    } else {
+                        let rule = match bot.decide(raw.prompt.clone()) {
+                            Some(PromptOutput::ChooseAction(ChooseActionOutput::Act {
+                                action_id,
+                            })) => Some(action_id),
+                            _ => None,
+                        };
+                        (chosen, rule)
+                    };
                     let entry = |id: Option<String>| {
                         vec![serde_json::json!({ "unit": Value::Null, "id": id })]
                     };
@@ -113,12 +163,30 @@ fn main() {
                         .as_ref()
                         .map(|a| serde_json::to_value(a).unwrap())
                         .and_then(|v| v.as_array().cloned())
-                        .unwrap_or(empty.clone()),
-                    raw.output
-                        .get("assignments")
-                        .and_then(Value::as_array)
-                        .cloned()
-                        .unwrap_or_default(),
+                        .unwrap_or_else(|| {
+                            raw.output
+                                .get("assignments")
+                                .and_then(Value::as_array)
+                                .cloned()
+                                .unwrap_or_default()
+                        }),
+                    if block.ai_assignments.is_some() {
+                        raw.output
+                            .get("assignments")
+                            .and_then(Value::as_array)
+                            .cloned()
+                            .unwrap_or_default()
+                    } else {
+                        match bot.decide(raw.prompt.clone()) {
+                            Some(PromptOutput::ChooseBlockers(
+                                ChooseBlockersOutput::DeclareBlockers { assignments },
+                            )) => serde_json::to_value(assignments)
+                                .ok()
+                                .and_then(|v| v.as_array().cloned())
+                                .unwrap_or_default(),
+                            _ => Vec::new(),
+                        }
+                    },
                     "blockerId",
                     "attackerId",
                 ),
@@ -143,10 +211,17 @@ fn main() {
                     assignment(&mine, key, &unit_id, value),
                 )
             };
-            let Some(label) = unit.cands.iter().position(|(id, _)| *id == forge_id) else {
+            let Some(label) = unit
+                .label
+                .or_else(|| unit.cands.iter().position(|(id, _)| *id == forge_id))
+            else {
                 continue;
             };
-            let bot_index = unit.cands.iter().position(|(id, _)| *id == chosen_id);
+            let bot_index = if unit.label.is_some() {
+                None
+            } else {
+                unit.cands.iter().position(|(id, _)| *id == chosen_id)
+            };
             let names: Vec<String> = unit
                 .cands
                 .iter()
@@ -175,4 +250,12 @@ fn main() {
     println!(
         "wrote {rows} rows to {output}; {unparsed} prompts unparsed, {no_view} views unparsed"
     );
+    if eval_weights.is_some() {
+        println!(
+            "held-out attackers: {} decisions, model {:.3}, rules {:.3}",
+            eval.0,
+            eval.1 as f32 / eval.0.max(1) as f32,
+            eval.2 as f32 / eval.0.max(1) as f32
+        );
+    }
 }
