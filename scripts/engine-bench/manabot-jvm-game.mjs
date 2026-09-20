@@ -150,6 +150,7 @@ const seats = Object.fromEntries(
       combatHinted: 0,
       combatAgreed: 0,
       botMs: 0,
+      blunders: {},
     },
   ]),
 );
@@ -190,6 +191,9 @@ while (true) {
     process.stderr.write(
       `${turn} ${parsedView?.step} seat${seat} ${prompt.input?.type} ${prompt.input?.presentation?.title ?? ""} -> ${JSON.stringify(action.output).slice(0, 4000)}\n`,
     );
+  }
+  for (const kind of blunders(prompt, parsedView, action.output, `player-${seat}`)) {
+    stats.blunders[kind] = (stats.blunders[kind] ?? 0) + 1;
   }
   if (prompt.input?.type === "chooseAction") {
     const actions = prompt.input.actions ?? [];
@@ -250,6 +254,114 @@ while (true) {
     }
   }
   await call({ command: "submitAction", sessionId: session, payload: JSON.stringify(action) });
+}
+
+// Behaviour-health counters: the things a person would call stupid, read off
+// the view and the bot's answer. Not a win-rate proxy; a list of complaints.
+function blunders(prompt, view, output, me) {
+  const found = [];
+  if (!view || !output) return found;
+  const input = prompt.input ?? {};
+  const cards = new Map();
+  for (const zone of view.zones ?? [])
+    for (const card of zone.cards ?? [])
+      if (card.visibility === "visible")
+        cards.set(card.id, { ...card, zone: zone.zone, owner: zone.ownerId });
+  const stat = (v) => Number.parseInt(v ?? "", 10) || 0;
+  const creatures = (owner) =>
+    [...cards.values()].filter(
+      (c) => c.zone === "battlefield" && c.owner === owner && c.types.includes("Creature"),
+    );
+  const oppCreatures = [...cards.values()].filter(
+    (c) => c.zone === "battlefield" && c.owner !== me && c.types.includes("Creature"),
+  );
+  const myLife = view.players.find((p) => p.id === me)?.life ?? 0;
+  const ownTurn = view.activePlayerId === me;
+  const stackEmpty = (view.stack ?? []).length === 0;
+  const kills = (a, b) =>
+    stat(a.power) > 0 &&
+    (a.keywords.includes("Deathtouch") || stat(a.power) >= stat(b.toughness) - (b.damage ?? 0)) &&
+    !b.keywords.includes("Indestructible");
+  if (input.type === "chooseAction") {
+    const actions = input.actions ?? [];
+    const chosen = output.type === "act" ? actions.find((a) => a.id === output.actionId) : null;
+    const castable = actions.filter((a) => a.type === "cast" && !a.label?.startsWith("Play "));
+    const landDrop = actions.find((a) => a.type === "cast" && a.label?.startsWith("Play "));
+    if (!chosen && ownTurn && view.step === "main2" && stackEmpty) {
+      if (landDrop) found.push("land_not_played");
+      if (
+        castable.some((a) =>
+          (cards.get(a.cardId)?.types ?? []).some((t) =>
+            ["Creature", "Artifact", "Enchantment", "Planeswalker"].includes(t),
+          ),
+        )
+      )
+        found.push("idle_with_castable");
+    }
+    if (chosen?.type === "cast") {
+      const card = cards.get(chosen.cardId);
+      const text = (card?.text ?? "").toLowerCase();
+      if (
+        card &&
+        (text.includes("destroy target creature") || text.includes("exile target creature")) &&
+        oppCreatures.length === 0
+      )
+        found.push("removal_no_target");
+      if (card && text.startsWith("counter target") && stackEmpty) found.push("counter_no_stack");
+      if (
+        card &&
+        card.types.includes("Instant") &&
+        ownTurn &&
+        (view.step === "upkeep" || view.step === "draw") &&
+        stackEmpty
+      )
+        found.push("instant_at_upkeep");
+    }
+  }
+  if (input.type === "chooseAttackers") {
+    const assigned = output.assignments ?? [];
+    const totalPower = assigned.reduce((sum, a) => sum + stat(cards.get(a.attackerId)?.power), 0);
+    for (const a of assigned) {
+      const attacker = cards.get(a.attackerId);
+      const targetLife = view.players.find((p) => p.id === a.targetId)?.life;
+      if (!attacker || targetLife == null || totalPower >= targetLife) continue;
+      const blockers = creatures(a.targetId).filter((b) => !b.tapped);
+      const suicidal = blockers.some((b) => kills(b, attacker) && !kills(attacker, b));
+      if (
+        suicidal &&
+        !attacker.keywords.some((k) =>
+          ["Flying", "Trample", "Menace", "Indestructible", "Deathtouch"].includes(k),
+        )
+      )
+        found.push("attack_into_losing_block");
+    }
+  }
+  if (input.type === "chooseBlockers") {
+    const assigned = output.assignments ?? [];
+    const incoming = (input.attackers ?? []).reduce(
+      (sum, a) => sum + stat(cards.get(a.attackerId)?.power),
+      0,
+    );
+    const blockedIds = new Set(assigned.map((b) => b.attackerId));
+    const unblocked = (input.attackers ?? [])
+      .filter((a) => !blockedIds.has(a.attackerId))
+      .reduce((sum, a) => sum + stat(cards.get(a.attackerId)?.power), 0);
+    const usedBlockers = new Set(assigned.map((b) => b.blockerId));
+    const blockable = (input.attackers ?? []).some(
+      (a) =>
+        !blockedIds.has(a.attackerId) &&
+        (a.validBlockerIds ?? []).some((id) => !usedBlockers.has(id)),
+    );
+    if (unblocked >= myLife && myLife > 0 && blockable) found.push("no_block_lethal");
+    for (const b of assigned) {
+      const blocker = cards.get(b.blockerId);
+      const attacker = cards.get(b.attackerId);
+      if (!blocker || !attacker) continue;
+      if (kills(attacker, blocker) && !kills(blocker, attacker) && myLife - incoming >= 15)
+        found.push("chump_at_high_life");
+    }
+  }
+  return found;
 }
 
 function logDecision(kind, parsedView, seat, unit, forgeId, chosenId, describe) {

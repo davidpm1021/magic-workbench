@@ -262,6 +262,156 @@ impl SimpleAi {
             .collect()
     }
 
+    fn is_land_play(&self, action: &AvailableAction) -> bool {
+        match &action.kind {
+            AvailableActionKind::Cast { card_id, label, .. } => {
+                label.starts_with("Play ")
+                    || self
+                        .card(card_id)
+                        .is_some_and(|card| card.types.iter().any(|ty| ty == "Land"))
+            }
+            _ => false,
+        }
+    }
+
+    fn opponent_creatures(&self, player_id: &str) -> Vec<&CardDto> {
+        self.view
+            .iter()
+            .flat_map(|view| &view.zones)
+            .filter(|zone| zone.zone == ZoneKind::Battlefield && zone.owner_id != player_id)
+            .flat_map(|zone| &zone.cards)
+            .filter_map(|card| match card {
+                CardView::Visible(card) if card.types.iter().any(|ty| ty == "Creature") => {
+                    Some(card)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn sane(&self, action: &AvailableAction, player_id: &str) -> bool {
+        let AvailableActionKind::Cast { card_id, .. } = &action.kind else {
+            return true;
+        };
+        if self.is_land_play(action) {
+            return true;
+        }
+        let Some(card) = self.card(card_id) else {
+            return true;
+        };
+        let Some(view) = self.view.as_ref() else {
+            return true;
+        };
+        let text = card.text.to_ascii_lowercase();
+        let own_turn = view.active_player_id == player_id;
+        let stack_empty = view.stack.is_empty();
+        let foreign_stack = view
+            .stack
+            .iter()
+            .any(|item| item.controller_id != player_id);
+        let opponents = self.opponent_creatures(player_id);
+        let creature_removal = text.contains("destroy target creature")
+            || text.contains("exile target creature")
+            || (text.contains("damage to target creature") && !text.contains("player"));
+        if creature_removal && opponents.is_empty() {
+            return false;
+        }
+        if text.starts_with("counter target") && !foreign_stack {
+            return false;
+        }
+        let wipe = text.contains("destroy all creatures")
+            || text.contains("exile all creatures")
+            || text.contains("each creature")
+                && (text.contains("destroy") || text.contains("-x/-x"));
+        if wipe {
+            let mine: i32 = self
+                .battlefield(player_id)
+                .filter(|c| c.types.iter().any(|ty| ty == "Creature"))
+                .map(Self::card_value)
+                .sum();
+            let theirs: i32 = opponents.iter().map(|c| Self::card_value(c)).sum();
+            if mine >= theirs {
+                return false;
+            }
+        }
+        let instant = card.types.iter().any(|ty| ty == "Instant")
+            || (card
+                .keywords
+                .iter()
+                .any(|k| k.eq_ignore_ascii_case("flash"))
+                && !card.types.iter().any(|ty| ty == "Creature"));
+        if instant && stack_empty {
+            let step = view.step;
+            let quiet_own = own_turn && matches!(step, StepKind::Upkeep | StepKind::Draw);
+            let quiet_theirs = !own_turn
+                && matches!(
+                    step,
+                    StepKind::Untap
+                        | StepKind::Upkeep
+                        | StepKind::Draw
+                        | StepKind::Main1
+                        | StepKind::Main2
+                        | StepKind::CombatBegin
+                );
+            if quiet_own || quiet_theirs {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn land_choice_score(&self, card: &CardDto, player_id: &str, alternatives: &[&CardDto]) -> i32 {
+        let mut supply = [0i32; 5];
+        let lands = self.lands_in_play(player_id) as i32;
+        for land in self
+            .battlefield(player_id)
+            .filter(|c| c.types.iter().any(|ty| ty == "Land"))
+        {
+            for color in Self::land_colors(land) {
+                if let Some(i) = "WUBRG".find(color) {
+                    supply[i] += 1;
+                }
+            }
+        }
+        let mut demand = [0i32; 5];
+        for hand_card in self
+            .view
+            .iter()
+            .flat_map(|view| &view.zones)
+            .filter(|zone| {
+                matches!(zone.zone, ZoneKind::Hand | ZoneKind::Command)
+                    && zone.owner_id == player_id
+            })
+            .flat_map(|zone| &zone.cards)
+            .filter_map(|card| match card {
+                CardView::Visible(card) => Some(card),
+                CardView::Hidden { .. } => None,
+            })
+            .filter(|c| !c.types.iter().any(|ty| ty == "Land") && c.cmc <= lands + 1)
+        {
+            let mut pips = [0i32; 5];
+            for symbol in hand_card.mana_cost.chars() {
+                if let Some(i) = "WUBRG".find(symbol) {
+                    pips[i] += 1;
+                }
+            }
+            for i in 0..5 {
+                demand[i] = demand[i].max(pips[i]);
+            }
+        }
+        let fixes = Self::land_colors(card)
+            .into_iter()
+            .filter_map(|color| "WUBRG".find(color))
+            .filter(|&i| demand[i] > supply[i])
+            .count()
+            .min(2) as i32;
+        let enters_tapped = card.text.contains("enters tapped");
+        let untapped_alternative = alternatives
+            .iter()
+            .any(|other| other.id != card.id && !other.text.contains("enters tapped"));
+        fixes * 20 - i32::from(enters_tapped && untapped_alternative) * 5
+    }
+
     fn action_score(&self, action: &AvailableAction, player_id: &str) -> i32 {
         match &action.kind {
             AvailableActionKind::Cast { card_id, label, .. } => {
@@ -271,13 +421,7 @@ impl SimpleAi {
                 if label.starts_with("Play ")
                     || card.types.iter().any(|card_type| card_type == "Land")
                 {
-                    let missing = self.missing_colors(player_id);
-                    let fixes = Self::land_colors(card)
-                        .iter()
-                        .filter(|color| missing.contains(color))
-                        .count() as i32;
-                    let enters_tapped = card.text.contains("enters tapped");
-                    return 1_000 + fixes * 20 - i32::from(enters_tapped) * 5;
+                    return 1_000 + self.land_choice_score(card, player_id, &[]);
                 }
                 let own_turn = self
                     .view
@@ -1054,11 +1198,6 @@ impl BotAgent for SimpleAi {
                 }))
             }
             PromptInput::ChooseAction(manabrew_protocol::prompts::choose_action::ChooseActionInput { actions }) => {
-                let counterable = self.view.as_ref().is_some_and(|view| {
-                    view.stack
-                        .iter()
-                        .any(|item| item.controller_id != deciding_player_id)
-                });
                 let pick = actions
                     .iter()
                     .filter(|action| {
@@ -1072,14 +1211,7 @@ impl BotAgent for SimpleAi {
                                 &action.kind,
                                 AvailableActionKind::ActivateAbility(info) if self.wasted_activation(info)
                             )
-                            && (counterable
-                                || !matches!(
-                                    &action.kind,
-                                    AvailableActionKind::Cast { card_id, .. }
-                                        if self.card(card_id).is_some_and(|card| {
-                                            card.text.to_ascii_lowercase().starts_with("counter target")
-                                        })
-                                ))
+                            && self.sane(action, &deciding_player_id)
                     })
                     .max_by_key(|action| self.action_score(action, &deciding_player_id));
                 let pick = match self.model_for(model::KIND_ACTION) {
@@ -1092,24 +1224,82 @@ impl BotAgent for SimpleAi {
                                 &action.kind,
                                 AvailableActionKind::ActivateAbility(info) if self.wasted_activation(info)
                             ))
+                            .filter(|action| self.sane(action, &deciding_player_id))
                             .collect();
-                        let ctx = self.prompt_context(&deciding_player_id, candidates.len());
-                        let pass_score =
-                            model.score(model::KIND_ACTION, &self.candidate_features(None, &ctx));
-                        candidates
+                        let own_main = self.view.as_ref().is_some_and(|view| {
+                            view.active_player_id == deciding_player_id
+                                && matches!(view.step, StepKind::Main1 | StepKind::Main2)
+                                && view.stack.is_empty()
+                        });
+                        let lands: Vec<&AvailableAction> = candidates
                             .iter()
-                            .map(|action| {
-                                (
-                                    *action,
-                                    model.score(
-                                        model::KIND_ACTION,
-                                        &self.candidate_features(Some(action), &ctx),
-                                    ),
-                                )
+                            .copied()
+                            .filter(|action| self.is_land_play(action))
+                            .collect();
+                        if own_main && !lands.is_empty() {
+                            let land_cards: Vec<&CardDto> = lands
+                                .iter()
+                                .filter_map(|action| match &action.kind {
+                                    AvailableActionKind::Cast { card_id, .. } => self.card(card_id),
+                                    _ => None,
+                                })
+                                .collect();
+                            lands.iter().copied().max_by_key(|action| match &action.kind {
+                                AvailableActionKind::Cast { card_id, .. } => self
+                                    .card(card_id)
+                                    .map_or(0, |card| {
+                                        self.land_choice_score(card, &deciding_player_id, &land_cards)
+                                    }),
+                                _ => 0,
                             })
-                            .filter(|(_, score)| *score > pass_score)
-                            .max_by(|a, b| a.1.total_cmp(&b.1))
-                            .map(|(action, _)| action)
+                        } else {
+                            let ctx = self.prompt_context(&deciding_player_id, candidates.len());
+                            let pass_score =
+                                model.score(model::KIND_ACTION, &self.candidate_features(None, &ctx));
+                            let scored: Vec<(&AvailableAction, f32)> = candidates
+                                .iter()
+                                .map(|action| {
+                                    (
+                                        *action,
+                                        model.score(
+                                            model::KIND_ACTION,
+                                            &self.candidate_features(Some(action), &ctx),
+                                        ),
+                                    )
+                                })
+                                .collect();
+                            let best = scored
+                                .iter()
+                                .filter(|(_, score)| *score > pass_score)
+                                .max_by(|a, b| a.1.total_cmp(&b.1))
+                                .map(|(action, _)| *action);
+                            let main2 = self.view.as_ref().is_some_and(|view| {
+                                view.active_player_id == deciding_player_id
+                                    && view.step == StepKind::Main2
+                                    && view.stack.is_empty()
+                            });
+                            if best.is_none() && main2 {
+                                scored
+                                    .iter()
+                                    .filter(|(action, _)| match &action.kind {
+                                        AvailableActionKind::Cast { card_id, .. } => {
+                                            self.card(card_id).is_some_and(|card| {
+                                                card.types.iter().any(|ty| {
+                                                    matches!(
+                                                        ty.as_str(),
+                                                        "Creature" | "Artifact" | "Enchantment" | "Planeswalker"
+                                                    )
+                                                })
+                                            })
+                                        }
+                                        _ => false,
+                                    })
+                                    .max_by(|a, b| a.1.total_cmp(&b.1))
+                                    .map(|(action, _)| *action)
+                            } else {
+                                best
+                            }
+                        }
                     }
                     None => pick,
                 };
