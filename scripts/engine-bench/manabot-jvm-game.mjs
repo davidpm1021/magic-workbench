@@ -285,18 +285,37 @@ function blunders(prompt, view, output, me) {
   if (input.type === "chooseAction") {
     const actions = input.actions ?? [];
     const chosen = output.type === "act" ? actions.find((a) => a.id === output.actionId) : null;
-    const sources = [...cards.values()].filter(
+    const sourceCards = [...cards.values()].filter(
       (c) =>
         c.zone === "battlefield" &&
         c.owner === me &&
         !c.tapped &&
         (c.types.includes("Land") || c.text.toLowerCase().includes("{t}: add")),
-    ).length;
+    );
+    const produced = (c) => {
+      const colors = new Set();
+      for (const [sub, color] of [
+        ["Plains", "W"],
+        ["Island", "U"],
+        ["Swamp", "B"],
+        ["Mountain", "R"],
+        ["Forest", "G"],
+      ])
+        if (c.subtypes.includes(sub)) colors.add(color);
+      for (const seg of c.text.split("Add ").slice(1))
+        for (const ch of seg.split(/[.\n]/)[0]) if ("WUBRG".includes(ch)) colors.add(ch);
+      return colors;
+    };
+    const supply = { W: 0, U: 0, B: 0, R: 0, G: 0 };
+    for (const c of sourceCards) for (const color of produced(c)) supply[color] += 1;
+    const affordable = (card) => {
+      if (!card || card.cmc > sourceCards.length) return false;
+      const pips = { W: 0, U: 0, B: 0, R: 0, G: 0 };
+      for (const ch of card.manaCost ?? "") if (ch in pips) pips[ch] += 1;
+      return Object.keys(pips).every((k) => pips[k] <= supply[k]);
+    };
     const castable = actions.filter(
-      (a) =>
-        a.type === "cast" &&
-        !a.label?.startsWith("Play ") &&
-        (cards.get(a.cardId)?.cmc ?? 99) <= sources,
+      (a) => a.type === "cast" && !a.label?.startsWith("Play ") && affordable(cards.get(a.cardId)),
     );
     const landDrop = actions.find((a) => a.type === "cast" && a.label?.startsWith("Play "));
     if (!chosen && ownTurn && view.step === "main2" && stackEmpty) {

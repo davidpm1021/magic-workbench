@@ -61,17 +61,31 @@ def blunders(prompt, view, output, me):
     if kind == "chooseAction":
         actions = inp.get("actions") or []
         chosen = next((a for a in actions if a["id"] == output.get("actionId")), None) if output.get("type") == "act" else None
-        sources = sum(
-            1
+        source_cards = [
+            c
             for c in battlefield
             if c["owner"] == me and not c.get("tapped") and ("Land" in c["types"] or "{t}: add" in c.get("text", "").lower())
-        )
+        ]
+        supply = collections.Counter()
+        for c in source_cards:
+            for sub, color in (("Plains", "W"), ("Island", "U"), ("Swamp", "B"), ("Mountain", "R"), ("Forest", "G")):
+                if sub in c.get("subtypes", []):
+                    supply[color] += 1
+            for seg in c.get("text", "").split("Add ")[1:]:
+                for ch in seg.split(".")[0].split("\n")[0]:
+                    if ch in "WUBRG":
+                        supply[ch] += 1
+
+        def affordable(card):
+            if not card or (card.get("cmc") or 99) > len(source_cards):
+                return False
+            pips = collections.Counter(ch for ch in (card.get("manaCost") or "") if ch in "WUBRG")
+            return all(pips[k] <= supply[k] for k in pips)
+
         castable = [
             a
             for a in actions
-            if a.get("type") == "cast"
-            and not (a.get("label") or "").startswith("Play ")
-            and (cards.get(a.get("cardId"), {}).get("cmc") or 99) <= sources
+            if a.get("type") == "cast" and not (a.get("label") or "").startswith("Play ") and affordable(cards.get(a.get("cardId")))
         ]
         land_drop = next((a for a in actions if a.get("type") == "cast" and (a.get("label") or "").startswith("Play ")), None)
         if chosen is None and own_turn and step == "main2" and stack_empty:
