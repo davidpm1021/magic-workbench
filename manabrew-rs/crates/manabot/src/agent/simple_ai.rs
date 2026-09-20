@@ -10,7 +10,9 @@ use manabrew_protocol::prompts::choose_from_selection::SelectionKind;
 use super::BotAgent;
 
 mod model;
+mod roles;
 pub use model::{FeatureUnit, LinearModel};
+use roles::Roles;
 
 /// How many recent prompts to remember when detecting a stuck loop.
 const LOOP_WINDOW: usize = 6;
@@ -328,6 +330,23 @@ impl SimpleAi {
         (0..5).all(|i| pips[i] <= colors[i])
     }
 
+    fn roles(card: &CardDto) -> Roles {
+        roles::lookup(&card.identity.name)
+    }
+
+    fn opponent_permanents(&self, player_id: &str) -> usize {
+        self.view
+            .iter()
+            .flat_map(|view| &view.zones)
+            .filter(|zone| zone.zone == ZoneKind::Battlefield && zone.owner_id != player_id)
+            .flat_map(|zone| &zone.cards)
+            .filter(|card| match card {
+                CardView::Visible(card) => !card.types.iter().any(|ty| ty == "Land"),
+                CardView::Hidden { .. } => false,
+            })
+            .count()
+    }
+
     fn sane(&self, action: &AvailableAction, player_id: &str) -> bool {
         let AvailableActionKind::Cast { card_id, .. } = &action.kind else {
             return true;
@@ -352,16 +371,38 @@ impl SimpleAi {
             .iter()
             .any(|item| item.controller_id != player_id);
         let opponents = self.opponent_creatures(player_id);
+        let roles = Self::roles(card);
         let creature_removal = text.contains("destroy target creature")
             || text.contains("exile target creature")
             || (text.contains("damage to target creature") && !text.contains("player"));
         if creature_removal && opponents.is_empty() {
             return false;
         }
-        if text.starts_with("counter target") && !foreign_stack {
+        if roles.contains(Roles::REMOVAL)
+            && !roles.contains(Roles::BURN)
+            && self.opponent_permanents(player_id) == 0
+        {
             return false;
         }
-        let wipe = text.contains("destroy all creatures")
+        if (roles.contains(Roles::COUNTERSPELL) || text.starts_with("counter target"))
+            && !foreign_stack
+        {
+            return false;
+        }
+        if roles.contains(Roles::COMBAT_PUMP)
+            && stack_empty
+            && !card.types.iter().any(|ty| ty == "Creature")
+            && !matches!(
+                view.step,
+                StepKind::CombatDeclareAttackers
+                    | StepKind::CombatDeclareBlockers
+                    | StepKind::CombatFirstStrikeDamage
+            )
+        {
+            return false;
+        }
+        let wipe = roles.contains(Roles::SWEEPER)
+            || text.contains("destroy all creatures")
             || text.contains("exile all creatures")
             || text.contains("each creature")
                 && (text.contains("destroy") || text.contains("-x/-x"));
@@ -501,13 +542,24 @@ impl SimpleAi {
                     score += (120 - card.cmc * 12).max(0);
                 }
                 let text = card.text.to_ascii_lowercase();
+                let roles = Self::roles(card);
                 let ramp = Self::is_mana_source(card)
+                    || roles.intersects(Roles::RAMP | Roles::MANA_DORK | Roles::LAND_FETCH)
                     || (text.contains("search your library for") && text.contains("land card"));
                 if ramp && self.lands_in_play(player_id) < 6 {
                     score += 60;
                 }
-                if text.contains("draw a card") || text.contains("draw two") {
+                if roles.contains(Roles::DRAW)
+                    || text.contains("draw a card")
+                    || text.contains("draw two")
+                {
                     score += 35;
+                }
+                if roles.contains(Roles::REMOVAL) {
+                    score += 30;
+                }
+                if roles.contains(Roles::TOKENS) {
+                    score += 20;
                 }
                 if text.contains("whenever you cast")
                     && text.contains("creature spell")
@@ -1691,17 +1743,15 @@ impl BotAgent for SimpleAi {
                     PayManaCostOutput::Act {
                         action_id: action.id.clone(),
                     }
+                } else if input.actions.is_empty()
+                    || self.payment_attempt.as_deref() == Some(input.card_id.as_str())
+                {
+                    self.fail_attack_target(&input.card_id);
+                    self.payment_attempt = None;
+                    PayManaCostOutput::Cancel
                 } else {
-                    if input.actions.is_empty()
-                        || self.payment_attempt.as_deref() == Some(input.card_id.as_str())
-                    {
-                        self.fail_attack_target(&input.card_id);
-                        self.payment_attempt = None;
-                        PayManaCostOutput::Cancel
-                    } else {
-                        self.payment_attempt = Some(input.card_id.clone());
-                        PayManaCostOutput::Pay { auto: true }
-                    }
+                    self.payment_attempt = Some(input.card_id.clone());
+                    PayManaCostOutput::Pay { auto: true }
                 };
                 Some(PromptOutput::PayManaCost(payment))
             }
