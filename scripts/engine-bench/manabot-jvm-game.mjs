@@ -285,7 +285,19 @@ function blunders(prompt, view, output, me) {
   if (input.type === "chooseAction") {
     const actions = input.actions ?? [];
     const chosen = output.type === "act" ? actions.find((a) => a.id === output.actionId) : null;
-    const castable = actions.filter((a) => a.type === "cast" && !a.label?.startsWith("Play "));
+    const sources = [...cards.values()].filter(
+      (c) =>
+        c.zone === "battlefield" &&
+        c.owner === me &&
+        !c.tapped &&
+        (c.types.includes("Land") || c.text.toLowerCase().includes("{t}: add")),
+    ).length;
+    const castable = actions.filter(
+      (a) =>
+        a.type === "cast" &&
+        !a.label?.startsWith("Play ") &&
+        (cards.get(a.cardId)?.cmc ?? 99) <= sources,
+    );
     const landDrop = actions.find((a) => a.type === "cast" && a.label?.startsWith("Play "));
     if (!chosen && ownTurn && view.step === "main2" && stackEmpty) {
       if (landDrop) found.push("land_not_played");

@@ -289,6 +289,45 @@ impl SimpleAi {
             .collect()
     }
 
+    fn mana_sources(&self, player_id: &str) -> ([i32; 5], i32) {
+        let mut colors = [0i32; 5];
+        let mut total = 0;
+        for card in self
+            .battlefield(player_id)
+            .filter(|card| !card.tapped && Self::is_mana_source(card))
+        {
+            total += 1;
+            for color in Self::land_colors(card) {
+                if let Some(i) = "WUBRG".find(color) {
+                    colors[i] += 1;
+                }
+            }
+        }
+        (colors, total)
+    }
+
+    fn affordable(&self, card: &CardDto, player_id: &str) -> bool {
+        let cost = card
+            .effective_mana_cost
+            .as_deref()
+            .unwrap_or(card.mana_cost.as_str());
+        if cost.contains('X') || cost.contains('/') || card.cmc == 0 && cost.is_empty() {
+            return true;
+        }
+        let (colors, total) = self.mana_sources(player_id);
+        let tax = card.commander_tax.unwrap_or(0);
+        if card.cmc + tax > total {
+            return false;
+        }
+        let mut pips = [0i32; 5];
+        for symbol in cost.chars() {
+            if let Some(i) = "WUBRG".find(symbol) {
+                pips[i] += 1;
+            }
+        }
+        (0..5).all(|i| pips[i] <= colors[i])
+    }
+
     fn sane(&self, action: &AvailableAction, player_id: &str) -> bool {
         let AvailableActionKind::Cast { card_id, .. } = &action.kind else {
             return true;
@@ -299,6 +338,9 @@ impl SimpleAi {
         let Some(card) = self.card(card_id) else {
             return true;
         };
+        if !self.affordable(card, player_id) {
+            return false;
+        }
         let Some(view) = self.view.as_ref() else {
             return true;
         };
@@ -619,27 +661,19 @@ impl SimpleAi {
     }
 
     fn should_attack(&self, attacker_id: &str, target_id: &str) -> bool {
-        let Some(attacker) = self.card(attacker_id) else {
+        let (Some(attacker), Some(me)) = (self.card(attacker_id), self.combatant(attacker_id))
+        else {
             return true;
         };
-        let power = attacker
-            .power
-            .as_deref()
-            .and_then(|value| value.parse::<i32>().ok())
-            .unwrap_or(0);
-        let attack_trigger = attacker.text.to_ascii_lowercase().contains("whenever")
-            && attacker.text.to_ascii_lowercase().contains(" attacks");
-        if attack_trigger {
-            return true;
-        }
-        if power <= 0 {
+        if me.power <= 0 {
             return false;
         }
         let Some(view) = &self.view else {
             return true;
         };
-        let attacker_flying = Self::has_keyword(attacker, "Flying");
-        let blockers = view
+        let flying = Self::has_keyword(attacker, "Flying");
+        let menace = Self::has_keyword(attacker, "Menace");
+        let blockers: Vec<Combatant> = view
             .zones
             .iter()
             .filter(|zone| zone.zone == ZoneKind::Battlefield && zone.owner_id == target_id)
@@ -648,42 +682,23 @@ impl SimpleAi {
                 CardView::Visible(card)
                     if card.types.iter().any(|card_type| card_type == "Creature")
                         && !card.tapped
-                        && (!attacker_flying
+                        && (!flying
                             || Self::has_keyword(card, "Flying")
                             || Self::has_keyword(card, "Reach")) =>
                 {
-                    Some(card)
+                    self.combatant(&card.id)
                 }
                 _ => None,
-            });
-        if Self::has_keyword(attacker, "Indestructible")
-            || Self::has_keyword(attacker, "Deathtouch")
-            || Self::has_keyword(attacker, "Trample")
-        {
-            return true;
+            })
+            .collect();
+        let losing = |blocker: &Combatant| {
+            Self::can_destroy(blocker, &me) && !Self::can_destroy(&me, blocker)
+        };
+        if menace {
+            let killers = blockers.iter().filter(|b| losing(b)).count();
+            return killers < 2;
         }
-        !blockers.into_iter().any(|blocker| {
-            let blocker_power = blocker
-                .power
-                .as_deref()
-                .and_then(|value| value.parse::<i32>().ok())
-                .unwrap_or(0);
-            let blocker_toughness = blocker
-                .toughness
-                .as_deref()
-                .and_then(|value| value.parse::<i32>().ok())
-                .unwrap_or(0);
-            let attacker_toughness = attacker
-                .toughness
-                .as_deref()
-                .and_then(|value| value.parse::<i32>().ok())
-                .unwrap_or(0);
-            let attacker_dies =
-                blocker_power >= attacker_toughness || Self::has_keyword(blocker, "Deathtouch");
-            let blocker_survives =
-                power < blocker_toughness && !Self::has_keyword(attacker, "Double strike");
-            attacker_dies && blocker_survives
-        })
+        !blockers.iter().any(losing)
     }
 
     fn rule_attacks(
