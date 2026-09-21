@@ -14,9 +14,8 @@ whether to pay an optional cost such as buyback when casting a spell.
 
 <ProtocolType slug="choose-boolean" />
 
-`kind`, when present, names the question: an optional trigger, a replacement
-effect such as dredge, a payment to confirm, a coin flip. Engines that do not
-know leave it out.
+`kind` is optional. It tells you which sort of question this is, so a bot
+does not have to guess from the title.
 
 ## Rendering
 
