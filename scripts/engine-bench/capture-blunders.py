@@ -5,7 +5,8 @@ Same definitions as `blunders()` in manabot-jvm-game.mjs, read off the seat's
 view (rebuilt from state patches), the prompt and the response. Output: counts
 per 100 seat-games, so a prod bot can be compared with a rig population.
 
-    capture-blunders.py <captures dir> [--since YYYY-MM-DD] [--seats bots|humans] [--limit N]
+    capture-blunders.py <captures dir> [--since YYYY-MM-DD] [--day YYYY-MM-DD] [--after ISO-8601]
+        [--seats bots|humans] [--limit N]
 """
 import collections
 import json
@@ -131,7 +132,7 @@ def blunders(prompt, view, output, me):
     return found
 
 
-def game(path, want_bots):
+def game(path, want_bots, after=None):
     try:
         raw = subprocess.run(["zstd", "-dcq", path], capture_output=True, timeout=300).stdout
     except Exception:
@@ -144,6 +145,8 @@ def game(path, want_bots):
     except Exception:
         return None
     if head.get("event") != "game_started" or str(head.get("engine", "")).lower() != "forge":
+        return None
+    if after and str(head.get("ts", "")) < after:
         return None
     players = head.get("players") or []
     if any(str(p.get("username", "")).lower().startswith(("loadtest", "probe")) for p in players):
@@ -194,17 +197,19 @@ def game(path, want_bots):
 def main():
     root = sys.argv[1]
     since = arg("--since", "0000-00-00")
+    only = arg("--day")
+    after = arg("--after")
     want_bots = arg("--seats", "bots") == "bots"
     limit = int(arg("--limit", "0"))
     seat_games = prompts = games = 0
     total = collections.Counter()
     for day in sorted(os.listdir(root)):
-        if day < since or not os.path.isdir(os.path.join(root, day)):
+        if day < since or (only and day != only) or not os.path.isdir(os.path.join(root, day)):
             continue
         for name in sorted(os.listdir(os.path.join(root, day))):
             if not name.endswith(".zst"):
                 continue
-            result = game(os.path.join(root, day, name), want_bots)
+            result = game(os.path.join(root, day, name), want_bots, after)
             if not result:
                 continue
             n, p, counts = result
