@@ -4398,7 +4398,7 @@ dependencies = [
 
 [[package]]
 name = "manabrew"
-version = "3.48.0"
+version = "3.48.1"
 dependencies = [
  "flate2",
  "forge-carddb",
@@ -4555,7 +4555,7 @@ dependencies = [
 
 [[package]]
 name = "manabrew-server"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "aws-lc-rs",
  "axum",
