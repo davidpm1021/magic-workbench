@@ -59,7 +59,9 @@ export function WorkbenchPanel() {
 
   const [showConfig, setShowConfig] = useState(false);
   const promptSupported = isWorkbenchAiPrompt(currentPrompt);
-  const currentPromptId = Number(currentPrompt?.promptId ?? 0);\n  const recommendationIsCurrent =\n    recommendation != null && recommendation.promptId === currentPromptId;
+  const currentPromptId = Number(currentPrompt?.promptId ?? 0);
+  const recommendationIsCurrent =
+    recommendation != null && recommendation.promptId === currentPromptId;
 
   const actionCount = useMemo(() => {
     if (!currentPrompt) return 0;
