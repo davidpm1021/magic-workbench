@@ -92,6 +92,18 @@ function workbenchAiProxy(): Plugin {
                 type?: string;
                 content?: Array<{ type?: string; text?: string }>;
               }>;
+              usage?: {
+                input_tokens?: number;
+                input_tokens_details?: {
+                  cached_tokens?: number;
+                  cache_write_tokens?: number;
+                };
+                output_tokens?: number;
+                output_tokens_details?: {
+                  reasoning_tokens?: number;
+                };
+                total_tokens?: number;
+              };
             };
 
             if (!upstream.ok) {
@@ -124,6 +136,22 @@ function workbenchAiProxy(): Plugin {
             res.end(
               JSON.stringify({
                 choices: [{ message: { content: text } }],
+                workbenchUsage: payload.usage
+                  ? {
+                      inputTokens: payload.usage.input_tokens ?? 0,
+                      cachedInputTokens:
+                        payload.usage.input_tokens_details?.cached_tokens ?? 0,
+                      cacheWriteTokens:
+                        payload.usage.input_tokens_details?.cache_write_tokens ?? 0,
+                      outputTokens: payload.usage.output_tokens ?? 0,
+                      reasoningTokens:
+                        payload.usage.output_tokens_details?.reasoning_tokens ?? 0,
+                      totalTokens:
+                        payload.usage.total_tokens ??
+                        (payload.usage.input_tokens ?? 0) +
+                          (payload.usage.output_tokens ?? 0),
+                    }
+                  : null,
               }),
             );
             return;
@@ -140,13 +168,45 @@ function workbenchAiProxy(): Plugin {
             body: JSON.stringify(chatBody),
           });
 
-          const body = Buffer.from(await upstream.arrayBuffer());
+          const payload = (await upstream.json().catch(() => ({}))) as {
+            usage?: {
+              prompt_tokens?: number;
+              completion_tokens?: number;
+              total_tokens?: number;
+              prompt_tokens_details?: {
+                cached_tokens?: number;
+                cache_write_tokens?: number;
+              };
+              completion_tokens_details?: {
+                reasoning_tokens?: number;
+              };
+            };
+            [key: string]: unknown;
+          };
+          const usage = payload.usage;
           res.statusCode = upstream.status;
-          res.setHeader(
-            "Content-Type",
-            upstream.headers.get("content-type") || "application/json",
+          res.setHeader("Content-Type", "application/json");
+          res.end(
+            JSON.stringify({
+              ...payload,
+              ...(usage
+                ? {
+                    workbenchUsage: {
+                      inputTokens: usage.prompt_tokens ?? 0,
+                      cachedInputTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+                      cacheWriteTokens:
+                        usage.prompt_tokens_details?.cache_write_tokens ?? 0,
+                      outputTokens: usage.completion_tokens ?? 0,
+                      reasoningTokens:
+                        usage.completion_tokens_details?.reasoning_tokens ?? 0,
+                      totalTokens:
+                        usage.total_tokens ??
+                        (usage.prompt_tokens ?? 0) + (usage.completion_tokens ?? 0),
+                    },
+                  }
+                : {}),
+            }),
           );
-          res.end(body);
         } catch (error) {
           res.statusCode = 502;
           res.setHeader("Content-Type", "application/json");
