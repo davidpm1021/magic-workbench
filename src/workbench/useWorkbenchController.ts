@@ -49,9 +49,29 @@ export function useWorkbenchController(paused = false): void {
   ]);
 
   useEffect(() => {
+    if (paused || controllerMode !== "thinking-ai" || isWaitingForResponse) return;
+    if (currentPrompt?.input.type !== "payManaCost") return;
+    if (!currentPrompt.input.canConfirmFromPool) return;
+
+    setStatus({
+      kind: "idle",
+      message: "Confirmed mana payment deterministically because the pool satisfies the cost.",
+    });
+    void respond({ type: "pay", auto: false });
+  }, [
+    paused,
+    controllerMode,
+    currentPrompt,
+    isWaitingForResponse,
+    respond,
+    setStatus,
+  ]);
+
+  useEffect(() => {
     if (paused || controllerMode !== "thinking-ai") return;
     if (!currentPrompt || isWaitingForResponse) return;
     if (autoYieldTrivial && currentPrompt.input.type === "chooseAction" && currentPrompt.input.actions.length === 0) return;
+    if (currentPrompt.input.type === "payManaCost" && currentPrompt.input.canConfirmFromPool) return;
 
     const deterministic = resolvePrompt(currentPrompt, { prefs: { show: showOverrides } });
     if (deterministic.kind === "auto") return;
@@ -128,7 +148,28 @@ export function useWorkbenchController(paused = false): void {
           return;
         }
 
+        const recentSame = latestWorkbench.history
+          .slice(-3)
+          .reverse()
+          .filter(
+            (item) =>
+              item.gameId === recommendation.gameId &&
+              item.promptFingerprint === recommendation.promptFingerprint &&
+              JSON.stringify(item.output) === JSON.stringify(recommendation.output),
+          ).length;
+
         setRecommendation(recommendation);
+
+        if (recentSame >= 2) {
+          latestWorkbench.setControllerMode("assisted");
+          setStatus({
+            kind: "paused",
+            message:
+              "Loop guard stopped AI takeover after the same decision repeated three times. Review this prompt manually.",
+          });
+          return;
+        }
+
         setStatus({
           kind: "ready",
           message: recommendation.reason,
