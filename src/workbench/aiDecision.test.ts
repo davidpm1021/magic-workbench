@@ -73,7 +73,10 @@ describe("Workbench AI decision boundary", () => {
     expect(result.output).toEqual({ type: "act", actionId: "cast-1" });
     expect(result.reason).toBe("Develop the board.");
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("/workbench-ai/chat/completions");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/workbench-ai/chat/completions",
+      expect.objectContaining({ method: "POST" }),
+    );
 
     vi.unstubAllGlobals();
   });
