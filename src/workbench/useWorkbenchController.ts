@@ -4,7 +4,6 @@ import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import {
   isWorkbenchAiPrompt,
   requestWorkbenchDecision,
-  workbenchChoiceToOutput,
 } from "./aiDecision";
 
 export function useWorkbenchController(paused = false): void {
@@ -85,7 +84,7 @@ export function useWorkbenchController(paused = false): void {
           kind: "ready",
           message: recommendation.reason,
         });
-        await respond(workbenchChoiceToOutput(recommendation.choice));
+        await respond(recommendation.output);
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
