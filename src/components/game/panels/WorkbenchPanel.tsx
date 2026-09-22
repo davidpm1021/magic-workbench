@@ -9,7 +9,6 @@ import {
 import {
   isWorkbenchAiPrompt,
   requestWorkbenchDecision,
-  workbenchChoiceToOutput,
 } from "@/workbench/aiDecision";
 
 const CONTROLLER_OPTIONS: Array<{
@@ -102,7 +101,7 @@ export function WorkbenchPanel() {
   const actOnce = async () => {
     if (!recommendationIsCurrent || !recommendation || isWaitingForResponse) return;
     setStatus({ kind: "ready", message: `Executing: ${recommendation.reason}` });
-    await respond(workbenchChoiceToOutput(recommendation.choice));
+    await respond(recommendation.output);
   };
 
   const fastForward = async () => {
@@ -114,11 +113,7 @@ export function WorkbenchPanel() {
     await respond({ type: "pass", exhaustStack: true });
   };
 
-  const recommendationLabel = recommendation
-    ? recommendation.choice.kind === "pass"
-      ? "Pass priority"
-      : recommendation.choice.actionId
-    : null;
+  const recommendationLabel = recommendation?.label ?? null;
 
   return (
     <div className="min-h-0 flex-1 space-y-3 text-xs">
@@ -207,8 +202,8 @@ export function WorkbenchPanel() {
 
         {!promptSupported && currentPrompt ? (
           <p className="text-[10px] text-muted-foreground">
-            v0.1 AI automation currently handles chooseAction and payManaCost. Other decision
-            families pause for manual input.
+            This prompt is informational or not yet supported by Thinking AI. It remains under
+            manual control.
           </p>
         ) : null}
       </section>
