@@ -1,6 +1,7 @@
 import type { Prompt, PromptOutput } from "@/protocol";
 import type { ClientGameView } from "@/stores/gameStore.types";
 import type { WorkbenchRecommendation } from "@/stores/useWorkbenchStore";
+import { classifyWorkbenchDecision } from "./decisionImportance";
 
 export interface WorkbenchAiRequest {
   baseUrl: string;
@@ -63,6 +64,7 @@ export async function requestWorkbenchDecision(
   request: WorkbenchAiRequest,
 ): Promise<WorkbenchRecommendation> {
   const { prompt, gameView } = request;
+  const startedAt = performance.now();
   if (!isWorkbenchAiPrompt(prompt)) {
     throw new Error(`Thinking AI does not support ${prompt.input.type}.`);
   }
@@ -121,12 +123,17 @@ export async function requestWorkbenchDecision(
       ? parsed.reason.trim()
       : "Model selected a validated legal response.";
 
+  const classification = classifyWorkbenchDecision(prompt);
+
   return {
     promptId: Number(prompt.promptId ?? 0),
     output,
     label: describeOutput(output),
     reason,
     model: request.model.trim(),
+    promptType: prompt.input.type,
+    importance: classification.importance,
+    latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
     createdAt: Date.now(),
   };
 }
