@@ -20,8 +20,8 @@ import { intentIsHostile } from "@/types/promptType";
 import type { BoardScene } from "./board/BoardScene";
 import type { ScreenBounds } from "./types";
 import { useKeybindings } from "@/hooks/useKeybindings";
-import { PromptLayer } from "./prompts/PromptLayer";
-import type { PromptOverlaySpec } from "./prompts/prompt.types";
+import type { PromptLayer } from "./prompts/PromptLayer";
+import type { PromptLayerCallbacks, PromptOverlaySpec } from "./prompts/prompt.types";
 import {
   RulesCardPreviewLayer,
   type RulesPreviewActionGlowBounds,
@@ -93,7 +93,7 @@ function updateRulesPreviewBackdrop(
   }
 }
 
-interface BoardOverlayCanvasProps {
+export interface BoardOverlayCanvasProps {
   scene: BoardScene | null;
   stackSpec: StackSpec;
   onTargetSpell: (spellId: string) => void;
@@ -114,6 +114,11 @@ interface BoardOverlayCanvasProps {
   onFlipPreview?: () => void;
   onTogglePreviewView?: () => void;
   onLongPressCard?: (card: CardDto, anchor: DOMRect) => void;
+}
+type PromptLayerFactory = (app: Application, callbacks: PromptLayerCallbacks) => PromptLayer;
+
+interface BoardOverlayCanvasSurfaceProps extends BoardOverlayCanvasProps {
+  createPromptLayer: PromptLayerFactory;
 }
 function syncPromptViewport(
   prompt: PromptLayer,
@@ -236,7 +241,7 @@ function syncRulesPreviewActionGlow(
   state.visible = true;
 }
 
-export function BoardOverlayCanvas({
+export function BoardOverlayCanvasSurface({
   scene,
   stackSpec,
   onTargetSpell,
@@ -257,7 +262,8 @@ export function BoardOverlayCanvas({
   onFlipPreview,
   onTogglePreviewView,
   onLongPressCard,
-}: BoardOverlayCanvasProps) {
+  createPromptLayer,
+}: BoardOverlayCanvasSurfaceProps) {
   const theme = useTheme();
   const { i18n } = useLingui();
   const locale = i18n.locale;
@@ -484,7 +490,7 @@ export function BoardOverlayCanvas({
         stack.setSpec(stackSpecRef.current);
         stack.setRulesViewDefault(stackCardStyleRef.current === "rules");
 
-        const promptLayer = new PromptLayer(app, {
+        const promptLayer = createPromptLayer(app, {
           onReferenceChange: (target: TargetRef | null) => {
             const sceneTarget = target?.kind === "spell" ? null : target;
             sceneRef.current?.setPromptReference(sceneTarget);
@@ -620,7 +626,7 @@ export function BoardOverlayCanvas({
       if (initialized) teardown();
       else if (appRef.current === app) appRef.current = null;
     };
-  }, []);
+  }, [createPromptLayer]);
 
   useEffect(() => {
     stackSpecRef.current = stackSpec;

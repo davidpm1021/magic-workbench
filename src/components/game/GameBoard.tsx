@@ -4,40 +4,27 @@ import type { CardDto, DayTime } from "@/protocol/game";
 import type { ClientPlayerDto } from "@/stores/gameStore.types";
 import type { Prompt, StepKind } from "@/protocol";
 import { validCardIdsInCards, type BoardTargetBuckets } from "@/lib/boardTargets";
-import { PHASE_CONTROLS } from "@/components/game/panels/MobilePhaseStops";
 import type { PreviewPointerInput } from "@/lib/cardPreview";
 import { stripUsernameTag } from "@/lib/username";
 import { nextHandOrderMode } from "@/lib/handOrder";
 import { type ZonePanelItem } from "@/stores/usePreferencesStore";
-import { BoardCanvas, type BoardCanvasLayout, type BoardCanvasRegion } from "@/pixi/BoardCanvas";
-import {
-  BoardOverlayCanvas,
-  type BoardOverlayCommandPreviewSpec,
-  type BoardOverlayPreviewSpec,
+import { type BoardCanvasLayout, type BoardCanvasRegion } from "@/pixi/BoardCanvas";
+import type {
+  BoardOverlayCommandPreviewSpec,
+  BoardOverlayPreviewSpec,
 } from "@/pixi/BoardOverlayCanvas";
 import type { StackSpec } from "@/pixi/stack/stack.types";
 import type { CombatRow } from "@/components/game/combatRows";
 import type { BoardScene } from "@/pixi/board/BoardScene";
 import { boardAmbientColor, boardBackgroundUrl } from "@/pixi/board/boardBackgrounds";
-import {
-  DESKTOP_BATTLEFIELD_LAYOUT,
-  MOBILE_BATTLEFIELD_LAYOUT,
-} from "@/pixi/board/battlefieldLayoutPolicy";
 import type { PlayerHudSpec, PlayerHudBadge, PlayerHudFact } from "@/pixi/hud/playerHud.types";
 import type { PromptOverlaySpec } from "@/pixi/prompts/prompt.types";
 import type { PhaseStripCallbacks, PhaseStripState } from "@/pixi/PhaseStripLayer";
 import { buildPlayerHudBadges, buildZoneBadges } from "@/components/game/panels/playerHudBadges";
 import { PlayerSheetModal } from "@/components/game/panels/PlayerSheetModal";
 import { GlobalStateRail } from "@/components/game/panels/GlobalStateRail";
-import { MobilePhaseStops } from "@/components/game/panels/MobilePhaseStops";
-import { MobileHandControl } from "@/components/game/panels/MobileHandControl";
-import { DialogCardBrowser } from "@/components/game/modals/DialogCardBrowser";
-import { Modal } from "@/components/game/modals/Modal";
-import { Button } from "@/components/ui/button";
-import {
-  PROMPT_CARD_MODAL_MAX_WIDTH_CLASS,
-  PROMPT_MODAL_HEIGHT_CLASS,
-} from "@/components/game/game.constants";
+import { DesktopGameScene } from "@/components/game/DesktopGameScene";
+import { MobileGameScene } from "@/components/game/MobileGameScene";
 import type { ZoneTileSpec } from "@/pixi/board/BoardZoneTiles";
 import { usePreferencesStore } from "@/stores/usePreferencesStore";
 import { useAssetUrl } from "@/stores/useAssetStore";
@@ -105,7 +92,6 @@ function graveyardCardTypeCount(cards: CardDto[]): number {
   }
   return present.size;
 }
-type MobileBoardPanel = { kind: "phases" };
 
 interface GameBoardProps {
   me: ClientPlayerDto;
@@ -326,17 +312,9 @@ export function GameBoard({
   const toggleSelfStop = usePhaseStopStore((s) => s.toggleSelfStop);
   const vScale = useHandScale();
   const compactBoard = useIsMobileGame();
-  const layoutPolicy = compactBoard ? MOBILE_BATTLEFIELD_LAYOUT : DESKTOP_BATTLEFIELD_LAYOUT;
-  const [mobileHandControlBounds, setMobileHandControlBounds] = useState<DOMRect | null>(null);
-  const [mobileHandPeek, setMobileHandPeek] = useState(false);
-  const [revealBrowseCards, setRevealBrowseCards] = useState<CardDto[] | null>(null);
-  const selfBottomReserve = layoutPolicy.reserveHandSpace
-    ? Math.round(
-        ((1 - HAND_BOTTOM_SINK_FRAC) * HAND_CARD_BASE.cardH * vScale + GAP) * HAND_RESERVE_TRIM,
-      )
-    : mobileHandControlBounds
-      ? mobileHandControlBounds.height + GAP
-      : 0;
+  const selfBottomReserve = Math.round(
+    ((1 - HAND_BOTTOM_SINK_FRAC) * HAND_CARD_BASE.cardH * vScale + GAP) * HAND_RESERVE_TRIM,
+  );
   const opponentLayout = usePreferencesStore((s) => s.opponentLayout);
 
   const isTargetingPrompt = promptType === "chooseBoardTargets";
@@ -350,68 +328,6 @@ export function GameBoard({
   const [dragAttackerId, setDragAttackerId] = useState<string | null>(null);
   const [sheetPlayerId, setSheetPlayerId] = useState<string | null>(null);
   const gameOver = useGameStore((state) => state.gameView?.gameOver);
-  const [mobilePanelState, setMobilePanelState] = useState<{
-    compact: boolean;
-    panel: MobileBoardPanel | null;
-  }>({ compact: compactBoard, panel: null });
-  const mobilePanel = mobilePanelState.compact === compactBoard ? mobilePanelState.panel : null;
-  const setMobilePanel = useCallback(
-    (panel: MobileBoardPanel | null) => {
-      setMobilePanelState({ compact: compactBoard, panel });
-    },
-    [compactBoard, setMobilePanelState],
-  );
-  const [mobileHandState, setMobileHandState] = useState({
-    compact: compactBoard,
-    open: false,
-  });
-  const mobileHandOpen =
-    compactBoard &&
-    (!!handSelectionMode || (mobileHandState.compact === compactBoard && mobileHandState.open));
-  const setMobileHandOpen = useCallback(
-    (open: boolean) => {
-      setMobileHandState({ compact: compactBoard, open });
-    },
-    [compactBoard],
-  );
-  const toggleMobileHand = useCallback(() => {
-    if (handSelectionMode) return;
-    onDismissHoverPreview?.();
-    setSheetPlayerId(null);
-    setMobilePanel(null);
-    setMobileHandOpen(!mobileHandOpen);
-  }, [
-    handSelectionMode,
-    mobileHandOpen,
-    onDismissHoverPreview,
-    setMobileHandOpen,
-    setMobilePanel,
-    setSheetPlayerId,
-  ]);
-  const openPlayerSheet = useCallback(
-    (playerId: string) => {
-      onDismissHoverPreview?.();
-      setMobilePanel(null);
-      setMobileHandOpen(false);
-      setSheetPlayerId(playerId);
-    },
-    [onDismissHoverPreview, setMobileHandOpen, setMobilePanel, setSheetPlayerId],
-  );
-  useEffect(() => {
-    let activePromptId = useGameStore.getState().currentPrompt?.promptId;
-    return useGameStore.subscribe((state) => {
-      const nextPromptId = state.currentPrompt?.promptId;
-      if (nextPromptId !== activePromptId) {
-        activePromptId = nextPromptId;
-        if (state.currentPrompt?.input.type === "mulligan") setMobileHandOpen(true);
-        else if (!handSelectionMode) setMobileHandOpen(false);
-      }
-      if (!state.gameView?.gameOver) return;
-      setSheetPlayerId(null);
-      setMobilePanel(null);
-      setMobileHandOpen(false);
-    });
-  }, [handSelectionMode, setMobileHandOpen, setMobilePanel, setSheetPlayerId]);
 
   // On our turn, one opponent field stays expanded (sticky) instead of an even
   // split: the last-active opponent by default, or whichever we last hovered.
@@ -644,7 +560,6 @@ export function GameBoard({
   );
   const mobileHandActionable =
     promptType === "chooseAction" && orderedHand.some((card) => playableIds.has(card.id));
-  const mulliganAction = promptType === "mulligan" ? promptOverlaySpec?.action : null;
   const pixiCallbacks = useMemo(
     (): GameCanvasCallbacks => ({
       onClickCard:
@@ -674,11 +589,8 @@ export function GameBoard({
         }
       },
       onClickAnyCard: onLongPressCard
-        ? (card, bounds) => {
-            setMobilePanel(null);
-            setMobileHandOpen(false);
-            onLongPressCard(card, new DOMRect(bounds.x, bounds.y, bounds.width, bounds.height));
-          }
+        ? (card, bounds) =>
+            onLongPressCard(card, new DOMRect(bounds.x, bounds.y, bounds.width, bounds.height))
         : undefined,
       onRightClickCard: onRightClickCard
         ? (card, bounds) =>
@@ -710,15 +622,11 @@ export function GameBoard({
         if (playerId && isSelfTurn) setStickyOpponentId(playerId);
       },
       onTargetPlayer,
-      onShowPlayerSheet: openPlayerSheet,
-      onMobileHandOpenChange: setMobileHandOpen,
+      onShowPlayerSheet: setSheetPlayerId,
       onHoverHandCard: onHandHoverChange ? (card) => onHandHoverChange(!!card) : undefined,
       onLongPressCard: onLongPressCard
-        ? (card, bounds) => {
-            setMobilePanel(null);
-            setMobileHandOpen(false);
-            onLongPressCard(card, new DOMRect(bounds.x, bounds.y, bounds.width, bounds.height));
-          }
+        ? (card, bounds) =>
+            onLongPressCard(card, new DOMRect(bounds.x, bounds.y, bounds.width, bounds.height))
         : undefined,
     }),
     [
@@ -746,13 +654,11 @@ export function GameBoard({
       onTargetPlayer,
       setDragBlockerId,
       setDragAttackerId,
-      openPlayerSheet,
+      setSheetPlayerId,
       setStickyOpponentId,
       isSelfTurn,
       onLongPressCard,
       onHandHoverChange,
-      setMobilePanel,
-      setMobileHandOpen,
     ],
   );
   const opponentStopsMap = usePhaseStopStore((s) => s.opponentStops);
@@ -775,19 +681,12 @@ export function GameBoard({
     };
   }, [step, activePlayerId, me.id, selfStops, opponents, opponentStopsMap]);
 
-  const openMobilePhaseStops = useCallback(() => {
-    onDismissHoverPreview?.();
-    setSheetPlayerId(null);
-    setMobileHandOpen(false);
-    setMobilePanel({ kind: "phases" });
-  }, [onDismissHoverPreview, setMobileHandOpen, setMobilePanel, setSheetPlayerId]);
   const pixiPhaseStripCallbacks = useMemo(
     (): PhaseStripCallbacks => ({
       onToggleSelfPhase: toggleSelfStop,
       onToggleOpponentPhase: toggleOpponentStop,
-      onOpenCompactControls: openMobilePhaseStops,
     }),
-    [toggleSelfStop, toggleOpponentStop, openMobilePhaseStops],
+    [toggleSelfStop, toggleOpponentStop],
   );
   const boardRef = useRef<HTMLDivElement>(null);
   const setBoardRef = useCallback(
@@ -800,7 +699,6 @@ export function GameBoard({
   const [unifiedLayout, setUnifiedLayout] = useState<BoardCanvasLayout | null>(null);
   const localSceneRef = useRef<BoardScene | null>(null);
   const sceneRef = boardSceneRef ?? localSceneRef;
-  const [overlayScene, setOverlayScene] = useState<BoardScene | null>(null);
   const { appTheme, gameTheme } = useTheme();
   const playerColors = gameTheme.playerColors;
   const activeOpponentIndex = opponents.findIndex((opponent) => opponent.id === activePlayerId);
@@ -811,51 +709,6 @@ export function GameBoard({
       : activeOpponentSeat
         ? playerColors[activeOpponentSeat]
         : gameTheme.textMuted;
-  const localCapsuleBounds = overlayScene?.getLocalCapsuleBounds() ?? null;
-  const compactPromptOverlaySpec = useMemo<PromptOverlaySpec | null>(() => {
-    if (!promptOverlaySpec) return null;
-    const armedStopReached = PHASE_CONTROLS.some(
-      (phase) => selfStops.has(phase.id) && phase.currentSteps.includes(step),
-    );
-    if (!compactBoard) return promptOverlaySpec;
-    const handOwnsChrome = mobileHandOpen && promptType !== "mulliganPutBack";
-    return {
-      ...promptOverlaySpec,
-      action: {
-        ...promptOverlaySpec.action,
-        dimmed: handOwnsChrome || (promptOverlaySpec.action.dimmed ?? false),
-        onBrowseRevealGrid:
-          promptOverlaySpec.currentPrompt?.input.type === "revealCards"
-            ? () => {
-                const input = promptOverlaySpec.currentPrompt?.input;
-                setRevealBrowseCards(input?.type === "revealCards" ? input.cards : []);
-              }
-            : undefined,
-        compactPhaseControl: {
-          color: activePhaseColor,
-          onOpen: openMobilePhaseStops,
-          pulse: armedStopReached,
-          anchor: localCapsuleBounds
-            ? {
-                x: localCapsuleBounds.x + localCapsuleBounds.width + GAP,
-                y: localCapsuleBounds.y + localCapsuleBounds.height / 2,
-              }
-            : undefined,
-        },
-      },
-    };
-  }, [
-    activePhaseColor,
-    compactBoard,
-    localCapsuleBounds,
-    mobileHandOpen,
-    openMobilePhaseStops,
-    promptOverlaySpec,
-    promptType,
-    selfStops,
-    setRevealBrowseCards,
-    step,
-  ]);
   // The opponent whose field auto-expands: the active one on their turn,
   // otherwise the sticky one on ours (defaulting to the first opponent). The
   // scene owns + eases the delimiters, draws the grips, and applies the clip —
@@ -879,7 +732,6 @@ export function GameBoard({
   }, [combatRows, me.id]);
   const cycleField = (dir: 1 | -1) => {
     if (opponents.length === 0 || document.querySelector('[role="dialog"]')) return;
-    setMobilePanel(null);
     const ids = opponents.map((o) => o.id);
     setManualFocusId((cur) => {
       const i = cur ? ids.indexOf(cur) : -1;
@@ -1834,6 +1686,63 @@ export function GameBoard({
       )
       .join(". ")}.`;
   }, [battlefield, opponents, me.id]);
+  const boardSceneProps = {
+    regions: unifiedRegions,
+    hand: pixiHand,
+    opponentLayout,
+    focusLocked:
+      !!sheetPlayerId ||
+      promptType === "chooseAttackers" ||
+      promptType === "chooseBlockers" ||
+      !!draggingCardId,
+    arrowSpecs: arrowSpecs ?? [],
+    castingArrow,
+    declareBlockers: promptType === "chooseBlockers",
+    combatBlocks: combatAssignmentsAll,
+    declareAttackers: promptType === "chooseAttackers",
+    attackTargets: chooseAttackersPrompt?.input.attackTargets ?? [],
+    attackerOptions: chooseAttackersPrompt?.input.attackers ?? [],
+    phaseStrip: pixiPhaseStrip,
+    phaseStripCallbacks: pixiPhaseStripCallbacks,
+    focusedOpponentId,
+    combatFocusIds,
+    manualFocusId,
+    playerBars: hudBarSpecs,
+    showPlayerBars: true,
+    zoneTiles: boardZoneTiles,
+    callbacks: pixiCallbacks,
+    isDropActive: isOverBattlefield,
+    autoSort: battlefieldAutoSort,
+    selfBottomReserve,
+    sceneRef,
+    getHandActions,
+    onSelectHandAction: (_card: CardDto, action: HandActionOption) => onSelectHandAction?.(action),
+    externalPreviewActive,
+    onLayout: (layout: BoardCanvasLayout) => {
+      setUnifiedLayout(layout);
+      onLayoutChange?.(layout);
+    },
+    showBackground: false,
+  };
+  const overlaySceneProps = {
+    stackSpec,
+    onTargetSpell,
+    onHoverStack,
+    onToggleStack,
+    promptViewportRight,
+    ambientColor,
+    externalPreviewActive,
+    previewSpec: rulesPreview,
+    commandPreviewSpec: commandPreview,
+    onCastCommandCard: onCastSpell,
+    onPreviewPointerEnter,
+    onPreviewPointerLeave,
+    onSelectPreviewAction: onSelectHandAction,
+    onDismissPreview: onDismissHoverPreview,
+    onFlipPreview: onFlipCard,
+    onTogglePreviewView,
+    onLongPressCard,
+  };
   return (
     <div
       ref={setBoardRef}
@@ -1931,139 +1840,40 @@ export function GameBoard({
       <div className="sr-only" aria-live="assertive" aria-atomic="true">
         {combatA11y}
       </div>
-      <div ref={battlefieldContainerRef} className="absolute inset-0 z-10 overflow-hidden">
-        <BoardCanvas
-          regions={unifiedRegions}
-          hand={pixiHand}
-          opponentLayout={opponentLayout}
-          focusLocked={
-            !!sheetPlayerId ||
-            mobileHandOpen ||
-            promptType === "chooseAttackers" ||
-            promptType === "chooseBlockers" ||
-            !!draggingCardId
-          }
-          mobileHandPeek={mobileHandPeek}
-          arrowSpecs={arrowSpecs ?? []}
-          castingArrow={castingArrow}
-          declareBlockers={promptType === "chooseBlockers"}
-          combatBlocks={combatAssignmentsAll}
-          declareAttackers={promptType === "chooseAttackers"}
-          attackTargets={chooseAttackersPrompt?.input.attackTargets ?? []}
-          attackerOptions={chooseAttackersPrompt?.input.attackers ?? []}
-          phaseStrip={pixiPhaseStrip}
-          phaseStripCallbacks={pixiPhaseStripCallbacks}
-          layoutPolicy={layoutPolicy}
-          mobileHandOpen={mobileHandOpen}
-          focusedOpponentId={focusedOpponentId}
-          combatFocusIds={combatFocusIds}
-          manualFocusId={manualFocusId}
-          playerBars={hudBarSpecs}
-          showPlayerBars
-          zoneTiles={boardZoneTiles}
-          callbacks={pixiCallbacks}
-          isDropActive={isOverBattlefield}
-          autoSort={battlefieldAutoSort}
-          selfBottomReserve={selfBottomReserve}
-          mobileHandControlBounds={mobileHandControlBounds}
-          sceneRef={sceneRef}
-          onSceneChange={setOverlayScene}
-          getHandActions={getHandActions}
-          onSelectHandAction={(_card, action) => onSelectHandAction?.(action)}
-          externalPreviewActive={externalPreviewActive}
-          onLayout={(layout) => {
-            setUnifiedLayout(layout);
-            onLayoutChange?.(layout);
-          }}
-          showBackground={false}
-        />
-        {compactBoard && (!mobilePanel || mobileHandOpen) && (
-          <MobileHandControl
-            count={orderedHand.length}
-            open={mobileHandOpen}
-            locked={!!handSelectionMode}
-            actionable={mobileHandActionable}
-            onToggle={toggleMobileHand}
-            onPeekStart={() => setMobileHandPeek(true)}
-            onPeekEnd={() => setMobileHandPeek(false)}
-            onBoundsChange={setMobileHandControlBounds}
-          />
-        )}
-        {compactBoard && promptType === "mulligan" && mobileHandOpen && mulliganAction && (
-          <div className="absolute left-1/2 top-2 z-[5] flex -translate-x-1/2 items-center gap-2">
-            {mulliganAction.mulliganCount ? (
-              <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-                mulligan {mulliganAction.mulliganCount}
-              </span>
-            ) : null}
-            <Button variant="primary" size="sm" onClick={mulliganAction.onMulliganKeep}>
-              KEEP
-            </Button>
-            <Button variant="outline" size="sm" onClick={mulliganAction.onMulliganDraw}>
-              MULLIGAN
-            </Button>
-          </div>
-        )}
-        {revealBrowseCards && (
-          <Modal
-            onClose={() => setRevealBrowseCards(null)}
-            maxWidth={PROMPT_CARD_MODAL_MAX_WIDTH_CLASS}
-            className={PROMPT_MODAL_HEIGHT_CLASS}
-          >
-            <Modal.Header onClose={() => setRevealBrowseCards(null)}>
-              <h2 className="text-base font-semibold">Revealed cards</h2>
-              <p className="text-xs text-muted-foreground">
-                {revealBrowseCards.length} card{revealBrowseCards.length === 1 ? "" : "s"}
-              </p>
-            </Modal.Header>
-            <DialogCardBrowser
-              items={revealBrowseCards.map((card) => ({ id: card.id, card }))}
-              picker
-            />
-          </Modal>
-        )}
-      </div>
-      <div className="absolute inset-0 z-[9000] pointer-events-none">
-        <BoardOverlayCanvas
-          scene={overlayScene}
-          stackSpec={stackSpec}
-          onTargetSpell={onTargetSpell}
-          onHoverStack={onHoverStack}
-          onToggleStack={onToggleStack}
-          promptSpec={compactPromptOverlaySpec}
-          promptViewportRight={promptViewportRight}
-          ambientColor={ambientColor}
-          externalPreviewActive={externalPreviewActive}
-          previewSpec={rulesPreview}
-          commandPreviewSpec={commandPreview}
-          onCastCommandCard={onCastSpell}
-          onPreviewPointerEnter={onPreviewPointerEnter}
-          onPreviewPointerLeave={onPreviewPointerLeave}
-          onSelectPreviewAction={onSelectHandAction}
-          onDismissPreview={onDismissHoverPreview}
-          onFlipPreview={onFlipCard}
-          onTogglePreviewView={onTogglePreviewView}
-          onLongPressCard={onLongPressCard}
-        />
-        {compactBoard && (
-          <MobilePhaseStops
-            open={!mobileHandOpen && mobilePanel?.kind === "phases"}
-            currentStep={step}
-            selfStops={selfStops}
-            activeColor={activePhaseColor}
-            selfColor={playerColors.self}
-            opponents={opponents.map((opponent, index) => ({
+      {compactBoard ? (
+        <MobileGameScene
+          battlefieldContainerRef={battlefieldContainerRef}
+          board={boardSceneProps}
+          overlay={overlaySceneProps}
+          promptSpec={promptOverlaySpec ?? null}
+          promptType={promptType}
+          handCount={orderedHand.length}
+          handSelectionMode={!!handSelectionMode}
+          handActionable={mobileHandActionable}
+          onDismissHoverPreview={onDismissHoverPreview}
+          onClosePlayerSheet={() => setSheetPlayerId(null)}
+          phaseStops={{
+            currentStep: step,
+            selfStops,
+            activeColor: activePhaseColor,
+            selfColor: playerColors.self,
+            opponents: opponents.map((opponent, index) => ({
               id: opponent.id,
               name: stripUsernameTag(opponent.name),
               color: playerColors[OPPONENT_SEATS[index] ?? "opponent1"],
               stops: opponentStopsMap.get(opponent.id) ?? new Set(DEFAULT_OPPONENT_STOPS),
-            }))}
-            onClose={() => setMobilePanel(null)}
-            onToggleSelf={toggleSelfStop}
-            onToggleOpponent={toggleOpponentStop}
-          />
-        )}
-      </div>
+            })),
+            onToggleSelf: toggleSelfStop,
+            onToggleOpponent: toggleOpponentStop,
+          }}
+        />
+      ) : (
+        <DesktopGameScene
+          battlefieldContainerRef={battlefieldContainerRef}
+          board={boardSceneProps}
+          overlay={{ ...overlaySceneProps, promptSpec: promptOverlaySpec ?? null }}
+        />
+      )}
       {sheetSpec && <PlayerSheetModal spec={sheetSpec} onClose={() => setSheetPlayerId(null)} />}
     </div>
   );

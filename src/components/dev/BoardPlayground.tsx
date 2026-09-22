@@ -2,14 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ClientCardDto } from "@/stores/gameStore.types";
 import type { CardDto, ZoneKind } from "@/protocol/game";
 import { GAME_CARD_DEFAULTS, isFacelessCard } from "@/lib/gameCard";
-import { BoardCanvas } from "@/pixi/BoardCanvas";
+import { DesktopBoardCanvas, type DesktopBoardCanvasProps } from "@/pixi/DesktopBoardCanvas";
 import { GAP } from "@/pixi/constants";
-import { BoardOverlayCanvas, type BoardOverlayPreviewSpec } from "@/pixi/BoardOverlayCanvas";
+import type { BoardOverlayCanvasProps, BoardOverlayPreviewSpec } from "@/pixi/BoardOverlayCanvas";
+import { DesktopBoardOverlayCanvas } from "@/pixi/DesktopBoardOverlayCanvas";
+import { MobileBoardCanvas, type MobileBoardCanvasProps } from "@/pixi/MobileBoardCanvas";
+import { MobileBoardOverlayCanvas } from "@/pixi/MobileBoardOverlayCanvas";
 import type { BoardScene } from "@/pixi/board/BoardScene";
-import {
-  DESKTOP_BATTLEFIELD_LAYOUT,
-  MOBILE_BATTLEFIELD_LAYOUT,
-} from "@/pixi/board/battlefieldLayoutPolicy";
 import type { PhaseStripState } from "@/pixi/PhaseStripLayer";
 import type { PlayerHudSpec } from "@/pixi/hud/playerHud.types";
 import type { GameCanvasCallbacks } from "@/pixi/types";
@@ -44,6 +43,38 @@ import { PREVIEW_SCENARIOS } from "./devPreviewScenarios";
 import { BoardGameplayPreviewControls } from "./BoardGameplayPreviewControls";
 import { useBoardGameplayPreview } from "./useBoardGameplayPreview";
 import { BoardPlaygroundZone } from "./BoardPlaygroundZone";
+type PlaygroundBoardCanvasProps = DesktopBoardCanvasProps &
+  Pick<MobileBoardCanvasProps, "mobileHandOpen" | "mobileHandControlBounds"> & {
+    compact: boolean;
+  };
+
+function PlaygroundBoardCanvas({
+  compact,
+  mobileHandOpen,
+  mobileHandControlBounds,
+  ...props
+}: PlaygroundBoardCanvasProps) {
+  return compact ? (
+    <MobileBoardCanvas
+      {...props}
+      mobileHandOpen={mobileHandOpen}
+      mobileHandControlBounds={mobileHandControlBounds}
+    />
+  ) : (
+    <DesktopBoardCanvas {...props} />
+  );
+}
+
+function PlaygroundBoardOverlayCanvas({
+  compact,
+  ...props
+}: BoardOverlayCanvasProps & { compact: boolean }) {
+  return compact ? (
+    <MobileBoardOverlayCanvas {...props} />
+  ) : (
+    <DesktopBoardOverlayCanvas {...props} />
+  );
+}
 
 const DEV_MANA_ACTION_ID = "dev-mana";
 const PREVIEW_VIEWPORTS = [
@@ -750,7 +781,8 @@ export function BoardPlayground({ themeEditor = false }: { themeEditor?: boolean
           themeEditor ? "min-h-0 flex-1" : "min-h-80",
         )}
       >
-        <BoardCanvas
+        <PlaygroundBoardCanvas
+          compact={compact}
           regions={regions}
           hand={{ cards: hand }}
           arrowSpecs={gameplay.arrowSpecs}
@@ -779,7 +811,6 @@ export function BoardPlayground({ themeEditor = false }: { themeEditor?: boolean
                 return next;
               }),
           }}
-          layoutPolicy={compact ? MOBILE_BATTLEFIELD_LAYOUT : DESKTOP_BATTLEFIELD_LAYOUT}
           selfBottomReserve={selfBottomReserve}
           mobileHandOpen={compact && mobileHandOpen}
           mobileHandControlBounds={mobileHandControlBounds}
@@ -820,7 +851,8 @@ export function BoardPlayground({ themeEditor = false }: { themeEditor?: boolean
           }}
         />
         <div className="pointer-events-none absolute inset-0 z-40">
-          <BoardOverlayCanvas
+          <PlaygroundBoardOverlayCanvas
+            compact={compact}
             scene={overlayScene}
             stackSpec={gameplay.stackSpec}
             onTargetSpell={gameplay.selectSpell}

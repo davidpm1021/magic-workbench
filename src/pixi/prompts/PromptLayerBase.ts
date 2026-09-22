@@ -36,7 +36,6 @@ import { usePreferencesStore } from "@/stores/usePreferencesStore";
 import { type PromptActionViewKey } from "@/stores/useGameDevStore";
 import { resolveCombo, useKeybindingsStore } from "@/stores/useKeybindingsStore";
 import { comboFromEvent, combosMatch, formatCombo } from "@/lib/keybindings";
-import { isCoarsePointer } from "@/lib/responsive";
 import type { CardDto } from "@/protocol";
 import { PromptButton, type PromptButtonOptions } from "./PromptButton";
 import { PromptGlow } from "./PromptGlow";
@@ -489,15 +488,13 @@ export abstract class PromptLayerBase {
   protected viewportWidth = 0;
   protected viewportHeight = 0;
   protected viewportRight: number | null = null;
-
   protected get layoutWidth(): number {
     return this.viewportRight == null
       ? this.viewportWidth
       : Math.min(this.viewportWidth, this.viewportRight);
   }
-  get compactAction(): boolean {
-    return this.viewportHeight <= 520 && isCoarsePointer();
-  }
+
+  readonly compactAction: boolean;
 
   protected actionBounds: Rectangle | null = null;
   protected modalOpen = false;
@@ -608,8 +605,13 @@ export abstract class PromptLayerBase {
     scrollThumb: Graphics;
   } | null = null;
 
-  protected constructor(app: Application, callbacks: PromptLayerCallbacks = {}) {
+  protected constructor(
+    app: Application,
+    compactAction: boolean,
+    callbacks: PromptLayerCallbacks = {},
+  ) {
     this.app = app;
+    this.compactAction = compactAction;
     this.callbacks = callbacks;
     this.theme = getTheme();
     this.container.sortableChildren = true;

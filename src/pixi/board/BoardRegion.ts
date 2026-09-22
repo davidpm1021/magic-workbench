@@ -100,6 +100,7 @@ const OVERFLOW_PRIORITY: Record<BattlefieldCardCategory, number> = {
 interface BoardRegionOptions {
   orientation: RegionOrientation;
   combatRowReserved: boolean;
+  compact: boolean;
 }
 
 const ENTRANCE_LAND_PX = 8;
@@ -142,7 +143,7 @@ export class BoardRegion {
   private gridSkeletonGfx: Graphics;
   private zoneTiles: BoardZoneTiles;
   private zoneTileKeys: string[] = [];
-  private compactMode = false;
+  private readonly compactMode: boolean;
   private zoneTilesLocked = false;
   private zoneSlots = new Map<string, { col: number; row: number }>();
 
@@ -191,6 +192,7 @@ export class BoardRegion {
     this.seatColor = host.getTheme().gameTheme.canvas.neutral;
     this.cardScale = cardScale;
     this.combatRowReserved = options.combatRowReserved;
+    this.compactMode = options.compact;
     this.mirrored = options.orientation !== "bottom";
 
     this.container = new Container();
@@ -247,15 +249,6 @@ export class BoardRegion {
   setZoneTiles(specs: ZoneTileSpec[]): void {
     this.zoneTileKeys = specs.map((s) => s.key);
     this.zoneTiles.setSpecs(specs);
-    if (this.lastState) this.updateBattlefield(this.lastState);
-    else this.placeZoneTiles(this.freshGrid(), new Set());
-  }
-
-  setCompactMode(compact: boolean): void {
-    if (this.compactMode === compact) return;
-    this.compactMode = compact;
-    for (const entry of this.entries.values()) entry.sprite.setCompactSquare(compact);
-    this.applyZoneTileDraggable();
     if (this.lastState) this.updateBattlefield(this.lastState);
     else this.placeZoneTiles(this.freshGrid(), new Set());
   }

@@ -25,7 +25,6 @@ import { usePreferencesStore } from "@/stores/usePreferencesStore";
 import { type PromptActionViewKey, useGameDevStore } from "@/stores/useGameDevStore";
 import { resolveCombo, useKeybindingsStore } from "@/stores/useKeybindingsStore";
 import { comboSymbols, formatCombo, normalizeCombo } from "@/lib/keybindings";
-import { isCoarsePointer } from "@/lib/responsive";
 import {
   ATTACK_DRAG_HINT,
   getPromptContextLines,
@@ -80,8 +79,12 @@ export class PromptLayer extends PromptModalLayer {
   private readonly onTick = (ticker: Ticker): void => this.update(ticker.deltaMS);
   private ambientColor: number | null = null;
 
-  constructor(app: Application, callbacks: PromptLayerCallbacks = {}) {
-    super(app, callbacks);
+  protected constructor(
+    app: Application,
+    compactAction: boolean,
+    callbacks: PromptLayerCallbacks = {},
+  ) {
+    super(app, compactAction, callbacks);
     this.app.stage.on("globalpointermove", this.onStageMove);
     this.app.stage.on("pointerup", this.onStageUp);
     this.app.stage.on("pointerupoutside", this.onStageUp);
@@ -355,8 +358,8 @@ export class PromptLayer extends PromptModalLayer {
     const spec = this.spec!;
     const action = spec.action;
     const shortScreen = this.viewportHeight <= 520;
-    const touch = isCoarsePointer();
-    const minimal = shortScreen && touch;
+    const touch = this.compactAction;
+    const minimal = this.compactAction;
     if (
       action.promptType === "gameOver" ||
       !action.selfClusterMaxHeight ||

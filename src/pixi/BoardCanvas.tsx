@@ -10,10 +10,7 @@ installPixiPatches();
 
 import { BoardScene, type BoardPlayerSpec } from "./board/BoardScene";
 import { computeBoardLayout, type RegionOrientation } from "./board/boardLayout";
-import {
-  DESKTOP_BATTLEFIELD_LAYOUT,
-  type BattlefieldLayoutPolicy,
-} from "./board/battlefieldLayoutPolicy";
+import type { BattlefieldLayoutPolicy } from "./board/battlefieldLayoutPolicy";
 import type { PlayerHudSpec as PlayerBarSpec } from "./hud/playerHud.types";
 import type { ZoneTileSpec } from "./board/BoardZoneTiles";
 import {
@@ -86,7 +83,7 @@ export interface BoardCanvasLayout {
   }[];
 }
 
-interface BoardCanvasProps {
+export interface BoardCanvasProps {
   regions: BoardCanvasRegion[];
   hand: HandState;
   arrowSpecs: ArrowSpec[];
@@ -100,7 +97,7 @@ interface BoardCanvasProps {
   attackerOptions?: { attackerId: string; validTargetIds: string[] }[];
   phaseStrip: PhaseStripState;
   phaseStripCallbacks?: PhaseStripCallbacks;
-  layoutPolicy?: BattlefieldLayoutPolicy;
+  layoutPolicy: BattlefieldLayoutPolicy;
   mobileHandOpen?: boolean;
   mobileHandPeek?: boolean;
   mobileHandControlBounds?: DOMRect | null;
@@ -130,12 +127,18 @@ interface BoardCanvasProps {
   showBackground?: boolean;
 }
 
+type BoardSceneFactory = (app: Application, callbacks: GameCanvasCallbacks) => BoardScene;
+
+interface BoardCanvasSurfaceProps extends BoardCanvasProps {
+  createScene: BoardSceneFactory;
+}
+
 interface HandHoverState {
   card: CardDto;
   bounds: ScreenBounds;
 }
 
-export function BoardCanvas({
+export function BoardCanvasSurface({
   regions,
   hand,
   arrowSpecs,
@@ -147,7 +150,7 @@ export function BoardCanvas({
   attackerOptions,
   phaseStrip,
   phaseStripCallbacks,
-  layoutPolicy = DESKTOP_BATTLEFIELD_LAYOUT,
+  layoutPolicy,
   mobileHandOpen = false,
   mobileHandPeek = false,
   mobileHandControlBounds,
@@ -172,7 +175,8 @@ export function BoardCanvas({
   onLayout,
   className,
   showBackground = true,
-}: BoardCanvasProps) {
+  createScene,
+}: BoardCanvasSurfaceProps) {
   const compact = layoutPolicy.compact;
   const effectiveBottomReserve = layoutPolicy.reserveHandSpace ? (selfBottomReserve ?? 0) : 0;
   const { i18n } = useLingui();
@@ -292,7 +296,7 @@ export function BoardCanvas({
         app.ticker.maxFPS = PIXI_MAX_FPS;
         unregisterVisibility = registerPixiApp(app);
 
-        const newScene = new BoardScene(app, {
+        const newScene = createScene(app, {
           onClickCard: (...a) => callbacksRef.current.onClickCard?.(...a),
           onHoverCard: (...a) => callbacksRef.current.onHoverCard?.(...a),
           onHoverZoneCards: (...a) => callbacksRef.current.onHoverZoneCards?.(...a),
@@ -368,7 +372,7 @@ export function BoardCanvas({
       if (appRef.current === app) appRef.current = null;
       if (initSettled) release();
     };
-  }, [cancelHandHoverClear]);
+  }, [cancelHandHoverClear, createScene]);
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !scene) return;
@@ -411,7 +415,6 @@ export function BoardCanvas({
       layoutPolicy.selfFieldShare,
       opponentLayout,
     );
-    s.setCompactMode(compact);
     s.setPhaseDividerVisible(layoutPolicy.showPhaseDivider);
     s.setFocusLocked(focusLocked);
     const playmatTrim = (usable: number) => Math.max(1, usable - FIELD_INNER_EDGE_PAD_PX);

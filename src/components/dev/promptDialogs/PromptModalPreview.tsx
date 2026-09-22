@@ -5,7 +5,8 @@ import { HoverCardPreview } from "@/components/game/HoverCardPreview";
 import type { PromptActionSpec } from "@/components/game/game.types";
 import { useCardPreview } from "@/hooks/useCardPreview";
 import { registerModal } from "@/lib/modalStack";
-import { BoardOverlayCanvas, type BoardOverlayPreviewSpec } from "@/pixi/BoardOverlayCanvas";
+import type { BoardOverlayPreviewSpec } from "@/pixi/BoardOverlayCanvas";
+import { DesktopBoardOverlayCanvas } from "@/pixi/DesktopBoardOverlayCanvas";
 import type { PromptOverlaySpec } from "@/pixi/prompts/prompt.types";
 import type { StackSpec } from "@/pixi/stack/stack.types";
 import { usePreferencesStore } from "@/stores/usePreferencesStore";
@@ -164,7 +165,7 @@ export function PromptModalPreview({ preview, fixtures, onClose }: PromptModalPr
     <>
       <div className="pointer-events-none fixed inset-0 z-[9998]">
         <div ref={panelRef} className="h-full" role="dialog" aria-label="Prompt preview">
-          <BoardOverlayCanvas
+          <DesktopBoardOverlayCanvas
             scene={null}
             stackSpec={EMPTY_STACK}
             onTargetSpell={noAction}

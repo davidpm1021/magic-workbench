@@ -260,7 +260,7 @@ export class BoardScene {
   private unassignDrag: { cardId: string; region: BoardRegion; overOwn: boolean } | null = null;
   private phaseStripAlphaTarget = 1;
   private stripBandPx = STRIP_BAND_PX;
-  private compactMode = false;
+  protected readonly mobileScene: boolean;
   private tapSuppressedPointers = new Set<number>();
 
   private hand: HandController | null = null;
@@ -335,9 +335,10 @@ export class BoardScene {
     if (this.tapSuppressedPointers.has(e.pointerId)) e.stopImmediatePropagation();
   };
 
-  constructor(app: Application, callbacks: GameCanvasCallbacks) {
+  protected constructor(app: Application, callbacks: GameCanvasCallbacks, compactMode: boolean) {
     this.app = app;
     this.callbacks = callbacks;
+    this.mobileScene = compactMode;
     this.theme = getTheme();
 
     this.root = new Container();
@@ -401,6 +402,7 @@ export class BoardScene {
       (id) => this.callbacks.onTargetPlayer?.(id),
       (id) => this.callbacks.onShowPlayerSheet?.(id),
     );
+    this.playerBars.setCompact(compactMode);
     this.playerBars.container.zIndex = 5600;
     this.playerBars.container.visible = false;
     this.root.addChild(this.playerBars.container);
@@ -408,6 +410,8 @@ export class BoardScene {
     this.phaseStrip = new PhaseStripLayer(this.theme);
     this.phaseStrip.container.zIndex = 7000;
     this.phaseStrip.onExpandedChange = () => this.refreshPhaseStripDim();
+    this.phaseStrip.setCompact(compactMode);
+    this.phaseStrip.container.visible = !compactMode;
     this.root.addChild(this.phaseStrip.container);
 
     this.combatGuestLayer = new Container();
@@ -548,14 +552,13 @@ export class BoardScene {
         this.root,
         zone,
         regionScale,
-        { orientation, combatRowReserved },
+        { orientation, combatRowReserved, compact: this.mobileScene },
       );
       region.setPlaymatSettings(spec.playmatSettings);
       region.setOverviewMode(this.overview && !spec.isLocal);
       region.setPlaymat(spec.playmat);
       region.container.zIndex = zIndex;
       region.setAutoSort(this.autoSort);
-      region.setCompactMode(this.compactMode);
       region.setZoneTilesLocked(this.zoneTilesLocked);
       region.setSkeletonDebug(this.gridSkeletonDebug);
       region.setAttackRowDebug(this.attackRowDebug);
@@ -688,7 +691,7 @@ export class BoardScene {
     const n = this.opponentIds.length;
     const W = this.boardWidth;
     if (n <= 0 || W <= 0) return;
-    const playerHudHeight = this.compactMode
+    const playerHudHeight = this.mobileScene
       ? MOBILE_PLAYER_HUD_HEIGHT_PX
       : OPPONENT_PLAYER_HUD_HEIGHT_PX;
     this.collapseVeil.clear();
@@ -704,7 +707,7 @@ export class BoardScene {
           const field = rec.region.getPlaymatRect();
           const availableWidth = Math.max(1, field.width);
           const availableHeight = Math.max(1, field.height);
-          const maxWidth = this.compactMode
+          const maxWidth = this.mobileScene
             ? MOBILE_PLAYER_HUD_MAX_WIDTH_PX
             : SELF_PLAYER_HUD_MAX_WIDTH_PX;
           this.playerBars.setRect(
@@ -738,10 +741,10 @@ export class BoardScene {
           this.collapseVeil.fill({ color: veilColor, alpha: frac });
         }
         const field = rec.region.getPlaymatRect();
-        const column = !this.compactMode && field.width < 228;
+        const column = !this.mobileScene && field.width < 228;
         const availableWidth = Math.max(1, field.width);
         const availableHeight = Math.max(1, field.height);
-        const maxWidth = this.compactMode
+        const maxWidth = this.mobileScene
           ? MOBILE_PLAYER_HUD_MAX_WIDTH_PX
           : SELF_PLAYER_HUD_MAX_WIDTH_PX;
         const barW = column ? availableWidth : Math.min(maxWidth, availableWidth);
@@ -757,7 +760,7 @@ export class BoardScene {
   }
 
   private preferredPlayerHudHeight(): number {
-    return this.compactMode ? MOBILE_PLAYER_HUD_HEIGHT_PX : SELF_PLAYER_BAR_HEIGHT_PX;
+    return this.mobileScene ? MOBILE_PLAYER_HUD_HEIGHT_PX : SELF_PLAYER_BAR_HEIGHT_PX;
   }
 
   private layoutSelfBar(): void {
@@ -765,11 +768,11 @@ export class BoardScene {
     const record = this.regions.get(this.localPlayerId);
     if (!record) return;
     const field = record.region.getPlaymatRect();
-    const hand = this.compactMode ? null : this.hand?.getBlockerRect();
+    const hand = this.mobileScene ? null : this.hand?.getBlockerRect();
     const preferredHeight = this.preferredPlayerHudHeight();
     const x = field.x;
     const availableWidth = Math.max(1, field.width);
-    const maxWidth = this.compactMode
+    const maxWidth = this.mobileScene
       ? MOBILE_PLAYER_HUD_MAX_WIDTH_PX
       : SELF_PLAYER_HUD_MAX_WIDTH_PX;
     const desiredWidth = Math.min(availableWidth, maxWidth);
@@ -783,7 +786,7 @@ export class BoardScene {
       hand.y + hand.height > bottom - preferredHeight;
     if (overlapsHand) {
       const clearWidth = hand.x - PLAYER_HUD_HAND_GAP_PX - x;
-      const minWidth = this.compactMode
+      const minWidth = this.mobileScene
         ? MOBILE_PLAYER_HUD_MIN_WIDTH_PX
         : SELF_PLAYER_HUD_MIN_WIDTH_PX;
       if (clearWidth >= Math.min(availableWidth, minWidth)) {
@@ -1169,22 +1172,22 @@ export class BoardScene {
   private setupLocalControllers(region: BoardRegion): void {
     this.hand = new HandController(this.makeHandHost(), this.root);
     this.hand.setRulesViewDefault(this.handRulesViewDefault);
-    this.hand.setCompact(this.compactMode);
+    this.hand.setCompact(this.mobileScene);
     this.selection = new SelectionController(this.makeSelectionHost(region), this.root);
     this.overlay = new BattlefieldOverlay(this.makeOverlayHost(region));
     region.enableFeltMarquee((e) => this.onFeltDown(e));
     this.syncMobileHandPresentation();
   }
   private syncMobileHandPresentation(): void {
-    const open = this.compactMode && this.mobileHandOpen;
-    const peek = this.compactMode && this.handPeek && !open;
+    const open = this.mobileScene && this.mobileHandOpen;
+    const peek = this.mobileScene && this.handPeek && !open;
     this.hand?.setSheetOpen(open);
     this.hand?.setPeek(peek);
-    if (this.hand) this.hand.container.visible = !this.compactMode || open || peek;
+    if (this.hand) this.hand.container.visible = !this.mobileScene || open || peek;
     this.mobileHandBackdrop.visible = open;
     this.mobileHandBackdrop.eventMode = open ? "static" : "none";
     const handRect = this.hand?.getBlockerRect() ?? null;
-    this.dragHandler.setHandExclusion(this.compactMode && !open && !peek ? null : handRect);
+    this.dragHandler.setHandExclusion(this.mobileScene && !open && !peek ? null : handRect);
   }
 
   private onFeltDown(e: FederatedPointerEvent): void {
@@ -1252,7 +1255,7 @@ export class BoardScene {
     this.refreshCapsuleBlockers();
   }
   getHandBounds(): BlockingRect | null {
-    if (this.compactMode && !this.mobileHandOpen) return null;
+    if (this.mobileScene && !this.mobileHandOpen) return null;
     return this.hand?.getBlockerRect() ?? null;
   }
 
@@ -1479,19 +1482,6 @@ export class BoardScene {
     this.phaseStrip.setDividerVisible(visible);
   }
 
-  setCompactMode(compact: boolean): void {
-    if (this.compactMode === compact) return;
-    this.compactMode = compact;
-    if (!compact) this.mobileHandOpen = false;
-    this.phaseStrip.setCompact(compact);
-    this.phaseStrip.container.visible = !compact;
-    this.hand?.setCompact(compact);
-    this.playerBars.setCompact(compact);
-    this.syncMobileHandPresentation();
-    this.applyDelimiters();
-    for (const rec of this.regions.values()) rec.region.setCompactMode(compact);
-  }
-
   setMobileHandOpen(open: boolean): void {
     if (this.mobileHandOpen === open) return;
     this.mobileHandOpen = open;
@@ -1693,7 +1683,7 @@ export class BoardScene {
       getHandReserveBottom: () =>
         !isLocal
           ? 0
-          : this.compactMode
+          : this.mobileScene
             ? this.mobileHandReserve
             : this.handReserveBottom() * HAND_RESERVE_TRIM,
       spawnFloatingText: (x, y, content, color) => this.spawnFloatingText(x, y, content, color),
@@ -1761,7 +1751,7 @@ export class BoardScene {
   }
 
   private handReserveBottom(): number {
-    if (this.compactMode) return 0;
+    if (this.mobileScene) return 0;
     const rect = this.hand?.getBlockerRect();
     const zone = this.localZone();
     if (!rect || !zone) return 0;
@@ -1775,7 +1765,7 @@ export class BoardScene {
   }
 
   private localBlockers(): BlockingRect[] {
-    if (this.compactMode) {
+    if (this.mobileScene) {
       return this.mobileHandControlBlocker ? [this.mobileHandControlBlocker] : [];
     }
     const handRect = this.hand?.getBlockerRect();
@@ -1805,11 +1795,11 @@ export class BoardScene {
     const collapsedWidth = collapsedOpponentWidth(this.boardWidth, this.opponentIds.length);
     const right = this.boardWidth - (this.opponentIds.length - index - 1) * collapsedWidth;
     const x = record.zone.x;
-    const maxWidth = this.compactMode
+    const maxWidth = this.mobileScene
       ? MOBILE_PLAYER_HUD_MAX_WIDTH_PX
       : SELF_PLAYER_HUD_MAX_WIDTH_PX;
     const width = Math.min(maxWidth, Math.max(1, right - x));
-    const preferredHeight = this.compactMode
+    const preferredHeight = this.mobileScene
       ? MOBILE_PLAYER_HUD_HEIGHT_PX
       : OPPONENT_PLAYER_HUD_HEIGHT_PX;
     const height = Math.min(preferredHeight, Math.max(1, record.zone.height));
@@ -1857,7 +1847,7 @@ export class BoardScene {
     if (!zone) return { x: 0, y: 0, scaleX: scale, scaleY: scale };
     const point = this.root.toGlobal({
       x: zone.x + zone.width / 2,
-      y: zone.y + ((this.compactMode ? CARD_W : CARD_H) * scale) / 2,
+      y: zone.y + ((this.mobileScene ? CARD_W : CARD_H) * scale) / 2,
     });
     return {
       x: point.x,
@@ -1888,7 +1878,7 @@ export class BoardScene {
       showsHand: () => true,
       isDestroyed: () => this.destroyed,
       setHandExclusion: (rect) => {
-        this.dragHandler.setHandExclusion(this.compactMode && !this.mobileHandOpen ? null : rect);
+        this.dragHandler.setHandExclusion(this.mobileScene && !this.mobileHandOpen ? null : rect);
         this.localRegion()?.redrawBackground();
       },
     };
@@ -1901,7 +1891,7 @@ export class BoardScene {
       getEntries: () => region.getEntries(),
       applyRing: (sprite) => region.applyBaseRing(sprite),
       canRefreshRings: () => region.hasLastState(),
-      isCompact: () => this.compactMode,
+      isCompact: () => this.mobileScene,
     };
   }
 
@@ -1922,7 +1912,7 @@ export class BoardScene {
       rightClickCard: (sprite) => this.fireRightClickPreview(sprite),
       scheduleHoverClear: (id) => this.scheduleHoverClear(id),
       getCardScale: () => region.getCardScale(),
-      isCompact: () => this.compactMode,
+      isCompact: () => this.mobileScene,
     };
   }
 
