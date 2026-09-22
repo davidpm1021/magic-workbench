@@ -20,14 +20,19 @@ engine remains authoritative.
 
 ## Current AI prompt coverage
 
-v0.1 supports:
+The v0.1 controller now validates and can answer the strategic prompt families needed for a normal
+game:
 
-- `chooseAction`
-- `payManaCost`
+- mulligans and London-mulligan put-backs;
+- priority actions and mana payment;
+- attackers, blockers, damage order, and combat-damage assignment;
+- board targets;
+- yes/no, numeric, color, card, and weighted selections;
+- scry and reorder decisions.
 
-Thinking AI takeover pauses on other prompt families so the human can resolve them normally. Combat
-declarations, target selection, mulligans, ordering, and other prompt types are the next coverage
-milestone.
+Informational prompts remain on the existing deterministic auto-resolvers. Every AI response is
+validated against the current engine prompt before it is submitted. If a model returns an illegal or
+malformed choice, Workbench stops and leaves the decision with the human instead of guessing.
 
 ## Connecting a model
 
@@ -51,9 +56,9 @@ is not exposed to browser code.
 
 ## Roadmap
 
-1. Cover all prompt families so Thinking AI can pilot an entire game.
-2. Add decision importance routing so trivial choices use a fast policy and hard choices use a
+1. Add decision importance routing so trivial choices use a fast policy and hard choices use a
    reasoning model.
+2. Add aggressive but safe auto-yield for prompts where no meaningful legal action exists.
 3. Add named snapshots and deterministic branch execution.
 4. Run parallel continuations from a saved state.
 5. Compare alternate actions and card swaps across matched seeds.
