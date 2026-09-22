@@ -3,6 +3,10 @@ import type { ClientGameView } from "@/stores/gameStore.types";
 import type { WorkbenchRecommendation } from "@/stores/useWorkbenchStore";
 import { classifyWorkbenchDecision } from "./decisionImportance";
 import { compactWorkbenchGameView } from "./compactGameView";
+import {
+  estimateOpenAiCostUsd,
+  type WorkbenchTokenUsage,
+} from "./pricing";
 
 export interface WorkbenchAiRequest {
   baseUrl: string;
@@ -31,6 +35,19 @@ interface ChatCompletionResponse {
   error?: {
     message?: string;
   };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+      cache_write_tokens?: number;
+    };
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
+  };
+  workbenchUsage?: WorkbenchTokenUsage;
 }
 
 interface ModelDecision {
@@ -123,6 +140,8 @@ export async function requestWorkbenchDecision(
 
   const parsed = parseJsonDecision(content);
   const output = validatePromptOutput(prompt, parsed.output);
+  const usage = extractTokenUsage(payload);
+  const estimatedCostUsd = estimateOpenAiCostUsd(request.model.trim(), usage);
   const reason =
     typeof parsed.reason === "string" && parsed.reason.trim()
       ? parsed.reason.trim()
@@ -137,7 +156,30 @@ export async function requestWorkbenchDecision(
     promptType: prompt.input.type,
     importance: classification.importance,
     latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+    gameId: gameView.gameId,
+    usage,
+    estimatedCostUsd,
     createdAt: Date.now(),
+  };
+}
+
+function extractTokenUsage(payload: ChatCompletionResponse): WorkbenchTokenUsage | null {
+  if (payload.workbenchUsage) return payload.workbenchUsage;
+  const usage = payload.usage;
+  if (!usage) return null;
+
+  const inputTokens = Math.max(0, usage.prompt_tokens ?? 0);
+  const outputTokens = Math.max(0, usage.completion_tokens ?? 0);
+  return {
+    inputTokens,
+    cachedInputTokens: Math.max(0, usage.prompt_tokens_details?.cached_tokens ?? 0),
+    cacheWriteTokens: Math.max(0, usage.prompt_tokens_details?.cache_write_tokens ?? 0),
+    outputTokens,
+    reasoningTokens: Math.max(
+      0,
+      usage.completion_tokens_details?.reasoning_tokens ?? 0,
+    ),
+    totalTokens: Math.max(0, usage.total_tokens ?? inputTokens + outputTokens),
   };
 }
 
