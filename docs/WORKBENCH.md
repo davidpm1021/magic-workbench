@@ -64,3 +64,41 @@ is not exposed to browser code.
 5. Compare alternate actions and card swaps across matched seeds.
 6. Log human decisions as evaluation trajectories.
 7. Add replay analysis and ghost-pilot comparison.
+
+
+## Local AI development
+
+For browser development, the preferred path is the Vite-local Workbench proxy. Provider credentials stay in the PowerShell/Vite process and are not persisted in browser storage.
+
+On Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-workbench-ai.ps1
+```
+
+The launcher defaults to:
+
+- strategic decisions: `gpt-5.6-sol`
+- routine decisions: `gpt-5.6-luna`
+- provider base: `https://api.openai.com/v1`
+
+The proxy automatically uses OpenAI's Responses API for `api.openai.com`. Other OpenAI-compatible bases default to Chat Completions. Override `WORKBENCH_AI_API_MODE` with `responses` or `chat` when a provider needs an explicit mode.
+
+### Decision routing
+
+Workbench classifies each supported prompt as either `routine` or `strategic`.
+
+Routine examples:
+- mechanical mana payment
+- priority where no strategic spell or non-mana activation is offered
+
+Strategic examples:
+- mulligans
+- casts and non-mana activations
+- combat
+- targeting
+- card selection, scry, ordering, and modal choices
+
+Deterministic forced prompts are resolved by the existing prompt resolver before the AI controller is allowed to act.
+
+Each AI recommendation records prompt type, route, model, latency, validated output, and reason in the in-session Workbench history.
