@@ -22,6 +22,7 @@ export function useWorkbenchController(paused = false): void {
   const aiApiKey = useWorkbenchStore((state) => state.aiApiKey);
   const strategyPrompt = useWorkbenchStore((state) => state.strategyPrompt);
   const autoYieldTrivial = useWorkbenchStore((state) => state.autoYieldTrivial);
+  const gameBudgetUsd = useWorkbenchStore((state) => state.gameBudgetUsd);
   const setRecommendation = useWorkbenchStore((state) => state.setRecommendation);
   const setStatus = useWorkbenchStore((state) => state.setStatus);
 
@@ -89,6 +90,19 @@ export function useWorkbenchController(paused = false): void {
       return;
     }
 
+    const workbenchState = useWorkbenchStore.getState();
+    const gameSpend = workbenchState.history
+      .filter((item) => item.gameId === gameView.gameId)
+      .reduce((sum, item) => sum + (item.estimatedCostUsd ?? 0), 0);
+    if (gameBudgetUsd > 0 && gameSpend >= gameBudgetUsd) {
+      inFlightPromptRef.current = null;
+      setStatus({
+        kind: "paused",
+        message: `AI budget reached (${gameSpend.toFixed(2)} / ${gameBudgetUsd.toFixed(2)}). Raise the cap or take over manually.`,
+      });
+      return;
+    }
+
     setStatus({
       kind: "thinking",
       message: `${selectedModel} is handling a ${classification.importance} decision...`,
@@ -142,6 +156,7 @@ export function useWorkbenchController(paused = false): void {
     aiApiKey,
     strategyPrompt,
     autoYieldTrivial,
+    gameBudgetUsd,
     respond,
     setRecommendation,
     setStatus,
