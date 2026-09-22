@@ -23,6 +23,64 @@ const appVersion = (
 
 const COEP = "require-corp";
 
+function workbenchAiProxy(): Plugin {
+  return {
+    name: "workbench-ai-proxy",
+    configureServer(server) {
+      server.middlewares.use("/workbench-ai/chat/completions", async (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: { message: "Method not allowed." } }));
+          return;
+        }
+
+        const targetBase = (process.env.WORKBENCH_AI_BASE_URL || "https://api.openai.com/v1")
+          .trim()
+          .replace(/\/+$/, "");
+        const apiKey = (process.env.WORKBENCH_AI_API_KEY || "").trim();
+
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        }
+
+        try {
+          const upstream = await fetch(`${targetBase}/chat/completions`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+            },
+            body: Buffer.concat(chunks),
+          });
+
+          const body = Buffer.from(await upstream.arrayBuffer());
+          res.statusCode = upstream.status;
+          res.setHeader(
+            "Content-Type",
+            upstream.headers.get("content-type") || "application/json",
+          );
+          res.end(body);
+        } catch (error) {
+          res.statusCode = 502;
+          res.setHeader("Content-Type", "application/json");
+          res.end(
+            JSON.stringify({
+              error: {
+                message:
+                  error instanceof Error
+                    ? `Workbench AI proxy failed: ${error.message}`
+                    : "Workbench AI proxy failed.",
+              },
+            }),
+          );
+        }
+      });
+    },
+  };
+}
+
 function crossOriginIsolation(): Plugin {
   return {
     name: "cross-origin-isolation",
@@ -49,6 +107,7 @@ export default defineConfig({
       compiler: "raw",
     }),
     crossOriginIsolation(),
+    workbenchAiProxy(),
   ],
   resolve: {
     alias: {
