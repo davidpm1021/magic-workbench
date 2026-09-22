@@ -73,7 +73,7 @@ export async function requestWorkbenchDecision(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(request.apiKey.trim()
+      ...(request.apiKey?.trim()
         ? { Authorization: `Bearer ${request.apiKey.trim()}` }
         : {}),
     },
@@ -122,7 +122,7 @@ export async function requestWorkbenchDecision(
       : "Model selected a validated legal response.";
 
   return {
-    promptId: prompt.promptId,
+    promptId: Number(prompt.promptId ?? 0),
     output,
     label: describeOutput(output),
     reason,
