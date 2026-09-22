@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useGameStore } from "@/stores/useGameStore";
+import { usePromptPreferencesStore } from "@/stores/usePromptPreferencesStore";
+import { resolvePrompt } from "@/components/prompts/internal/promptHandlers";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import {
   isWorkbenchAiPrompt,
@@ -10,6 +12,7 @@ export function useWorkbenchController(paused = false): void {
   const currentPrompt = useGameStore((state) => state.currentPrompt);
   const isWaitingForResponse = useGameStore((state) => state.isWaitingForResponse);
   const respond = useGameStore((state) => state.respond);
+  const showOverrides = usePromptPreferencesStore((state) => state.show);
 
   const controllerMode = useWorkbenchStore((state) => state.controllerMode);
   const aiBaseUrl = useWorkbenchStore((state) => state.aiBaseUrl);
@@ -39,12 +42,16 @@ export function useWorkbenchController(paused = false): void {
     isWaitingForResponse,
     respond,
     setStatus,
+    showOverrides,
   ]);
 
   useEffect(() => {
     if (paused || controllerMode !== "thinking-ai") return;
     if (!currentPrompt || isWaitingForResponse) return;
     if (autoYieldTrivial && currentPrompt.input.type === "chooseAction" && currentPrompt.input.actions.length === 0) return;
+
+    const deterministic = resolvePrompt(currentPrompt, { prefs: { show: showOverrides } });
+    if (deterministic.kind === "auto") return;
 
     if (!isWorkbenchAiPrompt(currentPrompt)) {
       setStatus({
