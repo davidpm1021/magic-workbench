@@ -39,6 +39,9 @@ function workbenchAiProxy(): Plugin {
           .trim()
           .replace(/\/+$/, "");
         const apiKey = (process.env.WORKBENCH_AI_API_KEY || "").trim();
+        const configuredMode = (process.env.WORKBENCH_AI_API_MODE || "").trim().toLowerCase();
+        const apiMode =
+          configuredMode || (targetBase.includes("api.openai.com") ? "responses" : "chat");
 
         const chunks: Buffer[] = [];
         for await (const chunk of req) {
@@ -46,13 +49,94 @@ function workbenchAiProxy(): Plugin {
         }
 
         try {
+          const requestBody = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+            model?: string;
+            messages?: Array<{ role?: string; content?: unknown }>;
+            workbenchImportance?: "routine" | "strategic";
+            [key: string]: unknown;
+          };
+
+          if (targetBase.includes("api.openai.com") && !apiKey) {
+            res.statusCode = 400;
+            res.setHeader("Content-Type", "application/json");
+            res.end(
+              JSON.stringify({
+                error: {
+                  message:
+                    "OpenAI API key is not configured. Start Workbench with scripts/start-workbench-ai.ps1.",
+                },
+              }),
+            );
+            return;
+          }
+
+          if (apiMode === "responses") {
+            const upstream = await fetch(`${targetBase}/responses`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+              },
+              body: JSON.stringify({
+                model: requestBody.model,
+                input: requestBody.messages ?? [],
+                reasoning: {
+                  effort: requestBody.workbenchImportance === "routine" ? "low" : "high",
+                },
+              }),
+            });
+
+            const payload = (await upstream.json().catch(() => ({}))) as {
+              error?: { message?: string };
+              output?: Array<{
+                type?: string;
+                content?: Array<{ type?: string; text?: string }>;
+              }>;
+            };
+
+            if (!upstream.ok) {
+              res.statusCode = upstream.status;
+              res.setHeader("Content-Type", "application/json");
+              res.end(JSON.stringify(payload));
+              return;
+            }
+
+            const text = payload.output
+              ?.flatMap((item) => item.content ?? [])
+              .filter((part) => part.type === "output_text")
+              .map((part) => part.text ?? "")
+              .join("")
+              .trim();
+
+            if (!text) {
+              res.statusCode = 502;
+              res.setHeader("Content-Type", "application/json");
+              res.end(
+                JSON.stringify({
+                  error: { message: "OpenAI Responses API returned no output text." },
+                }),
+              );
+              return;
+            }
+
+            res.statusCode = 200;
+            res.setHeader("Content-Type", "application/json");
+            res.end(
+              JSON.stringify({
+                choices: [{ message: { content: text } }],
+              }),
+            );
+            return;
+          }
+
+          const { workbenchImportance: _importance, ...chatBody } = requestBody;
           const upstream = await fetch(`${targetBase}/chat/completions`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
             },
-            body: Buffer.concat(chunks),
+            body: JSON.stringify(chatBody),
           });
 
           const body = Buffer.from(await upstream.arrayBuffer());
