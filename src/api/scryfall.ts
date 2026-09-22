@@ -30,7 +30,8 @@ import { DEFAULT_SCRYFALL_LANGUAGE, type ScryfallLanguage } from "@/i18n/locales
 export const SCRYFALL_API = "https://api.scryfall.com";
 export const COLLECTION_BATCH_SIZE = 75;
 const SCRYFALL_REQUEST_INTERVAL_MS = 500;
-const SCRYFALL_DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
+const SCRYFALL_MIN_RATE_LIMIT_COOLDOWN_MS = 2_000;
+const SCRYFALL_MAX_RATE_LIMIT_ATTEMPTS = 5;
 
 let nextScryfallRequestAt = 0;
 let scryfallCooldownUntil = 0;
@@ -54,7 +55,7 @@ function sleep(ms: number, signal?: AbortSignal | null): Promise<void> {
 function parseRetryAfterMs(retryAfter: string | null): number | null {
   if (!retryAfter) return null;
   const seconds = Number(retryAfter);
-  if (Number.isFinite(seconds) && seconds >= 0) {
+  if (Number.isFinite(seconds) && seconds > 0) {
     return Math.ceil(seconds * 1000);
   }
   const retryDate = Date.parse(retryAfter);
@@ -75,10 +76,15 @@ async function waitForScryfallSlot(signal?: AbortSignal | null): Promise<void> {
   if (waitMs > 0) await sleep(waitMs, signal);
 }
 
-function applyScryfallCooldown(response: Response): number {
-  const retryAfterMs =
-    parseRetryAfterMs(response.headers.get("retry-after")) ??
-    SCRYFALL_DEFAULT_RATE_LIMIT_COOLDOWN_MS;
+function applyScryfallCooldown(response: Response, attempt: number): number {
+  const serverRetryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
+  const exponentialBackoffMs =
+    SCRYFALL_MIN_RATE_LIMIT_COOLDOWN_MS * 2 ** Math.max(attempt, 0);
+  const retryAfterMs = Math.max(
+    serverRetryAfterMs ?? 0,
+    exponentialBackoffMs,
+    SCRYFALL_MIN_RATE_LIMIT_COOLDOWN_MS,
+  );
   scryfallCooldownUntil = Math.max(scryfallCooldownUntil, Date.now() + retryAfterMs);
   nextScryfallRequestAt = Math.max(nextScryfallRequestAt, scryfallCooldownUntil);
   return retryAfterMs;
@@ -101,13 +107,20 @@ export async function scryfallFetch<T>(
   errorMsg: string,
   init?: RequestInit,
 ): Promise<T> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < SCRYFALL_MAX_RATE_LIMIT_ATTEMPTS; attempt += 1) {
     const response = await queuedScryfallFetch(url, init);
     if (response.status === 429) {
-      const retryAfterMs = applyScryfallCooldown(response);
-      if (attempt === 0) continue;
+      const retryAfterMs = applyScryfallCooldown(response, attempt);
+      if (attempt < SCRYFALL_MAX_RATE_LIMIT_ATTEMPTS - 1) {
+        console.warn(
+          `[scryfall] rate limited; retrying in ${Math.ceil(retryAfterMs / 1000)}s ` +
+            `(attempt ${attempt + 1}/${SCRYFALL_MAX_RATE_LIMIT_ATTEMPTS})`,
+        );
+        continue;
+      }
       throw new Error(
-        `Scryfall is rate limited. Try again in ${Math.ceil(retryAfterMs / 1000)} seconds.`,
+        `Scryfall is rate limited after ${SCRYFALL_MAX_RATE_LIMIT_ATTEMPTS} attempts. ` +
+          `Try again in ${Math.ceil(retryAfterMs / 1000)} seconds.`,
       );
     }
     if (!response.ok) {
