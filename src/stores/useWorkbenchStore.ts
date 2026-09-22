@@ -10,6 +10,9 @@ export interface WorkbenchRecommendation {
   label: string;
   reason: string;
   model: string;
+  promptType: string;
+  importance: "routine" | "strategic";
+  latencyMs: number;
   createdAt: number;
 }
 
@@ -29,6 +32,7 @@ interface WorkbenchState {
   strategyPrompt: string;
   autoYieldTrivial: boolean;
   recommendation: WorkbenchRecommendation | null;
+  history: WorkbenchRecommendation[];
   status: WorkbenchStatus;
 
   setControllerMode: (mode: WorkbenchControllerMode) => void;
@@ -39,6 +43,7 @@ interface WorkbenchState {
   setStrategyPrompt: (value: string) => void;
   setAutoYieldTrivial: (value: boolean) => void;
   setRecommendation: (value: WorkbenchRecommendation | null) => void;
+  clearHistory: () => void;
   setStatus: (status: WorkbenchStatus) => void;
   resetSession: () => void;
 }
@@ -61,6 +66,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       strategyPrompt: DEFAULT_STRATEGY,
       autoYieldTrivial: true,
       recommendation: null,
+      history: [],
       status: {
         kind: "idle",
         message: "Manual control. Workbench is observing the game.",
@@ -92,7 +98,14 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       setAiApiKey: (aiApiKey) => set({ aiApiKey }),
       setStrategyPrompt: (strategyPrompt) => set({ strategyPrompt }),
       setAutoYieldTrivial: (autoYieldTrivial) => set({ autoYieldTrivial }),
-      setRecommendation: (recommendation) => set({ recommendation }),
+      setRecommendation: (recommendation) =>
+        set((state) => ({
+          recommendation,
+          history: recommendation
+            ? [...state.history.slice(-49), recommendation]
+            : state.history,
+        })),
+      clearHistory: () => set({ history: [] }),
       setStatus: (status) => set({ status }),
       resetSession: () =>
         set({
