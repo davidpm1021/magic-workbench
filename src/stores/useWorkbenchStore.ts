@@ -17,6 +17,7 @@ export interface WorkbenchRecommendation {
   gameId: string;
   usage: WorkbenchTokenUsage | null;
   estimatedCostUsd: number | null;
+  promptFingerprint: string;
   createdAt: number;
 }
 
