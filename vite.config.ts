@@ -129,7 +129,8 @@ function workbenchAiProxy(): Plugin {
             return;
           }
 
-          const { workbenchImportance: _importance, ...chatBody } = requestBody;
+          const chatBody = { ...requestBody };
+          delete chatBody.workbenchImportance;
           const upstream = await fetch(`${targetBase}/chat/completions`, {
             method: "POST",
             headers: {
