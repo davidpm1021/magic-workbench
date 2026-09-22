@@ -1,6 +1,6 @@
 param(
-  [string]$MainModel = "",
-  [string]$FastModel = "",
+  [string]$MainModel = "gpt-5.6-sol",
+  [string]$FastModel = "gpt-5.6-luna",
   [string]$ApiBaseUrl = "https://api.openai.com/v1"
 )
 
@@ -14,16 +14,8 @@ if (-not (Test-Path "$repo\packages\forge-wasm\forgeharness.js") -or
   & "$repo\scripts\install-forge-wasm-assets.ps1"
 }
 
-if (-not $MainModel.Trim()) {
-  $MainModel = Read-Host "Main reasoning model"
-}
-if (-not $MainModel.Trim()) {
-  throw "A main model name is required."
-}
-
-if (-not $FastModel.Trim()) {
-  $FastModel = Read-Host "Fast model (optional; Enter uses the main model for everything)"
-}
+Write-Host "Main model: $MainModel" -ForegroundColor DarkGray
+Write-Host "Fast model: $FastModel" -ForegroundColor DarkGray
 
 $enteredBase = Read-Host "OpenAI-compatible API base URL [$ApiBaseUrl]"
 if ($enteredBase.Trim()) {
