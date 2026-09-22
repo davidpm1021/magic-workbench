@@ -66,6 +66,7 @@ export async function requestWorkbenchDecision(
 ): Promise<WorkbenchRecommendation> {
   const { prompt, gameView } = request;
   const startedAt = performance.now();
+  const classification = classifyWorkbenchDecision(prompt);
   if (!isWorkbenchAiPrompt(prompt)) {
     throw new Error(`Thinking AI does not support ${prompt.input.type}.`);
   }
@@ -82,6 +83,9 @@ export async function requestWorkbenchDecision(
     },
     body: JSON.stringify({
       model: request.model.trim(),
+      ...(request.baseUrl.trim().startsWith("/workbench-ai")
+        ? { workbenchImportance: classification.importance }
+        : {}),
       messages: [
         {
           role: "system",
@@ -123,8 +127,6 @@ export async function requestWorkbenchDecision(
     typeof parsed.reason === "string" && parsed.reason.trim()
       ? parsed.reason.trim()
       : "Model selected a validated legal response.";
-
-  const classification = classifyWorkbenchDecision(prompt);
 
   return {
     promptId: Number(prompt.promptId ?? 0),
