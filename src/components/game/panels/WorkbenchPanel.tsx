@@ -45,6 +45,7 @@ export function WorkbenchPanel() {
   const aiModel = useWorkbenchStore((state) => state.aiModel);
   const aiApiKey = useWorkbenchStore((state) => state.aiApiKey);
   const strategyPrompt = useWorkbenchStore((state) => state.strategyPrompt);
+  const autoYieldTrivial = useWorkbenchStore((state) => state.autoYieldTrivial);
   const recommendation = useWorkbenchStore((state) => state.recommendation);
   const status = useWorkbenchStore((state) => state.status);
   const setControllerMode = useWorkbenchStore((state) => state.setControllerMode);
@@ -52,6 +53,7 @@ export function WorkbenchPanel() {
   const setAiModel = useWorkbenchStore((state) => state.setAiModel);
   const setAiApiKey = useWorkbenchStore((state) => state.setAiApiKey);
   const setStrategyPrompt = useWorkbenchStore((state) => state.setStrategyPrompt);
+  const setAutoYieldTrivial = useWorkbenchStore((state) => state.setAutoYieldTrivial);
   const setRecommendation = useWorkbenchStore((state) => state.setRecommendation);
   const setStatus = useWorkbenchStore((state) => state.setStatus);
 
@@ -171,6 +173,21 @@ export function WorkbenchPanel() {
             Act once
           </Button>
         </div>
+
+        <label className="flex items-start gap-2 rounded-md border border-border/50 bg-background/60 p-2">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={autoYieldTrivial}
+            onChange={(event) => setAutoYieldTrivial(event.target.checked)}
+          />
+          <span>
+            <span className="font-medium">Auto-yield trivial priority</span>
+            <span className="mt-0.5 block text-[10px] text-muted-foreground">
+              Automatically passes only when the engine exposes zero legal actions.
+            </span>
+          </span>
+        </label>
 
         <Button
           size="sm"
