@@ -1,15 +1,13 @@
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
+import type { PromptOutput } from "@/protocol";
 
 export type WorkbenchControllerMode = "manual" | "assisted" | "thinking-ai";
 
-export type WorkbenchChoice =
-  | { kind: "action"; actionId: string }
-  | { kind: "pass" };
-
 export interface WorkbenchRecommendation {
   promptId: number;
-  choice: WorkbenchChoice;
+  output: PromptOutput["output"];
+  label: string;
   reason: string;
   model: string;
   createdAt: number;
