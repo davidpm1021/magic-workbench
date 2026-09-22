@@ -159,6 +159,7 @@ export async function requestWorkbenchDecision(
     gameId: gameView.gameId,
     usage,
     estimatedCostUsd,
+    promptFingerprint: JSON.stringify(prompt.input),
     createdAt: Date.now(),
   };
 }
@@ -191,9 +192,15 @@ function responseRules(prompt: Prompt): string[] {
         "Do not use restoreSnapshot.",
       ];
     case "payManaCost":
-      return [
-        'Return {"type":"act","actionId":"<one id from prompt.input.actions>"}, {"type":"pay","auto":true|false}, or {"type":"cancel"}.',
-      ];
+      return prompt.input.canConfirmFromPool
+        ? [
+            'The mana pool already satisfies the cost. Return {"type":"pay","auto":false} to confirm payment.',
+            "Do not activate another mana source when canConfirmFromPool is true.",
+          ]
+        : [
+            'The mana pool does NOT yet satisfy the cost. Return {"type":"act","actionId":"<one id from prompt.input.actions>"} to take one incremental payment step, or {"type":"cancel"} if payment should be abandoned.',
+            'Do NOT return {"type":"pay"} while canConfirmFromPool is false. The engine will re-prompt and create a loop.',
+          ];
     case "mulligan":
       return ['Return {"type":"mulliganDecision","keep":true|false}.'];
     case "mulliganPutBack":
@@ -282,7 +289,14 @@ function validatePromptOutput(prompt: Prompt, value: unknown): PromptOutput["out
 
     case "payManaCost": {
       if (value.type === "cancel") return { type: "cancel" };
-      if (value.type === "pay") return { type: "pay", auto: value.auto === true };
+      if (value.type === "pay") {
+        if (!prompt.input.canConfirmFromPool) {
+          throw new Error(
+            "AI tried to confirm mana payment before the engine said the pool was ready.",
+          );
+        }
+        return { type: "pay", auto: false };
+      }
       if (
         value.type === "act" &&
         typeof value.actionId === "string" &&
