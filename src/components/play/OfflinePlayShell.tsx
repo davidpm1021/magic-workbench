@@ -4,26 +4,23 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ROUTES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
-
 interface OfflinePlayShellProps {
   children: ReactNode | ((modeToggle: ReactNode) => ReactNode);
 }
-
 const TABS = [
   {
     to: ROUTES.PLAY_OFFLINE_CONSTRUCTED,
-    label: "Constructed",
-    hint: "Deck vs AI",
+    label: `Constructed`,
+    hint: `Deck vs AI`,
     icon: Swords,
   },
   {
     to: ROUTES.PLAY_OFFLINE_LIMITED,
-    label: "Limited",
-    hint: "Draft & sealed",
+    label: `Limited`,
+    hint: `Draft & sealed`,
     icon: Boxes,
   },
 ];
-
 export function OfflinePlayShell({ children }: OfflinePlayShellProps) {
   const location = useLocation();
   const navigate = useNavigate();

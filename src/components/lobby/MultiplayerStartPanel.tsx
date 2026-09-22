@@ -2,12 +2,10 @@ import { Armchair, Plus } from "lucide-react";
 import { OpenTableSeats } from "@/components/lobby/OpenTableSeats";
 import { Button } from "@/components/ui/button";
 import { useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
-
 interface MultiplayerStartPanelProps {
   disabled: boolean;
   onSetUp: () => void;
 }
-
 export function MultiplayerStartPanel({ disabled, onSetUp }: MultiplayerStartPanelProps) {
   const shortScreen = useIsShortScreen();
   const isTouch = useIsTouch();

@@ -14,27 +14,34 @@ import { MANA_LETTERS, type ManaLetter } from "@/themes/gameTheme";
 import { manaSymbolUrl } from "@/api/scryfall";
 import { ScryfallImg } from "@/components/ScryfallImg";
 import { useIsTouch } from "@/hooks/useBreakpoints";
-
 type Color = ManaLetter;
-
 const COLOR_LABEL: Record<Color, string> = {
-  W: "White",
-  U: "Blue",
-  B: "Black",
-  R: "Red",
-  G: "Green",
-  C: "Colorless",
+  W: `White`,
+  U: `Blue`,
+  B: `Black`,
+  R: `Red`,
+  G: `Green`,
+  C: `Colorless`,
 };
-
-const SORT_OPTIONS: { value: SortBy; label: string }[] = [
-  { value: "name", label: "A→Z" },
-  { value: "color", label: "Color" },
-  { value: "updated", label: "Date" },
+const SORT_OPTIONS: {
+  value: SortBy;
+  label: string;
+}[] = [
+  {
+    value: "name",
+    label: `A\u2192Z`,
+  },
+  {
+    value: "color",
+    label: `Color`,
+  },
+  {
+    value: "updated",
+    label: `Date`,
+  },
 ];
-
 const SELECT_CLS =
   "h-9 min-w-0 flex-1 cursor-pointer rounded border bg-background px-2 text-xs pointer-coarse:h-11 pointer-coarse:text-base";
-
 interface DeckListControlsProps {
   search: string;
   onSearchChange: (v: string) => void;
@@ -45,7 +52,6 @@ interface DeckListControlsProps {
   sortBy: SortBy;
   onSortChange: (v: SortBy) => void;
 }
-
 export function DeckListControls({
   search,
   onSearchChange,
@@ -58,13 +64,11 @@ export function DeckListControls({
 }: DeckListControlsProps) {
   const isTouch = useIsTouch();
   const hasActiveFilters = search || formatFilter || colorFilter.length > 0;
-
   function clearAll() {
     onSearchChange("");
     onFormatChange("");
     colorFilter.forEach(onColorToggle);
   }
-
   return (
     <div
       className={cn(
@@ -103,8 +107,8 @@ export function DeckListControls({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              aria-label="Filter by format"
-              title="Filter by format"
+              aria-label={`Filter by format`}
+              title={`Filter by format`}
               className={cn(
                 SELECT_CLS,
                 "flex items-center justify-between gap-1 hover:bg-muted/40",
@@ -216,8 +220,8 @@ export function DeckListControls({
         {hasActiveFilters && (
           <button
             type="button"
-            aria-label="Clear all filters"
-            title="Clear all filters"
+            aria-label={`Clear all filters`}
+            title={`Clear all filters`}
             onClick={clearAll}
             className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground pointer-coarse:h-11 pointer-coarse:w-11"
           >

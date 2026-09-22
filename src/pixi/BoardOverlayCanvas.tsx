@@ -3,6 +3,7 @@ import { topModal } from "@/lib/modalStack";
 
 import { useEffect, useRef, useState } from "react";
 import { Application, Graphics } from "pixi.js";
+import { useLingui } from "@lingui/react";
 import { destroyPixiApp, installPixiPatches } from "./pixiPatches";
 
 installPixiPatches();
@@ -258,6 +259,8 @@ export function BoardOverlayCanvas({
   onLongPressCard,
 }: BoardOverlayCanvasProps) {
   const theme = useTheme();
+  const { i18n } = useLingui();
+  const locale = i18n.locale;
   const stackCardStyle = usePreferencesStore((state) => state.stackCardStyle);
   const themeRef = useRef(theme);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -919,7 +922,7 @@ export function BoardOverlayCanvas({
       );
     }
     schedulerRef.current?.request();
-  }, [theme]);
+  }, [locale, theme]);
 
   const hoveredStackCard = stackSpec.cards.find((card) => card.id === hoveredStackObjectId);
   const rulesPreviewOpen = previewSpec?.phase === "open" && !previewSpec.suppressed;

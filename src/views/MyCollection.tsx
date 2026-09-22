@@ -38,7 +38,6 @@ import { cn } from "@/lib/utils";
 import { deckCardToPreviewDto, scryfallToDeckCard } from "@/lib/scryfall.utils";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useCollectionStore } from "@/stores/useCollectionStore";
-
 export default function MyCollection() {
   useCardCollection();
   const shortScreen = useIsShortScreen();
@@ -74,10 +73,8 @@ export default function MyCollection() {
     [collectionRows, query],
   );
   const visibleRows = rows.slice(0, visibleRowCount);
-
   if (authStatus === "unknown") return null;
   if (authStatus !== "signedIn") return <Navigate to={ROUTES.SETTINGS} replace />;
-
   function exportCollection() {
     const csv = [
       "Quantity,Card Name,Set Code,Collector Number,Foil",
@@ -93,24 +90,21 @@ export default function MyCollection() {
     anchor.click();
     URL.revokeObjectURL(url);
   }
-
   function updateQuantity(cardKey: string, quantity: number) {
     void setQuantity(cardKey, quantity).catch(() => {
-      toast.error("Account sync failed. This change is preserved locally.");
+      toast.error(`Account sync failed. This change is preserved locally.`);
     });
   }
-
   async function deleteCollection() {
     try {
       await replaceQuantities({});
       setQuery("");
-      toast.success("Collection deleted");
+      toast.success(`Collection deleted`);
     } catch (error) {
-      toast.error("Account sync failed. The deletion is preserved locally and will retry.");
+      toast.error(`Account sync failed. The deletion is preserved locally and will retry.`);
       throw error;
     }
   }
-
   return (
     <div className="flex h-full min-h-0 w-full">
       <div
@@ -128,7 +122,7 @@ export default function MyCollection() {
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
                 {loading
-                  ? "Syncing with your account…"
+                  ? `Syncing with your account\u2026`
                   : `${Object.keys(quantities).length} collection entries`}
               </p>
               {syncError && (
@@ -197,7 +191,7 @@ export default function MyCollection() {
               <Input
                 className="pl-9"
                 value={query}
-                placeholder="Search your collection"
+                placeholder={`Search your collection`}
                 onChange={(event) => {
                   setQuery(event.target.value);
                   setVisibleRowCount(100);
@@ -221,8 +215,8 @@ export default function MyCollection() {
             <div className="flex shrink-0 overflow-hidden rounded-md border">
               <button
                 type="button"
-                title="Grid view"
-                aria-label="Grid view"
+                title={`Grid view`}
+                aria-label={`Grid view`}
                 aria-pressed={view === "grid"}
                 onClick={() => {
                   setView("grid");
@@ -239,8 +233,8 @@ export default function MyCollection() {
               </button>
               <button
                 type="button"
-                title="Text view"
-                aria-label="Text view"
+                title={`Text view`}
+                aria-label={`Text view`}
                 aria-pressed={view === "text"}
                 onClick={() => {
                   setView("text");
@@ -292,8 +286,8 @@ export default function MyCollection() {
                 )}
               >
                 {query
-                  ? "No cards match your search."
-                  : "Import a CSV or text list to start your collection."}
+                  ? `No cards match your search.`
+                  : `Import a CSV or text list to start your collection.`}
               </div>
             )}
           </div>

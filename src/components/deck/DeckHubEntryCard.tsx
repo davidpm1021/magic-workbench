@@ -7,7 +7,6 @@ import { ManaSymbols } from "@/components/game/ManaSymbols";
 import { cn } from "@/lib/utils";
 import type { DeckHubEntrySummary } from "@/api/hubTypes";
 import { ScryfallImg } from "@/components/ScryfallImg";
-
 interface DeckHubEntryCardProps {
   entry: DeckHubEntrySummary;
   onOpen: () => void;
@@ -21,9 +20,6 @@ interface DeckHubEntryCardProps {
   playing?: boolean;
   playDisabled?: boolean;
 }
-
-const NO_AUTHOR = "Deleted user";
-
 export function DeckHubEntryCard({
   entry,
   onOpen,
@@ -45,7 +41,6 @@ export function DeckHubEntryCard({
   const discoveryTags = entry.tags.filter(
     (tag) => tag.slug !== "official" && tag.slug !== "preset",
   );
-
   const favorite = onFavorite ? (
     <Button
       type="button"
@@ -75,11 +70,11 @@ export function DeckHubEntryCard({
       role={rank <= 3 ? "img" : undefined}
       aria-label={
         rank === 1
-          ? "First place"
+          ? `First place`
           : rank === 2
-            ? "Second place"
+            ? `Second place`
             : rank === 3
-              ? "Third place"
+              ? `Third place`
               : undefined
       }
     >
@@ -124,17 +119,17 @@ export function DeckHubEntryCard({
   ) : (
     labels
   );
-
+  const authorName = author ?? `Deleted user`;
   return (
     <DeckCardSurface
+      onOpen={onOpen}
       title={entry.title}
-      subtitle={`by ${author ?? NO_AUTHOR}`}
+      subtitle={`by ${authorName}`}
       onSubtitleClick={author && onAuthorClick ? () => onAuthorClick(author) : undefined}
       subtitleAriaLabel={author ? `Show decks by ${author}` : undefined}
       description={entry.summary}
       supportingText={reason}
-      ariaLabel={`Open ${entry.title} by ${author ?? NO_AUTHOR}`}
-      onOpen={onOpen}
+      ariaLabel={`Open ${entry.title} by ${authorName}`}
       variant={variant}
       cover={
         entry.coverImageUrl ? (

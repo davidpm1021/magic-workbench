@@ -71,13 +71,11 @@ import {
   moveSelectedCards,
   type DeckSourceZone,
 } from "@/components/editor/deckEditor.actions";
-
 const DRAG_TRAY_MAIN = "drag-tray-main";
 const DRAG_TRAY_SIDE = "drag-tray-side";
 const DRAG_TRAY_MAYBE = "drag-tray-maybe";
 const DRAG_TRAY_TAG_PREFIX = "drag-tray-tag:";
 const DRAG_TRAY_NEW_TAG = "drag-tray-new-tag";
-
 function DragTrayTarget({
   id,
   label,
@@ -85,7 +83,9 @@ function DragTrayTarget({
 }: {
   id: string;
   label: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{
+    className?: string;
+  }>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
@@ -101,7 +101,6 @@ function DragTrayTarget({
     </div>
   );
 }
-
 export default function DeckEditor() {
   const previewController = useCardPreview([], { subscribe: false });
   const shortScreen = useIsShortScreen();
@@ -160,11 +159,9 @@ export default function DeckEditor() {
     resumePublishDeck?: SavedDeck["deck"];
     resumeCurrentPublish?: boolean;
   } | null;
-
   function handleOpenPreset(deck: DeckType) {
     setSearchParams({ deck: presetDeckParamId(deck) }, { state: { deckEditorFromList: true } });
   }
-
   const forkedPresetKeys = new Set(
     Object.values(accountDeckDetails)
       .map((detail) => detail.derivedFromPresetKey?.toLowerCase())
@@ -187,7 +184,13 @@ export default function DeckEditor() {
   const [showSearch, setShowSearch] = useState(false);
   const [searchFocusSignal, setSearchFocusSignal] = useState(0);
   const [importDialogOpen, setImportDialogOpen] = useState(() =>
-    Boolean((location.state as { openImport?: boolean } | null)?.openImport),
+    Boolean(
+      (
+        location.state as {
+          openImport?: boolean;
+        } | null
+      )?.openImport,
+    ),
   );
   const [choiceDialogOpen, setChoiceDialogOpen] = useState(false);
   const [selectedPublishingDeck, setPublishingDeck] = useState<SavedDeck | null>(null);
@@ -202,7 +205,6 @@ export default function DeckEditor() {
   const publishingDeck = selectedPublishingDeck
     ? { deck: selectedPublishingDeck.deck, localDeckId: selectedPublishingDeck.id }
     : routePublishingDeck;
-
   const [previewSlot, setPreviewSlot] = useState<HTMLDivElement | null>(null);
   const [previewCollapsed, setPreviewCollapsed] = useState<boolean>(
     () =>
@@ -227,7 +229,6 @@ export default function DeckEditor() {
   const hasUnsavedChanges = useDeckUnsavedChanges();
   const [searchParams, setSearchParams] = useSearchParams();
   const currentDeckId = useDeckStore((s) => s.currentDeckId);
-
   const [stateView, setStateView] = useState<"list" | "editor">(() => {
     if (useDeckStore.getState().isReadOnly) return "editor";
     return routeState?.directToEditor || (publishEnabled && routeState?.resumeCurrentPublish)
@@ -239,31 +240,24 @@ export default function DeckEditor() {
   const [showBackConfirm, setShowBackConfirm] = useState(false);
   const [deletingAccountDeck, setDeletingAccountDeck] = useState<SavedDeck | null>(null);
   const [deletingAccountBusy, setDeletingAccountBusy] = useState(false);
-
   const [search, setSearch] = useState("");
   const [formatFilter, setFormatFilter] = useState("");
   const [colorFilter, setColorFilter] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<SortBy>("name");
-
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameInput, setRenameInput] = useState("");
-
   const blocker = useBlocker(hasUnsavedChanges && view === "editor" && !isReadOnly);
-
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   );
-
   useEffect(() => {
     return () => {
       useDeckStore.getState().clearDeck();
       resetDeckHistory();
     };
   }, []);
-
   const restoredParamRef = useRef<string | null>(null);
-
   useEffect(() => {
     const deckParam = searchParams.get("deck");
     if (!deckParam) {
@@ -290,7 +284,6 @@ export default function DeckEditor() {
       }
       return;
     }
-
     if (deckParam.startsWith(PRESET_DECK_ID_PREFIX)) {
       const presetId = deckParam.slice(PRESET_DECK_ID_PREFIX.length);
       const preset = presetDecks.find((d) => (d.id ?? d.name) === presetId);
@@ -301,7 +294,6 @@ export default function DeckEditor() {
       restoredParamRef.current = deckParam;
       return;
     }
-
     if (deckParam.startsWith("account:")) {
       const accountDeckId = deckParam.slice("account:".length);
       const detail = accountDeckDetails[accountDeckId];
@@ -316,7 +308,6 @@ export default function DeckEditor() {
       restoredParamRef.current = id;
       return;
     }
-
     const saved = savedDecks.find((s) => s.id === deckParam);
     if (!saved) return;
     loadSavedDeck(deckParam);
@@ -338,13 +329,11 @@ export default function DeckEditor() {
     setSearchParams,
     routeState,
   ]);
-
   function toggleColor(color: string) {
     setColorFilter((prev) =>
       prev.includes(color) ? prev.filter((c) => c !== color) : [...prev, color],
     );
   }
-
   const deckFilterArgs = { search, formatFilter, colorFilter, sortBy };
   const { valid: presetSavedDecks } = applyDeckFilters(presetSavedDecksUnfiltered, deckFilterArgs);
   const localSavedDecks = savedDecks.filter((saved) => !saved.accountDeckId);
@@ -382,22 +371,18 @@ export default function DeckEditor() {
       if (sortBy === "color") return left.colors.localeCompare(right.colors);
       return new Date(right.publishedAt).getTime() - new Date(left.publishedAt).getTime();
     });
-
   function handleSelectDeck(id: string) {
     setSearchParams({ deck: id }, { state: { deckEditorFromList: true } });
   }
-
   function handleSelectAccountDeck(saved: SavedDeck) {
     if (!saved.accountDeckId || !saved.accountVersionNo) return;
     const id = loadAccountDeck(saved.accountDeckId, saved.accountVersionNo, saved.deck);
     resetDeckHistory();
     setSearchParams({ deck: id }, { state: { deckEditorFromList: true } });
   }
-
   function viewPresetInHub(presetKey: string) {
     navigate(`${ROUTES.HUB}?deck=${encodeURIComponent(presetKey)}&source=presets`);
   }
-
   async function confirmDeleteAccountDeck() {
     const saved = deletingAccountDeck;
     if (!saved?.accountDeckId || deletingAccountBusy) return;
@@ -408,12 +393,11 @@ export default function DeckEditor() {
       toast.success(`"${saved.deck.name}" removed from your account`);
       setDeletingAccountDeck(null);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to remove account deck");
+      toast.error(error instanceof Error ? error.message : `Failed to remove account deck`);
     } finally {
       setDeletingAccountBusy(false);
     }
   }
-
   function handleNewDeck() {
     setSearchParams({}, { replace: true, state: null });
     clearDeck();
@@ -421,7 +405,6 @@ export default function DeckEditor() {
     setDeckName(DEFAULT_DECK_NAME);
     setView("editor");
   }
-
   async function handleTextImport(
     entries: ParsedDeckEntry[],
     name: string,
@@ -431,7 +414,6 @@ export default function DeckEditor() {
     const id = await importDeckText(entries, name, formatId, onProgress);
     handleSelectDeck(id);
   }
-
   function returnToDeckList() {
     const historyIndex = window.history.state?.idx;
     const popEditorEntry =
@@ -445,7 +427,6 @@ export default function DeckEditor() {
       setSearchParams({}, { replace: true, state: null });
     }
   }
-
   function handleBack() {
     if (isReadOnly) {
       useDeckStore.getState().clearDeck();
@@ -459,7 +440,6 @@ export default function DeckEditor() {
       returnToDeckList();
     }
   }
-
   function renderCollectionDeck(saved: SavedDeck, draft = false) {
     const accountDeckId = saved.accountDeckId;
     const presetKey = accountDeckId
@@ -493,12 +473,10 @@ export default function DeckEditor() {
       />
     );
   }
-
   useTopBarOverride({
     title: view === "editor" ? "Deck Editor" : undefined,
     onBack: view === "editor" ? handleBack : undefined,
   });
-
   useKeybindings({
     "card-search-focus": () => {
       setShowSearch(true);
@@ -507,17 +485,14 @@ export default function DeckEditor() {
     "deck-editor-toggle-preview": () => togglePreview(),
     "go-back": view === "editor" ? handleBack : () => navigate(ROUTES.PLAY),
   });
-
   function handleDelete(id: string) {
     deleteSavedDeck(id);
-    toast.success("Deck deleted");
+    toast.success(`Deck deleted`);
   }
-
   function startRename(id: string, name: string) {
     setRenamingId(id);
     setRenameInput(name);
   }
-
   function confirmRename() {
     if (!renamingId || !renameInput.trim()) return;
     const newName = renameInput.trim();
@@ -531,9 +506,8 @@ export default function DeckEditor() {
           : state.currentDeck,
     }));
     setRenamingId(null);
-    toast.success("Deck renamed");
+    toast.success(`Deck renamed`);
   }
-
   function handleDragStart(event: DragStartEvent) {
     const data = event.active.data.current;
     if (!data?.card) return;
@@ -543,7 +517,6 @@ export default function DeckEditor() {
       setDraggedCards([card]);
       return;
     }
-
     const allCards = [
       ...currentDeck.cards,
       ...currentDeck.sideboard,
@@ -559,16 +532,13 @@ export default function DeckEditor() {
       }),
     );
   }
-
   function handleDragEnd(event: DragEndEvent) {
     setDraggedCards([]);
     if (isReadOnly) return;
     const { active, over } = event;
     if (!over) return;
-
     const dragData = active.data.current;
     if (!dragData?.card) return;
-
     const card = dragData.card as DeckCard;
     const overId = String(over.id);
     const activeId = String(active.id);
@@ -577,9 +547,7 @@ export default function DeckEditor() {
     const draggedNames = selectedCards.has(cardName.toLowerCase())
       ? [...selectedCards]
       : [cardName.toLowerCase()];
-
     const sourceTag = typeof dragData.sourceTag === "string" ? dragData.sourceTag : null;
-
     if (overId === DROP_ZONE.COMMAND) {
       if (activeId.startsWith("deck-commander-")) return;
       const eligible =
@@ -596,22 +564,22 @@ export default function DeckEditor() {
         else if (activeId.startsWith("deck-maybeboard-")) removeFromMaybe(card.identity.id);
       });
       toast.success(`Set ${card.identity.name} in the command zone`, {
-        action: { label: "Undo", onClick: undoDeckEdit },
+        action: {
+          label: `Undo`,
+          onClick: undoDeckEdit,
+        },
       });
       return;
     }
-
     if (overId === DRAG_TRAY_NEW_TAG) {
       setPendingTagCards(draggedNames);
       setNewTagName("");
       setNewTagDropOpen(true);
       return;
     }
-
     const trayTag = overId.startsWith(DRAG_TRAY_TAG_PREFIX)
       ? overId.slice(DRAG_TRAY_TAG_PREFIX.length)
       : null;
-
     if (overId.startsWith(DROP_ZONE.TAG_PREFIX) || trayTag) {
       const destTag = trayTag ?? overId.slice(DROP_ZONE.TAG_PREFIX.length);
       executeDeckEdit(`Tag ${draggedNames.length} cards with ${destTag}`, () => {
@@ -623,7 +591,10 @@ export default function DeckEditor() {
         }
       });
       toast.success(`Tagged ${draggedNames.length} cards with ${destTag}`, {
-        action: { label: "Undo", onClick: undoDeckEdit },
+        action: {
+          label: `Undo`,
+          onClick: undoDeckEdit,
+        },
       });
     } else if (
       overId === DROP_ZONE.MAIN ||
@@ -644,14 +615,12 @@ export default function DeckEditor() {
         activeId.startsWith("deck-planes-")
       )
         source = "special";
-
       const dest: "main" | "side" | "maybe" =
         overId === DROP_ZONE.MAIN || overId === DRAG_TRAY_MAIN
           ? "main"
           : overId === DROP_ZONE.SIDE || overId === DRAG_TRAY_SIDE
             ? "side"
             : "maybe";
-
       const sourceZone = source === "side" || source === "special" ? "side" : source;
       if (draggedNames.length === 1 && sourceZone === dest) return;
       if (source === "commander") {
@@ -660,7 +629,6 @@ export default function DeckEditor() {
         }
         return;
       }
-
       if (draggedNames.length > 1) {
         executeDeckEdit(`Move ${draggedNames.length} cards to ${dest}`, () => {
           if (sourceTag) {
@@ -669,21 +637,25 @@ export default function DeckEditor() {
           moveSelectedCards(draggedNames, dest);
         });
         toast.success(`Moved ${draggedNames.length} cards to ${dest}`, {
-          action: { label: "Undo", onClick: undoDeckEdit },
+          action: {
+            label: `Undo`,
+            onClick: undoDeckEdit,
+          },
         });
         return;
       }
-
       executeDeckEdit(`Move ${cardName} to ${dest}`, () => {
         if (sourceTag) untagCard(cardName, sourceTag);
         moveCardCopies(cardName, source as DeckSourceZone, dest, "one");
       });
       toast.success(`Moved ${cardName} to ${dest}`, {
-        action: { label: "Undo", onClick: undoDeckEdit },
+        action: {
+          label: `Undo`,
+          onClick: undoDeckEdit,
+        },
       });
     }
   }
-
   function createDroppedTag() {
     const tag = newTagName.trim();
     if (!tag) return;
@@ -694,7 +666,6 @@ export default function DeckEditor() {
     setNewTagDropOpen(false);
     setPendingTagCards([]);
   }
-
   if (view === "list") {
     return (
       <>
@@ -741,7 +712,7 @@ export default function DeckEditor() {
                   collectionDecks.length === 0)) && (
                 <div
                   className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
-                  aria-label="Loading your decks"
+                  aria-label={`Loading your decks`}
                   aria-busy="true"
                 >
                   {Array.from({ length: 5 }, (_, index) => (
@@ -962,7 +933,7 @@ export default function DeckEditor() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") confirmRename();
               }}
-              placeholder="Deck name"
+              placeholder={`Deck name`}
               autoFocus
             />
             <DialogFooter className="gap-2">
@@ -1010,7 +981,7 @@ export default function DeckEditor() {
                 disabled={deletingAccountBusy}
                 onClick={() => void confirmDeleteAccountDeck()}
               >
-                {deletingAccountBusy ? "Removing…" : "Remove deck"}
+                {deletingAccountBusy ? `Removing\u2026` : `Remove deck`}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1018,7 +989,6 @@ export default function DeckEditor() {
       </>
     );
   }
-
   return (
     <>
       <DndContext
@@ -1086,9 +1056,9 @@ export default function DeckEditor() {
         {draggedCards.length > 0 && (
           <div className="pointer-events-none fixed inset-x-0 top-[calc(var(--safe-area-inset-top)+4rem)] z-[80] flex justify-center px-4">
             <div className="pointer-events-auto flex max-w-5xl flex-wrap gap-2 rounded-xl border bg-popover/95 p-3 shadow-2xl backdrop-blur-md">
-              <DragTrayTarget id={DRAG_TRAY_MAIN} label="Main deck" icon={Layers} />
-              <DragTrayTarget id={DRAG_TRAY_SIDE} label="Sideboard" icon={Layers} />
-              <DragTrayTarget id={DRAG_TRAY_MAYBE} label="Maybeboard" icon={HelpCircle} />
+              <DragTrayTarget id={DRAG_TRAY_MAIN} label={`Main deck`} icon={Layers} />
+              <DragTrayTarget id={DRAG_TRAY_SIDE} label={`Sideboard`} icon={Layers} />
+              <DragTrayTarget id={DRAG_TRAY_MAYBE} label={`Maybeboard`} icon={HelpCircle} />
               {(currentDeck.customTags ?? []).map((tag) => (
                 <DragTrayTarget
                   key={tag}
@@ -1097,7 +1067,7 @@ export default function DeckEditor() {
                   icon={Bookmark}
                 />
               ))}
-              <DragTrayTarget id={DRAG_TRAY_NEW_TAG} label="New tag" icon={Plus} />
+              <DragTrayTarget id={DRAG_TRAY_NEW_TAG} label={`New tag`} icon={Plus} />
             </div>
           </div>
         )}
@@ -1145,7 +1115,7 @@ export default function DeckEditor() {
           <Input
             autoFocus
             value={newTagName}
-            placeholder="Ramp, removal, combo…"
+            placeholder={`Ramp, removal, combo\u2026`}
             onChange={(event) => setNewTagName(event.target.value)}
             onKeyDown={(event) => {
               if (event.key !== "Enter" || !newTagName.trim()) return;

@@ -12,7 +12,6 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { toast } from "sonner";
-
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -66,33 +65,63 @@ import { effectiveRarity, RARITY_LABEL, type UIRarity } from "@/lib/cardRarity";
 import { cn } from "@/lib/utils";
 import type { DraftCard } from "@/types/limited";
 import type { Deck, DeckFormat } from "@/protocol/deck";
-
 type GroupMode = "rarity" | "name" | "cmc" | "color";
-
 const ZONE_DROP_ID: Record<LimitedZone, string> = {
   pool: "limited-zone-pool",
   main: "limited-zone-main",
   sideboard: "limited-zone-sideboard",
 };
-
 type PoolColorChip = "W" | "U" | "B" | "R" | "G" | "C" | "M";
 type PoolColorFilter = Set<PoolColorChip>;
-
 const POOL_COLOR_CHIPS: Array<{
   key: PoolColorChip;
   symbol: string | null;
   fallback: string;
   label: string;
 }> = [
-  { key: "W", symbol: "W", fallback: "W", label: "White" },
-  { key: "U", symbol: "U", fallback: "U", label: "Blue" },
-  { key: "B", symbol: "B", fallback: "B", label: "Black" },
-  { key: "R", symbol: "R", fallback: "R", label: "Red" },
-  { key: "G", symbol: "G", fallback: "G", label: "Green" },
-  { key: "C", symbol: "C", fallback: "C", label: "Colourless" },
-  { key: "M", symbol: null, fallback: "★", label: "Multicolour" },
+  {
+    key: "W",
+    symbol: "W",
+    fallback: "W",
+    label: `White`,
+  },
+  {
+    key: "U",
+    symbol: "U",
+    fallback: "U",
+    label: `Blue`,
+  },
+  {
+    key: "B",
+    symbol: "B",
+    fallback: "B",
+    label: `Black`,
+  },
+  {
+    key: "R",
+    symbol: "R",
+    fallback: "R",
+    label: `Red`,
+  },
+  {
+    key: "G",
+    symbol: "G",
+    fallback: "G",
+    label: `Green`,
+  },
+  {
+    key: "C",
+    symbol: "C",
+    fallback: "C",
+    label: `Colourless`,
+  },
+  {
+    key: "M",
+    symbol: null,
+    fallback: "★",
+    label: `Multicolour`,
+  },
 ];
-
 function passesColorFilter(
   card: DraftCard,
   filter: PoolColorFilter,
@@ -109,7 +138,6 @@ function passesColorFilter(
   if (filter.has("C") && colors.length === 0) return true;
   return colors.some((c) => filter.has(c as PoolColorChip));
 }
-
 export interface LimitedDeckBuilderProps {
   pool: DraftCard[];
   initialMain?: DraftCard[];
@@ -123,7 +151,6 @@ export interface LimitedDeckBuilderProps {
   onConfirm?: (deck: { main: DraftCard[]; sideboard: DraftCard[] }) => void;
   onSaved?: (deckName: string) => void;
 }
-
 export default function LimitedDeckBuilder({
   pool,
   initialMain,
@@ -141,7 +168,6 @@ export default function LimitedDeckBuilder({
   const fullPool = useMemo(() => [...pool, ...extraBasics], [pool, extraBasics]);
   const entries = useMemo(() => indexPool(fullPool), [fullPool]);
   const scryfallCache = useScryfallStore((s) => s.cards);
-
   const [main, setMain] = useState<number[]>(() => matchInitial(fullPool, initialMain ?? []));
   const [sideboard, setSideboard] = useState<number[]>(() =>
     matchInitial(fullPool, initialSideboard ?? []),
@@ -152,7 +178,6 @@ export default function LimitedDeckBuilder({
   const isTouch = useIsTouch();
   const shortTouch = shortScreen && isTouch;
   const [mobileZone, setMobileZone] = useState<LimitedZone>("pool");
-
   const togglePoolColor = useCallback((key: PoolColorChip) => {
     setPoolColorFilter((prev) => {
       const next = new Set(prev);
@@ -162,36 +187,33 @@ export default function LimitedDeckBuilder({
     });
   }, []);
   const resetPoolColors = useCallback(() => setPoolColorFilter(new Set()), []);
-
-  const [activeDrag, setActiveDrag] = useState<{ index: number; card: DraftCard } | null>(null);
+  const [activeDrag, setActiveDrag] = useState<{
+    index: number;
+    card: DraftCard;
+  } | null>(null);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [compareDialogOpen, setCompareDialogOpen] = useState(false);
   const [saveDeckName, setSaveDeckName] = useState(defaultDeckName);
   const [savingDeck, setSavingDeck] = useState(false);
   const savingDeckRef = useRef(false);
-
   useEffect(() => {
     onChange?.({
       main: main.map((i) => fullPool[i]).filter(Boolean),
       sideboard: sideboard.map((i) => fullPool[i]).filter(Boolean),
     });
   }, [main, sideboard, fullPool, onChange]);
-
   const unused = useMemo(
     () => unusedIndices(fullPool.length, main, sideboard),
     [fullPool.length, main, sideboard],
   );
-
   const validationIssues = useMemo(() => {
     const mainCards = main.map((i) => fullPool[i]).filter(Boolean);
     return validateLimitedDeck(mainCards, targetMainSize);
   }, [main, fullPool, targetMainSize]);
-
   const moveTo = useCallback((idx: number, target: LimitedZone) => {
     setMain((m) => (target === "main" ? addUnique(m, idx) : m.filter((i) => i !== idx)));
     setSideboard((s) => (target === "sideboard" ? addUnique(s, idx) : s.filter((i) => i !== idx)));
   }, []);
-
   const cycleZone = useCallback(
     (idx: number, currentZone: LimitedZone) => {
       const next: LimitedZone =
@@ -200,7 +222,6 @@ export default function LimitedDeckBuilder({
     },
     [moveTo],
   );
-
   const addBasic = useCallback(
     (name: BasicLandName) => {
       setExtraBasics((b) => {
@@ -212,7 +233,6 @@ export default function LimitedDeckBuilder({
     },
     [fullPool.length],
   );
-
   const fixManaBase = useCallback(() => {
     const cache = useScryfallStore.getState().cards;
     const mainCards = main.map((i) => fullPool[i]).filter(Boolean);
@@ -231,10 +251,9 @@ export default function LimitedDeckBuilder({
     );
     const targetLands = Math.max(0, targetMainSize - nonLand.length);
     if (targetLands === 0) {
-      toast.info("No room for basics — main deck is already at target size.");
+      toast.info(`No room for basics \u2014 main deck is already at target size.`);
       return;
     }
-
     const pips: Record<BasicLandName, number> = {
       Plains: 0,
       Island: 0,
@@ -261,7 +280,6 @@ export default function LimitedDeckBuilder({
         pips[colorToBasic[letter]] += countManaPips(cost, letter);
       }
     }
-
     const totalPips = (Object.values(pips) as number[]).reduce((a, b) => a + b, 0);
     let allocation: Record<BasicLandName, number>;
     if (totalPips === 0) {
@@ -300,7 +318,6 @@ export default function LimitedDeckBuilder({
         allocation[f.key as BasicLandName] = f.count;
       }
     }
-
     // Strip existing user-added basics from main + sideboard so we
     // don't double-count, then push fresh ones.
     setMain((m) => m.filter((idx) => !basicNames.has(fullPool[idx]?.name ?? "")));
@@ -326,36 +343,39 @@ export default function LimitedDeckBuilder({
         .join(" · ")}`,
     );
   }, [fullPool, main, sideboard, pool, targetMainSize]);
-
   const handleConfirm = () => {
     onConfirm?.({
       main: main.map((i) => fullPool[i]).filter(Boolean),
       sideboard: sideboard.map((i) => fullPool[i]).filter(Boolean),
     });
   };
-
   const hasSuggestion = (initialMain && initialMain.length > 0) || false;
   const resetToSuggested = useCallback(() => {
     setMain(matchInitial(fullPool, initialMain ?? []));
     setSideboard(matchInitial(fullPool, initialSideboard ?? []));
     setExtraBasics([]);
   }, [fullPool, initialMain, initialSideboard]);
-
   const preview = useCardPreview();
-
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-
   const handleDragStart = (event: DragStartEvent) => {
-    const data = event.active.data.current as { index: number } | undefined;
+    const data = event.active.data.current as
+      | {
+          index: number;
+        }
+      | undefined;
     if (!data) return;
     const card = fullPool[data.index];
     if (card) setActiveDrag({ index: data.index, card });
     preview.dismiss();
   };
-
   const handleDragEnd = (event: DragEndEvent) => {
     setActiveDrag(null);
-    const data = event.active.data.current as { index: number; fromZone: LimitedZone } | undefined;
+    const data = event.active.data.current as
+      | {
+          index: number;
+          fromZone: LimitedZone;
+        }
+      | undefined;
     const overId = event.over?.id;
     if (!data || !overId) return;
     let target: LimitedZone | null = null;
@@ -365,14 +385,11 @@ export default function LimitedDeckBuilder({
     if (!target || target === data.fromZone) return;
     moveTo(data.index, target);
   };
-
   const addSavedDeck = useDeckStore((s) => s.addSavedDeck);
-
   const openSaveDialog = () => {
     setSaveDeckName(defaultDeckName);
     setSaveDialogOpen(true);
   };
-
   const handleSaveToMyDecks = async () => {
     if (savingDeckRef.current) return;
     savingDeckRef.current = true;
@@ -380,27 +397,24 @@ export default function LimitedDeckBuilder({
     try {
       const name = saveDeckName.trim();
       if (!name) {
-        toast.error("Deck name cannot be empty.");
+        toast.error(`Deck name cannot be empty.`);
         return;
       }
       const mainCards = main.map((i) => fullPool[i]).filter(Boolean);
       const sideboardCards = sideboard.map((i) => fullPool[i]).filter(Boolean);
       if (mainCards.length === 0 && sideboardCards.length === 0) {
-        toast.error("Add some cards before saving.");
+        toast.error(`Add some cards before saving.`);
         return;
       }
       if (requireCompleteToSave && mainCards.length < targetMainSize) {
         toast.error(
-          `Main deck needs ${targetMainSize - mainCards.length} more card${
-            targetMainSize - mainCards.length === 1 ? "" : "s"
-          }.`,
+          `Main deck needs ${targetMainSize - mainCards.length} more card${targetMainSize - mainCards.length === 1 ? "" : "s"}.`,
         );
         return;
       }
       const leftoverCards = unused
         .map((i) => fullPool[i])
         .filter((c): c is DraftCard => Boolean(c) && !isSynthBasic(c));
-
       const [resolvedMain, resolvedSide] = await Promise.all([
         resolveDeckCards(mainCards),
         resolveDeckCards([...sideboardCards, ...leftoverCards]),
@@ -417,13 +431,12 @@ export default function LimitedDeckBuilder({
       toast.success(`Saved "${name}" to My Decks.`);
       onSaved?.(name);
     } catch {
-      toast.error("Couldn't save the deck. Try again.");
+      toast.error(`Couldn't save the deck. Try again.`);
     } finally {
       savingDeckRef.current = false;
       setSavingDeck(false);
     }
   };
-
   const handleExport = async () => {
     try {
       const mainCards = main.map((i) => fullPool[i]).filter(Boolean);
@@ -438,12 +451,11 @@ export default function LimitedDeckBuilder({
       await navigator.clipboard.writeText(
         exportToArena({ name: defaultDeckName, cards: resolvedMain, sideboard: resolvedSide }),
       );
-      toast.success("Deck copied to clipboard.");
+      toast.success(`Deck copied to clipboard.`);
     } catch {
-      toast.error("Couldn't copy the deck. Try again.");
+      toast.error(`Couldn't copy the deck. Try again.`);
     }
   };
-
   return (
     <DndContext
       sensors={sensors}
@@ -496,8 +508,8 @@ export default function LimitedDeckBuilder({
             zone="pool"
             emptyMessage={
               poolColorFilter.size > 0
-                ? "No cards match the colour filter."
-                : "Every card is in the deck or sideboard."
+                ? `No cards match the colour filter.`
+                : `Every card is in the deck or sideboard.`
             }
             onCardClick={(idx) => cycleZone(idx, "pool")}
             preview={preview}
@@ -508,7 +520,7 @@ export default function LimitedDeckBuilder({
             entries={pickEntries(entries, main)}
             groupMode={groupMode}
             zone="main"
-            emptyMessage="Drag cards here, or click pool cards to add."
+            emptyMessage={`Drag cards here, or click pool cards to add.`}
             highlight={main.length >= targetMainSize ? "border-primary" : "border-border/70"}
             warnOnDrop={null}
             onCardClick={(idx) => cycleZone(idx, "main")}
@@ -523,7 +535,7 @@ export default function LimitedDeckBuilder({
             entries={pickEntries(entries, sideboard)}
             groupMode={groupMode}
             zone="sideboard"
-            emptyMessage="Cards parked here aren't in the main deck."
+            emptyMessage={`Cards parked here aren't in the main deck.`}
             onCardClick={(idx) => cycleZone(idx, "sideboard")}
             preview={preview}
           />
@@ -588,12 +600,9 @@ export default function LimitedDeckBuilder({
                     : "border-warning/40 bg-warning/10 text-warning",
                 )}
               >
-                {requireCompleteToSave ? "✗" : "⚠"} Main deck is {targetMainSize - main.length} card
-                {targetMainSize - main.length === 1 ? "" : "s"} short of the {targetMainSize}-card
-                target.
                 {requireCompleteToSave
-                  ? " Saving is blocked until the deck is legal."
-                  : " Saving will flag the deck as a draft."}
+                  ? `✗ Main deck is ${targetMainSize - main.length} cards short of the ${targetMainSize}-card target. Saving is blocked until the deck is legal.`
+                  : `⚠ Main deck is ${targetMainSize - main.length} cards short of the ${targetMainSize}-card target. Saving will flag the deck as a draft.`}
               </p>
             )}
           </div>
@@ -606,7 +615,7 @@ export default function LimitedDeckBuilder({
               onClick={handleSaveToMyDecks}
               disabled={savingDeck || (requireCompleteToSave && main.length < targetMainSize)}
             >
-              {savingDeck ? "Saving..." : "Save"}
+              {savingDeck ? `Saving...` : `Save`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -620,7 +629,6 @@ export default function LimitedDeckBuilder({
     </DndContext>
   );
 }
-
 interface ToolbarProps {
   groupMode: GroupMode;
   onGroupModeChange: (m: GroupMode) => void;
@@ -643,7 +651,6 @@ interface ToolbarProps {
   mobileZone: LimitedZone;
   onMobileZoneChange: (zone: LimitedZone) => void;
 }
-
 function Toolbar({
   groupMode,
   onGroupModeChange,
@@ -849,7 +856,7 @@ function Toolbar({
             size="xs"
             variant="ghost"
             onClick={onFixManaBase}
-            title="Auto-fill basics proportional to your colour pips"
+            title={`Auto-fill basics proportional to your colour pips`}
           >
             Fix mana base
           </Button>
@@ -867,13 +874,13 @@ function Toolbar({
             size="xs"
             variant="ghost"
             onClick={onReset}
-            title="Reset main + sideboard to the suggested deck"
+            title={`Reset main + sideboard to the suggested deck`}
           >
             Reset
           </Button>
         )}
         {onCompare && (
-          <Button size="xs" variant="ghost" onClick={onCompare} title="Compare with a saved deck">
+          <Button size="xs" variant="ghost" onClick={onCompare} title={`Compare with a saved deck`}>
             Compare
           </Button>
         )}
@@ -892,7 +899,6 @@ function Toolbar({
     </div>
   );
 }
-
 interface ZoneProps {
   title: string;
   entries: PoolEntry[];
@@ -905,7 +911,6 @@ interface ZoneProps {
   preview: ReturnType<typeof useCardPreview>;
   className?: string;
 }
-
 function Zone({
   title,
   entries,
@@ -932,7 +937,6 @@ function Zone({
     }
   }, [entries, groupMode, cache]);
   const { setNodeRef, isOver } = useDroppable({ id: ZONE_DROP_ID[zone] });
-
   return (
     <section
       ref={setNodeRef}
@@ -985,7 +989,6 @@ function Zone({
     </section>
   );
 }
-
 function GroupSection({
   label,
   count,
@@ -1008,7 +1011,6 @@ function GroupSection({
     </div>
   );
 }
-
 function CardGrid({
   entries,
   zone,
@@ -1034,7 +1036,6 @@ function CardGrid({
     </div>
   );
 }
-
 function DraggableTile({
   entry,
   zone,
@@ -1069,7 +1070,6 @@ function DraggableTile({
     </div>
   );
 }
-
 function DragPreview({ card, index }: { card: DraftCard; index: number }) {
   const scry = useCard({
     name: card.name,
@@ -1089,21 +1089,17 @@ function DragPreview({ card, index }: { card: DraftCard; index: number }) {
     </div>
   );
 }
-
 function pickEntries(all: PoolEntry[], indices: number[]): PoolEntry[] {
   return indices.map((i) => all[i]).filter((e): e is PoolEntry => Boolean(e));
 }
-
 function addUnique(arr: number[], v: number): number[] {
   return arr.includes(v) ? arr : [...arr, v];
 }
-
 interface RenderedGroup {
   label: string;
   entries: PoolEntry[];
   rarity?: UIRarity;
 }
-
 function renderByRarity(
   entries: PoolEntry[],
   cache: Record<string, ScryfallEntry>,
@@ -1122,31 +1118,37 @@ function renderByRarity(
     rarity: g.rarity,
   }));
 }
-
 function renderByName(entries: PoolEntry[]): RenderedGroup[] {
   return groupByName(entries).map((g) => ({ label: g.name, entries: g.entries }));
 }
-
 function renderByColor(
   entries: PoolEntry[],
   cache: Record<string, ScryfallEntry>,
 ): RenderedGroup[] {
+  const white = `White`;
+  const blue = `Blue`;
+  const black = `Black`;
+  const red = `Red`;
+  const green = `Green`;
+  const multicolour = `Multicolour`;
+  const colourless = `Colourless`;
+  const lands = `Lands`;
   const buckets: Record<string, PoolEntry[]> = {
-    White: [],
-    Blue: [],
-    Black: [],
-    Red: [],
-    Green: [],
-    Multicolour: [],
-    Colourless: [],
-    Lands: [],
+    [white]: [],
+    [blue]: [],
+    [black]: [],
+    [red]: [],
+    [green]: [],
+    [multicolour]: [],
+    [colourless]: [],
+    [lands]: [],
   };
   const colorLabel: Record<string, string> = {
-    W: "White",
-    U: "Blue",
-    B: "Black",
-    R: "Red",
-    G: "Green",
+    W: white,
+    U: blue,
+    B: black,
+    R: red,
+    G: green,
   };
   for (const entry of entries) {
     const scry = peekCard(cache, {
@@ -1155,19 +1157,18 @@ function renderByColor(
       cardNumber: entry.card.cardNumber,
     });
     if (effectiveRarity(scry) === "land") {
-      buckets.Lands.push(entry);
+      buckets[lands]!.push(entry);
       continue;
     }
     const cs = (scry?.colors ?? []).map((c) => c.toUpperCase());
-    if (cs.length === 0) buckets.Colourless.push(entry);
-    else if (cs.length >= 2) buckets.Multicolour.push(entry);
-    else buckets[colorLabel[cs[0]] ?? "Colourless"].push(entry);
+    if (cs.length === 0) buckets[colourless]!.push(entry);
+    else if (cs.length >= 2) buckets[multicolour]!.push(entry);
+    else buckets[colorLabel[cs[0]] ?? colourless]!.push(entry);
   }
   return Object.entries(buckets)
     .filter(([, list]) => list.length > 0)
     .map(([label, list]) => ({ label, entries: list }));
 }
-
 function renderByCmc(entries: PoolEntry[], cache: Record<string, ScryfallEntry>): RenderedGroup[] {
   const buckets: PoolEntry[][] = [[], [], [], [], [], [], [], []]; // 0..6, 7 = unknown
   for (const e of entries) {
@@ -1188,12 +1189,11 @@ function renderByCmc(entries: PoolEntry[], cache: Record<string, ScryfallEntry>)
     const idx = Math.max(0, Math.min(6, Math.round(cmc)));
     buckets[idx].push(e);
   }
-  const labels = ["0", "1", "2", "3", "4", "5", "6+", "Land / Unknown"];
+  const labels = ["0", "1", "2", "3", "4", "5", "6+", `Land / Unknown`];
   return buckets
     .map((list, i) => ({ label: labels[i], entries: list }))
     .filter((g) => g.entries.length > 0);
 }
-
 function matchInitial(pool: DraftCard[], initial: DraftCard[]): number[] {
   const used = new Set<number>();
   const out: number[] = [];

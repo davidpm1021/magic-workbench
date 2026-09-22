@@ -6,8 +6,9 @@ import { ensureUsernameTag, hasUsernameTag } from "@/lib/username";
 import type { AiOpponentRef } from "@/lib/aiOpponent";
 import type { KnownRelay } from "@/config/knownRelays";
 import type { PlaymatSettings } from "@/protocol/game";
-import type { GameFormat } from "@/types/server";
+import type { AiController, GameFormat } from "@/types/server";
 import type { HandOrderMode } from "@/lib/handOrder";
+import { APP_LOCALES, type AppLanguagePreference } from "@/i18n/locales";
 import { DEFAULT_BOARD_BACKGROUND_ID, type BoardBackgroundId } from "@/pixi/board/boardBackgrounds";
 import type { ThemeColors } from "@/themes/appTheme";
 import type { ThemeMode } from "@/themes/themeDocument";
@@ -36,6 +37,8 @@ export interface PreferencesState {
   appThemePreset: string;
   setAppThemePreset: (id: string) => void;
   personalThemeName: string | null;
+  appLanguage: AppLanguagePreference;
+  setAppLanguage: (language: AppLanguagePreference) => void;
 
   flashDurationMs: number;
   setFlashDurationMs: (ms: number) => void;
@@ -110,6 +113,9 @@ export interface PreferencesState {
   directTransport: boolean;
   setDirectTransport: (value: boolean) => void;
 
+  aiController: AiController;
+  setAiController: (controller: AiController) => void;
+
   hideAccountSaveNudge: boolean;
   setHideAccountSaveNudge: (value: boolean) => void;
 
@@ -160,6 +166,7 @@ export interface PreferencesState {
 const PERSISTED_PREFERENCE_KEYS = [
   "appThemePreset",
   "personalThemeName",
+  "appLanguage",
   "flashDurationMs",
   "serverHost",
   "serverPort",
@@ -182,6 +189,7 @@ const PERSISTED_PREFERENCE_KEYS = [
   "chooseOrderOnMultipleTriggers",
   "ironsmithRuntimeEnabled",
   "directTransport",
+  "aiController",
   "hideAccountSaveNudge",
   "cardPreviewMode",
   "cardHoverDelayMs",
@@ -236,6 +244,12 @@ function pickPersistedPreferences(persistedState: unknown): Partial<PreferencesS
   if (next.cardPreviewMode !== "hover" && next.cardPreviewMode !== "right-click") {
     next.cardPreviewMode = "hover";
   }
+  if (
+    next.appLanguage !== "system" &&
+    (typeof next.appLanguage !== "string" || !(next.appLanguage in APP_LOCALES))
+  ) {
+    delete next.appLanguage;
+  }
   return next as Partial<PreferencesState>;
 }
 
@@ -258,6 +272,8 @@ export const usePreferencesStore = create<PreferencesState>()(
               gameThemeColorOverrides: {},
             }),
           personalThemeName: null,
+          appLanguage: "system",
+          setAppLanguage: (appLanguage) => set({ appLanguage }),
 
           flashDurationMs: 1000,
           setFlashDurationMs: (ms) => set({ flashDurationMs: ms }),
@@ -327,6 +343,9 @@ export const usePreferencesStore = create<PreferencesState>()(
 
           directTransport: false,
           setDirectTransport: (directTransport) => set({ directTransport }),
+
+          aiController: "manabot",
+          setAiController: (aiController) => set({ aiController }),
 
           hideAccountSaveNudge: false,
           setHideAccountSaveNudge: (hideAccountSaveNudge) => set({ hideAccountSaveNudge }),

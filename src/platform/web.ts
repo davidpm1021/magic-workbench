@@ -110,7 +110,7 @@ async function loadWasm(): Promise<typeof import("@/wasm/wasm")> {
  */
 function readSeat<T>(
   seat: ForgeSeat,
-  onMessage: (message: T, json: string) => void,
+  onMessage: (message: T, json: string, arrivedAt: number) => void,
   onError: (error: unknown, json: string) => void,
 ): Worker {
   const worker = new Worker(new URL("../workers/seat-reader.worker.ts", import.meta.url), {
@@ -119,10 +119,14 @@ function readSeat<T>(
   worker.onmessage = (event: MessageEvent<string>) => {
     if (seat.cancelled) return;
     const json = event.data;
+    // Before the parse, as on the relay socket: a state frame is tens of
+    // kilobytes and parsing it is this machine's work. Stamping after the
+    // parse put it in `replyWait`, which on this path has no wire in it.
+    const arrivedAt = performance.now();
     try {
       const message = JSON.parse(json) as T;
       noteSeatMessage(seat, message);
-      onMessage(message, json);
+      onMessage(message, json, arrivedAt);
     } catch (error) {
       onError(error, json);
     }
@@ -134,6 +138,15 @@ function readSeat<T>(
 const dlog = (...args: unknown[]) => {
   if (isPromptLoggingEnabled()) console.log(...args);
 };
+
+// The window-level arrays the e2e scripts and benches read live for the tab,
+// across every game it plays, so they are rings: the newest DEBUG_RING entries
+// stay and the rest go. A long session otherwise grows them without bound.
+const DEBUG_RING = 4000;
+function ringPush<T>(ring: T[], item: T): void {
+  ring.push(item);
+  if (ring.length > DEBUG_RING * 2) ring.splice(0, ring.length - DEBUG_RING);
+}
 
 function describeBotFrame(raw: string): string {
   try {
@@ -250,7 +263,7 @@ class WorkerBridge {
         seat,
         readSeat<EngineMessage>(
           seat,
-          (msg) => this.dispatchEngineMessage(msg),
+          (msg, _json, arrivedAt) => this.dispatchEngineMessage(msg, arrivedAt),
           (error) => console.error("[WorkerBridge] Failed to read SAB message:", error),
         ),
       );
@@ -300,11 +313,12 @@ class WorkerBridge {
     this.installRemoteResponseListener();
   }
 
-  private dispatchEngineMessage(msg: EngineMessage): void {
-    // The seat reader has already parsed, so a hair of client work lands on
-    // the far side of the cut here; there is no wire on this path anyway.
+  private dispatchEngineMessage(msg: EngineMessage, arrivedAt: number): void {
+    // `arrivedAt` is stamped in the seat reader before the parse, so parsing a
+    // state frame counts as this machine's work, the same cut the relay socket
+    // makes.
     if (msg?.kind === "state" || msg?.kind === "prompt" || msg?.kind === "display") {
-      noteReplyFrameArrived();
+      noteReplyFrameArrived(arrivedAt);
     }
     try {
       this.applyEngineMessage(msg);
@@ -318,7 +332,8 @@ class WorkerBridge {
     if (this.workerIsForgeWasm) {
       const w = window as unknown as { __forgeFrames?: string[] };
       w.__forgeFrames = w.__forgeFrames ?? [];
-      w.__forgeFrames.push(
+      ringPush(
+        w.__forgeFrames,
         `${msg?.kind}:${msg?.kind === "state" ? Object.keys((msg.state ?? {}) as object).join("|") : ""}`,
       );
     }
@@ -339,7 +354,7 @@ class WorkerBridge {
         };
         if (w.__respondedAt != null) {
           w.__promptTimings = w.__promptTimings ?? [];
-          w.__promptTimings.push({
+          ringPush(w.__promptTimings, {
             ms: performance.now() - w.__respondedAt,
             type: (msg.prompt as { input?: { type?: string } })?.input?.type,
           });
@@ -478,17 +493,16 @@ class WorkerBridge {
         if (forgeWasm) {
           const w = window as unknown as { __forgeLog?: string[] };
           w.__forgeLog = w.__forgeLog ?? [];
-          const dec = window as unknown as {
-            __engineDecisions?: Array<{ ms: number; type: string; turns?: number }>;
-          };
+          type Decision = { ms: number; type: string; turns?: number; bot?: number };
+          const dec = window as unknown as { __engineDecisions?: Decision[] };
           dec.__engineDecisions = dec.__engineDecisions ?? [];
-          this.eventBus.on<{ ms: number; type: string; turns?: number }>("forge:decision", (p) => {
+          this.eventBus.on<Decision>("forge:decision", (p) => {
             if (!p) return;
-            dec.__engineDecisions?.push(p);
+            if (dec.__engineDecisions) ringPush(dec.__engineDecisions, p);
             // The engine's own measure of itself, which no other engine
             // reports: the interval from the answer landing to the next
             // prompt being ready, with no client polling in it.
-            noteEngineThinkTime(p.ms, p.turns ?? 0);
+            noteEngineThinkTime(p.ms, p.turns ?? 0, p.bot);
           });
           // Forge prints Java stack traces a line at a time, which is hundreds
           // of console entries for one message. Every line is kept for the
@@ -497,7 +511,7 @@ class WorkerBridge {
           let frames = 0;
           this.eventBus.on<{ level?: string; text?: string }>("forge:log", (p) => {
             const text = p?.text ?? "";
-            w.__forgeLog?.push(text);
+            if (w.__forgeLog) ringPush(w.__forgeLog, text);
             if (/^\s*(at\s|@)/.test(text)) {
               frames += 1;
               return;
@@ -675,7 +689,7 @@ class WebGameApi implements IGameApi {
 
   async startGame(params: StartGameParams): Promise<string> {
     this.bridge.setLocalBotSlots(
-      params.engine === "Forge"
+      params.engine === "Forge" && params.aiController !== "forge"
         ? (params.opponentDecks?.length ? params.opponentDecks : [params.deck]).map(
             (_, index) => `player-${index + 1}`,
           )
@@ -687,6 +701,7 @@ class WebGameApi implements IGameApi {
       commanderName: params.commanderName,
       opponentDecks: params.opponentDecks,
       engine: params.engine,
+      forgeAi: params.aiController === "forge",
     });
   }
 
@@ -1019,7 +1034,7 @@ class WebServerApi implements IServerApi {
         const frameAt = performance.now();
         try {
           const msg = JSON.parse(e.data);
-          this.handleServerMessage(msg, frameAt);
+          this.handleServerMessage(msg, frameAt, e.data);
         } catch {
           // Ignore malformed messages
         } finally {
@@ -1580,16 +1595,19 @@ class WebServerApi implements IServerApi {
       console.error("[WebServerApi] Not connected");
       return;
     }
-    if (msg.type !== "Ping") logComms("send", msg);
-    this.ws.send(JSON.stringify(msg));
+    const raw = JSON.stringify(msg);
+    if (msg.type !== "Ping") logComms("send", raw);
+    this.ws.send(raw);
   }
 
   /**
-   * @param frameAt when the frame carrying `msg` reached this client, for the
+   * @param frameAt when the frame carrying `` reached this client, for the
    *   turnaround split. Omitted for synthesised messages, which are not a
    *   reply arriving.
+   * @param raw the wire text when there is one, so the bug-report log costs a
+   *   slice of it and not a second serialisation of the parsed message.
    */
-  private handleServerMessage(msg: Record<string, unknown>, frameAt?: number): void {
+  private handleServerMessage(msg: Record<string, unknown>, frameAt?: number, raw?: string): void {
     const type = msg.type as string;
     // The heartbeat would evict real traffic from the bug-report ring buffer.
     if (type === "Pong") {
@@ -1599,7 +1617,7 @@ class WebServerApi implements IServerApi {
       }
       return;
     }
-    logComms("recv", msg);
+    logComms("recv", raw ?? msg);
     if (type === "AuthResult" && msg.success) {
       this.peerSignalling =
         Array.isArray(msg.features) && (msg.features as string[]).includes("peer_signal");
@@ -1844,6 +1862,7 @@ class WebServerApi implements IServerApi {
           error: msg.error,
           username: this.authedUsername,
           features: msg.features,
+          art_base_url: msg.art_base_url,
         },
       ],
       RoomList: ["server:room_list", { rooms: msg.rooms }],

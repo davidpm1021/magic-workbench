@@ -149,6 +149,7 @@ export function PromptModalPreview({ preview, fixtures, onClose }: PromptModalPr
               me: fixtures.me,
               opponents: fixtures.opponents,
               turn: fixtures.gameView.turn,
+              engineCrash: null,
               onEndGame: onClose,
             }
           : null,

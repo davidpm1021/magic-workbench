@@ -61,13 +61,26 @@ import { GAP, HAND_BOTTOM_SINK_FRAC, HAND_RESERVE_TRIM } from "@/pixi/constants"
 import type { HandActionOption } from "@/stores/useGameUIStore";
 import { ReconnectBanner } from "@/components/lobby/ReconnectBanner";
 import { GameBoardAccessibility } from "@/components/game/GameBoardAccessibility";
-
 function promptOf<TType extends PromptType>(
   prompt: Prompt | null | undefined,
   type: TType,
-): Extract<Prompt, { input: { type: TType } }> | null {
+): Extract<
+  Prompt,
+  {
+    input: {
+      type: TType;
+    };
+  }
+> | null {
   return prompt?.input.type === type
-    ? (prompt as Extract<Prompt, { input: { type: TType } }>)
+    ? (prompt as Extract<
+        Prompt,
+        {
+          input: {
+            type: TType;
+          };
+        }
+      >)
     : null;
 }
 
@@ -108,40 +121,46 @@ interface GameBoardProps {
   activePlayerId: string;
   priorityPlayerId: string;
   step: StepKind;
-
   promptType?: PromptType;
   currentPrompt: Prompt | null;
   boardTargets: BoardTargetBuckets | null;
-
   pendingAttackers: string[];
-  attackAssignments: { attackerId: string; targetId: string }[];
+  attackAssignments: {
+    attackerId: string;
+    targetId: string;
+  }[];
   pendingAttacker?: string | null;
   pendingBlocker?: string | null;
   damageOrder?: string[];
   damageOrderBlockerIds?: string[];
   selectedAttackDefenderId?: string | null;
-  blockAssignments: { blockerId: string; attackerId: string }[];
-  combatAssignments?: { blockerId: string; attackerId: string }[];
+  blockAssignments: {
+    blockerId: string;
+    attackerId: string;
+  }[];
+  combatAssignments?: {
+    blockerId: string;
+    attackerId: string;
+  }[];
   combatRows: CombatRow[];
   arrowSpecs?: ArrowSpec[];
-  castingArrow?: { sourceCardId: string; hostile: boolean } | null;
+  castingArrow?: {
+    sourceCardId: string;
+    hostile: boolean;
+  } | null;
   playerIsTargetable: (playerId: string) => boolean;
-
   monarchId?: string | null;
   initiativeHolderId?: string | null;
   dayTime: DayTime;
   activePlaneNames?: string[];
 
   turnFlashPlayerId: string | null;
-
   zonePanelOrder: ZonePanelItem[];
-
   isOverBattlefield: boolean;
   isOverHand: boolean;
   draggingCardId?: string;
   draggingIsPermanent?: boolean;
   castingCardId?: string | null;
-
   onHandCardDragStart: (card: CardDto, e: HandDragStart) => void;
   onHoverCard: (
     card: CardDto | null,
@@ -198,7 +217,6 @@ interface GameBoardProps {
   onTapLandAbility?: (actionId: string) => void;
   onUntapLand?: (card: CardDto) => void;
   onUntapLands?: (cardIds: string[]) => void;
-
   stackSpec: StackSpec;
   onTargetSpell: (spellId: string) => void;
   onHoverStack: (stackObjectId: string | null) => void;
@@ -207,16 +225,13 @@ interface GameBoardProps {
   promptViewportRight?: number;
 
   boardSceneRef?: React.MutableRefObject<BoardScene | null>;
-
   battlefieldContainerRef?: React.RefObject<HTMLDivElement | null>;
-
   handSelectionMode?: boolean;
   handSelectedIds?: Set<string>;
   onHandCardToggle?: (cardId: string) => void;
   onLayoutChange?: (layout: BoardCanvasLayout) => void;
   boardSurfaceRef?: (el: HTMLDivElement | null) => void;
 }
-
 export function GameBoard({
   me,
   opponents,
@@ -309,7 +324,6 @@ export function GameBoard({
 }: GameBoardProps) {
   const selfStops = usePhaseStopStore((s) => s.selfStops);
   const toggleSelfStop = usePhaseStopStore((s) => s.toggleSelfStop);
-
   const vScale = useHandScale();
   const compactBoard = useIsMobileGame();
   const layoutPolicy = compactBoard ? MOBILE_BATTLEFIELD_LAYOUT : DESKTOP_BATTLEFIELD_LAYOUT;
@@ -412,7 +426,6 @@ export function GameBoard({
     if (!isSelfTurn) setStickyOpponentId(activePlayerId);
     setManualFocusId(null);
   }
-
   const attackingCardIdSet = useMemo(() => {
     const s = new Set<string>();
     for (const c of myPermanents) if (c.isAttacking) s.add(c.id);
@@ -442,7 +455,6 @@ export function GameBoard({
       )
       .map(([blockerId, attackerId]) => ({ blockerId, attackerId }));
   }, [combatAssignments, blockAssignments, attackingCardIdSet, oppCombatAttackerIds]);
-
   const chooseActionActions = chooseActionPrompt?.input.actions;
   const promptActions = chooseActionActions ?? payManaCostPrompt?.input.actions;
   const manaAbilityOptions = promptActions ? manaAbilityInfos(promptActions) : undefined;
@@ -600,7 +612,6 @@ export function GameBoard({
       hostileAttackTargetIds,
     ],
   );
-
   const battlefieldAutoSort = usePreferencesStore((s) => s.battlefieldAutoSort);
   const handOrderMode = usePreferencesStore((s) => s.handOrderMode);
   const setHandOrderMode = usePreferencesStore((s) => s.setHandOrderMode);
@@ -634,7 +645,6 @@ export function GameBoard({
   const mobileHandActionable =
     promptType === "chooseAction" && orderedHand.some((card) => playableIds.has(card.id));
   const mulliganAction = promptType === "mulligan" ? promptOverlaySpec?.action : null;
-
   const pixiCallbacks = useMemo(
     (): GameCanvasCallbacks => ({
       onClickCard:
@@ -745,7 +755,6 @@ export function GameBoard({
       setMobileHandOpen,
     ],
   );
-
   const opponentStopsMap = usePhaseStopStore((s) => s.opponentStops);
   const toggleOpponentStop = usePhaseStopStore((s) => s.toggleOpponentStop);
 
@@ -772,7 +781,6 @@ export function GameBoard({
     setMobileHandOpen(false);
     setMobilePanel({ kind: "phases" });
   }, [onDismissHoverPreview, setMobileHandOpen, setMobilePanel, setSheetPlayerId]);
-
   const pixiPhaseStripCallbacks = useMemo(
     (): PhaseStripCallbacks => ({
       onToggleSelfPhase: toggleSelfStop,
@@ -781,7 +789,6 @@ export function GameBoard({
     }),
     [toggleSelfStop, toggleOpponentStop, openMobilePhaseStops],
   );
-
   const boardRef = useRef<HTMLDivElement>(null);
   const setBoardRef = useCallback(
     (el: HTMLDivElement | null) => {
@@ -790,7 +797,6 @@ export function GameBoard({
     },
     [boardSurfaceRef],
   );
-
   const [unifiedLayout, setUnifiedLayout] = useState<BoardCanvasLayout | null>(null);
   const localSceneRef = useRef<BoardScene | null>(null);
   const sceneRef = boardSceneRef ?? localSceneRef;
@@ -850,7 +856,6 @@ export function GameBoard({
     setRevealBrowseCards,
     step,
   ]);
-
   // The opponent whose field auto-expands: the active one on their turn,
   // otherwise the sticky one on ours (defaulting to the first opponent). The
   // scene owns + eases the delimiters, draws the grips, and applies the clip —
@@ -872,7 +877,6 @@ export function GameBoard({
     }
     return [...ids];
   }, [combatRows, me.id]);
-
   const cycleField = (dir: 1 | -1) => {
     if (opponents.length === 0 || document.querySelector('[role="dialog"]')) return;
     setMobilePanel(null);
@@ -887,7 +891,6 @@ export function GameBoard({
   // Which opponent's battleground the mouse is over (from the scene's hover
   // detection). Stashed for later use.
   const hoveredOpponentRef = useRef<string | null>(null);
-
   const gameDecks = useGameStore((s) => s.gameDecks);
   const hiddenPlaymats = useGameStore((s) => s.hiddenPlaymats);
   const myAvatar = useAuthStore((s) => s.account?.avatarUrl);
@@ -922,7 +925,6 @@ export function GameBoard({
     }
     return map;
   }, [myAvatar, playerDecks, relayPlayers, me.id, opponents]);
-
   const combatEngagedIds = useMemo(() => {
     const controllerById = new Map(battlefield.map((c) => [c.id, c.controllerId]));
     const playerSet = new Set([me.id, ...opponents.map((o) => o.id)]);
@@ -941,7 +943,6 @@ export function GameBoard({
     }
     return engaged;
   }, [battlefield, combatAssignments, me.id, opponents]);
-
   const ownerRingByCard = useMemo(() => {
     const seatColorOf = (pid: string): string =>
       pid === me.id
@@ -953,7 +954,6 @@ export function GameBoard({
     }
     return map;
   }, [battlefield, playerColors, opponents, me.id]);
-
   const incomingDamageByPlayer = useMemo(() => {
     const blocked = new Set((combatAssignments ?? []).map((a) => a.attackerId));
     const map = new Map<string, number>();
@@ -969,7 +969,6 @@ export function GameBoard({
     }
     return map;
   }, [battlefield, combatAssignments]);
-
   // Pixi player HUD capsules: self bottom-left, opponents across the top of
   // their fields. Carries the life, mana pool, and active player/game badges.
   const devOverrides = useGameDevStore((s) => s.playerOverrides);
@@ -1002,7 +1001,6 @@ export function GameBoard({
       addCards(p.exile);
     }
     const roomByName = new Map(currentRoom?.players.map((p) => [p.username, p]) ?? []);
-
     // Dev overrides are applied to every player (not just self) so the dev
     // panel can light up each state on all opponents at once. In production
     // these are all empty/false, so this is a no-op.
@@ -1015,7 +1013,7 @@ export function GameBoard({
                 id: "cmd-dev",
                 icon: "crossed-swords",
                 color: gameTheme.badges.commanderDamage,
-                label: "Commander Damage Taken",
+                label: `Commander Damage Taken`,
                 count: dev.cmdDamage,
                 lethal: dev.cmdDamage >= 21,
               },
@@ -1030,7 +1028,9 @@ export function GameBoard({
             id: `cmd-${cardId}`,
             icon: "crossed-swords",
             color: ownerId ? seatColorOf(ownerId) : gameTheme.badges.commanderDamage,
-            label: `Commander damage from ${cardNames.get(cardId) ?? `commander ${cardId}`}${ownerId ? ` · ${nameOf(ownerId)}` : ""}`,
+            label: `Commander damage from ${cardNames.get(cardId) ?? `commander ${cardId}`}${
+              ownerId ? ` · ${nameOf(ownerId)}` : ""
+            }`,
             count: dmg,
             lethal: dmg >= 21,
             referenceCard: referenceCards.get(cardId),
@@ -1049,13 +1049,12 @@ export function GameBoard({
           id: "incoming-damage",
           icon: "bleeding-wound",
           color: gameTheme.pt.lethal,
-          label: lethal ? "Lethal combat damage incoming" : "Combat damage incoming",
+          label: lethal ? `Lethal combat damage incoming` : `Combat damage incoming`,
           count: incoming,
           lethal,
         },
       ];
     };
-
     const toSpec = (player: ClientPlayerDto, color: string, isSelf: boolean): PlayerHudSpec => {
       const controlledById = dev.forceControlledBy
         ? isSelf
@@ -1372,7 +1371,6 @@ export function GameBoard({
     myPermanents,
     opponentPermanentsByPlayer,
   ]);
-
   // Shared open-handlers for the local player's command / graveyard / exile
   // zones. Used by BOTH the on-grid Pixi tiles and the React panel so the
   // cast-vs-target-vs-open branching can't drift between them.
@@ -1404,7 +1402,6 @@ export function GameBoard({
     promptType,
     onOpenZoneAndCast,
   ]);
-
   const openGraveyard = useCallback(() => {
     if (delveAvailable && onOpenDelveZone) {
       onOpenDelveZone();
@@ -1438,7 +1435,6 @@ export function GameBoard({
     promptType,
     onOpenZoneAndCast,
   ]);
-
   const openLibrary = useCallback(() => {
     if (library.length === 0) return;
     if (libraryPlayableIds.length > 0 && promptType === "chooseAction") {
@@ -1447,7 +1443,6 @@ export function GameBoard({
       onOpenZone("Top of Library", library);
     }
   }, [library, libraryPlayableIds, promptType, onOpenZoneAndCast, onOpenZone]);
-
   const openExile = useCallback(() => {
     if (isTargetingPrompt && exileTargetIds.length > 0) {
       onOpenZone("Your Exile", exile, onTargetFromZone, exileTargetIds, hostileTargeting);
@@ -1488,13 +1483,11 @@ export function GameBoard({
       ? gameTheme.targeting.hostile
       : gameTheme.targeting.friendly;
     const top = (cards: CardDto[]) => (cards.length > 0 ? cards[cards.length - 1] : undefined);
-
     const gyPlayable =
       (promptType === "chooseAction" && graveyard.some((c) => playableIds.has(c.id))) ||
       !!delveAvailable;
     const exPlayable = promptType === "chooseAction" && exile.some((c) => playableIds.has(c.id));
     const libPlayable = promptType === "chooseAction" && library.some((c) => playableIds.has(c.id));
-
     const self: ZoneTileSpec[] = [
       {
         key: ZONE_TILE_KEY.library,
@@ -1546,7 +1539,6 @@ export function GameBoard({
         commanderTax: top(myCommandZone!)?.commanderTax,
       });
     }
-
     const byPlayer: Record<string, ZoneTileSpec[]> = { [me.id]: self };
     const opZoneTargetIds = (zone: string, cards: CardDto[]): string[] =>
       isTargetingPrompt && boardTargets?.zone?.zone === zone
@@ -1649,25 +1641,21 @@ export function GameBoard({
     openExile,
     openLibrary,
   ]);
-
   const boardZoneTiles = useMemo<Record<string, ZoneTileSpec[]>>(() => {
     if (!compactBoard) return zoneTilesByPlayer;
     return Object.fromEntries(Object.keys(zoneTilesByPlayer).map((playerId) => [playerId, []]));
   }, [zoneTilesByPlayer, compactBoard]);
-  const hudBarSpecs = useMemo(
-    () =>
-      compactBoard
-        ? playerBarSpecs.map((spec) => ({
-            ...spec,
-            badges: [
-              ...spec.badges,
-              ...buildZoneBadges(zoneTilesByPlayer[spec.playerId] ?? [], gameTheme.textMuted),
-            ],
-          }))
-        : playerBarSpecs,
-    [compactBoard, playerBarSpecs, zoneTilesByPlayer, gameTheme.textMuted],
-  );
-
+  const hudBarSpecs = useMemo<PlayerHudSpec[]>(() => {
+    if (!compactBoard) return playerBarSpecs;
+    return playerBarSpecs.map((spec) => {
+      const zones = buildZoneBadges(zoneTilesByPlayer[spec.playerId] ?? [], gameTheme.textMuted);
+      if (zones.length === 0) return spec;
+      const badges = [...spec.badges];
+      const handIdx = badges.findIndex((badge) => badge.id === "hand");
+      badges.splice(handIdx + 1, 0, ...zones);
+      return { ...spec, badges };
+    });
+  }, [compactBoard, playerBarSpecs, zoneTilesByPlayer, gameTheme.textMuted]);
   const unifiedRegions = useMemo((): BoardCanvasRegion[] => {
     const rowFields = (combatRow?: CombatRow): Partial<BattlefieldState> => ({
       combatRowAttackerIds: combatRow?.attackerIds,
@@ -1682,7 +1670,6 @@ export function GameBoard({
       hostileTargeting,
       ...rowFields(combatRow),
     });
-
     const selfCards = [...pixiBattlefield.cards];
     const cardsByController = new Map<string, CardDto[]>();
     cardsByController.set(me.id, selfCards);
@@ -1710,7 +1697,6 @@ export function GameBoard({
       for (const attackerId of row.attackerIds) moveToDefender(attackerId, defList);
       combatRowByDefender.set(row.defenderId, row);
     }
-
     const myDeck = gameDecks[me.id];
     // Local/AI/hotseat decks skip setDeckSelection, so the default playmat is
     // resolved here too; multiplayer decks already carry it from the relay.
@@ -1799,7 +1785,6 @@ export function GameBoard({
         ],
       }
     : null;
-
   // Screen-reader mirror of the Pixi HUD (Pixi has no DOM accessibility).
   const a11ySummary = useMemo(() => {
     const active = playerBarSpecs.find((s) => s.isActiveTurn);
@@ -1816,13 +1801,19 @@ export function GameBoard({
     const turn = active ? `${active.isSelf ? "Your" : `${active.name}'s`} turn. ` : "";
     return `${turn}${players}.`;
   }, [playerBarSpecs]);
-
   const combatA11y = useMemo(() => {
     const nameOf = (id: string) =>
       id === me.id
         ? "You"
         : stripUsernameTag(opponents.find((o) => o.id === id)?.name ?? "a player");
-    const pairs = new Map<string, { attacker: string; defender: string; count: number }>();
+    const pairs = new Map<
+      string,
+      {
+        attacker: string;
+        defender: string;
+        count: number;
+      }
+    >();
     for (const c of battlefield) {
       if (!c.isAttacking || !c.attackingPlayerId) continue;
       const key = `${c.controllerId}->${c.attackingPlayerId}`;
@@ -1843,7 +1834,6 @@ export function GameBoard({
       )
       .join(". ")}.`;
   }, [battlefield, opponents, me.id]);
-
   return (
     <div
       ref={setBoardRef}

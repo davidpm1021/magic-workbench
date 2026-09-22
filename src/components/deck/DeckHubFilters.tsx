@@ -6,7 +6,6 @@ import type { DeckHubDiscoveryFilters } from "@/components/deck/deckHub.types";
 import type { DeckHubFacets } from "@/api/hubTypes";
 import { cn } from "@/lib/utils";
 import { useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
-
 interface DeckHubFiltersProps {
   filters: DeckHubDiscoveryFilters;
   facets: DeckHubFacets | null;
@@ -25,14 +24,12 @@ export function DeckHubFilters({ total, loaded, ...filterProps }: DeckHubFilters
   const shortScreen = useIsShortScreen();
   const isTouch = useIsTouch();
   const shortTouch = shortScreen && isTouch;
-
   function toggleExpanded() {
     setExpanded((current) => {
       sessionStorage.setItem("manabrew:community-filters-expanded", String(!current));
       return !current;
     });
   }
-
   return (
     <div
       className={cn(
@@ -53,7 +50,10 @@ export function DeckHubFilters({ total, loaded, ...filterProps }: DeckHubFilters
         </p>
         <DeckHubFilterSheet {...filterProps} />
       </div>
-      <aside className="hidden h-full overflow-y-auto p-5 lg:block" aria-label="Community filters">
+      <aside
+        className="hidden h-full overflow-y-auto p-5 lg:block"
+        aria-label={`Community filters`}
+      >
         <div
           className={cn(
             "flex items-start",
@@ -69,7 +69,7 @@ export function DeckHubFilters({ total, loaded, ...filterProps }: DeckHubFilters
           <button
             type="button"
             className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
-            aria-label={expanded ? "Collapse filters" : "Expand filters"}
+            aria-label={expanded ? `Collapse filters` : `Expand filters`}
             onClick={toggleExpanded}
           >
             {expanded ? (

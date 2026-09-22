@@ -27,6 +27,7 @@ import { AccountSection } from "@/components/settings/AccountSection";
 import { MyAssetsSection } from "@/components/settings/MyAssetsSection";
 import { CardArtDownloadSection } from "@/components/settings/CardArtDownloadSection";
 import { PreferenceCard } from "@/components/settings/PreferenceCard";
+import { LanguagePreferenceCard } from "@/components/settings/LanguagePreferenceCard";
 import { toPickerHexColor, parseThemeColor, formatThemeColor } from "@/themes/gameTheme";
 import type { GameThemeColorKey } from "@/themes/gameTheme";
 import {
@@ -54,7 +55,6 @@ import { HelpCircle, Minus, Pencil, Plus, Server, Trash2 } from "lucide-react";
 import { KNOWN_RELAYS, type KnownRelay } from "@/config/knownRelays";
 import { cn } from "@/lib/utils";
 import { useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
-
 /**
  * Small `?` hover-help icon shown next to a picker label. Renders a
  * custom CSS tooltip below the icon on hover / focus — native `title`
@@ -153,12 +153,10 @@ export default function Settings() {
   const [editingThemeColorValue, setEditingThemeColorValue] = useState("");
   const [themeColorFilter, setThemeColorFilter] = useState("");
   const DEFAULT_GAME_THEME_COLOR_MAP = getDefaultGameThemeColorMap();
-
   const zoneOrder = prefs.zonePanelOrder;
   const [playmatEditorOpen, setPlaymatEditorOpen] = useState(false);
   const defaultPlaymat = useAssetUrl(prefs.defaultPlaymatAssetId);
   const hasDefaultPlaymat = !!defaultPlaymat || !!prefs.defaultPlaymatSettings?.color;
-
   function setZoneSlot(index: number, value: ZonePanelItem) {
     const next = [...zoneOrder] as ZonePanelItem[];
     const existingIndex = next.indexOf(value);
@@ -171,23 +169,19 @@ export default function Settings() {
     }
     prefs.setZonePanelOrder(next);
   }
-
   const [host, setHost] = useState(prefs.serverHost);
   const [port, setPort] = useState(String(prefs.serverPort));
   const [password, setPassword] = useState(prefs.serverPassword);
   const [savingServer, setSavingServer] = useState(false);
   const [newServerName, setNewServerName] = useState("");
-
   const hasChanges =
     host !== prefs.serverHost ||
     port !== String(prefs.serverPort) ||
     password !== prefs.serverPassword;
-
   function beginThemeColorEdit(path: string, value: string) {
     setEditingThemeColorPath(path);
     setEditingThemeColorValue(value);
   }
-
   function commitThemeColorEdit(path: string, fallbackValue: string) {
     const next = editingThemeColorValue.trim() || fallbackValue;
     const parsed = parseThemeColor(next);
@@ -208,21 +202,17 @@ export default function Settings() {
     setEditingThemeColorPath(null);
     setEditingThemeColorValue("");
   }
-
   async function handleSave() {
     prefs.setServerHost(host);
     prefs.setServerPort(Number(port));
     prefs.setServerPassword(password);
-
     // Always disconnect first (kills any existing WS connection)
     await server.disconnect();
-
     const name = relayUsername();
     if (name) {
       await server.connect(host, Number(port), name, password);
     }
   }
-
   async function applyKnownRelay(relay: KnownRelay) {
     setHost(relay.host);
     setPort(String(relay.port));
@@ -230,19 +220,17 @@ export default function Settings() {
     prefs.setServerHost(relay.host);
     prefs.setServerPort(relay.port);
     prefs.setServerPassword(relay.password);
-
     await server.disconnect();
     const name = relayUsername();
     if (name) {
       await server.connect(relay.host, relay.port, name, relay.password);
     }
   }
-
   function saveCurrentServer() {
     const name = newServerName.trim();
     if (!name) return;
     if (KNOWN_RELAYS.some((r) => r.name === name)) {
-      toast.error("That name is reserved for a built-in server");
+      toast.error(`That name is reserved for a built-in server`);
       return;
     }
     prefs.addSavedServer({ name, host, port: Number(port), password });
@@ -250,7 +238,6 @@ export default function Settings() {
     setSavingServer(false);
     toast.success(`Saved "${name}"`);
   }
-
   async function handleClearImageCache() {
     setClearingCache(true);
     try {
@@ -259,18 +246,16 @@ export default function Settings() {
         const keys = await caches.keys();
         await Promise.all(keys.map((k) => caches.delete(k)));
       }
-      toast.success("Image cache cleared — reloading…");
+      toast.success(`Image cache cleared \u2014 reloading\u2026`);
       window.location.reload();
     } catch {
       setClearingCache(false);
-      toast.error("Couldn't clear the image cache");
+      toast.error(`Couldn't clear the image cache`);
     }
   }
-
   if (isGameActive) {
     return <Navigate to="/play" replace />;
   }
-
   return (
     <div
       className={cn(
@@ -343,7 +328,7 @@ export default function Settings() {
               onClick={() => void handleClearImageCache()}
               disabled={clearingCache}
             >
-              {clearingCache ? "Clearing…" : "Clear image cache & reload"}
+              {clearingCache ? `Clearing\u2026` : `Clear image cache & reload`}
             </Button>
           </div>
         </section>
@@ -362,7 +347,7 @@ export default function Settings() {
                 id="server-host"
                 value={host}
                 onChange={(e) => setHost(e.target.value)}
-                placeholder="localhost"
+                placeholder={`localhost`}
               />
             </div>
             <div className="space-y-1">
@@ -382,7 +367,7 @@ export default function Settings() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="forge"
+                placeholder={`forge`}
               />
             </div>
           </div>
@@ -475,7 +460,7 @@ export default function Settings() {
                   if (e.key === "Enter") saveCurrentServer();
                   if (e.key === "Escape") setSavingServer(false);
                 }}
-                placeholder="Name this server"
+                placeholder={`Name this server`}
                 className="max-w-xs"
               />
               <Button
@@ -504,15 +489,16 @@ export default function Settings() {
       {activeTab === "preferences" && (
         <section>
           <div className={cn("grid gap-4 md:grid-cols-2 xl:grid-cols-3", shortTouch && "gap-3")}>
+            <LanguagePreferenceCard />
             <PreferenceCard
-              title="Default Playmat"
-              description="Used in games when the deck you're playing has no custom playmat of its own."
+              title={`Default Playmat`}
+              description={`Used in games when the deck you're playing has no custom playmat of its own.`}
             >
               <div className="group relative">
                 <button
                   type="button"
                   onClick={() => setPlaymatEditorOpen(true)}
-                  title={hasDefaultPlaymat ? "Customize playmat" : "Set playmat"}
+                  title={hasDefaultPlaymat ? `Customize playmat` : `Set playmat`}
                   className={cn(
                     "flex aspect-video w-full items-center justify-center overflow-hidden rounded-lg border bg-muted",
                     "motion-safe:transition-[border-color,box-shadow] hover:border-primary/40 hover:shadow-sm",
@@ -524,7 +510,7 @@ export default function Settings() {
                   {defaultPlaymat ? (
                     <img
                       src={defaultPlaymat}
-                      alt="Your default playmat"
+                      alt={`Your default playmat`}
                       crossOrigin="anonymous"
                       className="size-full object-cover"
                     />
@@ -548,7 +534,7 @@ export default function Settings() {
                 {hasDefaultPlaymat && (
                   <button
                     type="button"
-                    title="Remove playmat"
+                    title={`Remove playmat`}
                     onClick={() => {
                       void useAssetStore.getState().remove(prefs.defaultPlaymatAssetId);
                       prefs.setDefaultPlaymatAssetId(undefined);
@@ -563,8 +549,8 @@ export default function Settings() {
             </PreferenceCard>
 
             <PreferenceCard
-              title="Battlefield Zone Column Order"
-              description="Controls placement of Library / Graveyard / Exile in the in-field zone column."
+              title={`Battlefield Zone Column Order`}
+              description={`Controls placement of Library / Graveyard / Exile in the in-field zone column.`}
             >
               <div className="grid grid-cols-3 gap-2">
                 {(["Top", "Middle", "Bottom"] as const).map((slot, index) => (
@@ -591,9 +577,9 @@ export default function Settings() {
             </PreferenceCard>
 
             <PreferenceCard
-              title="Card Size"
+              title={`Card Size`}
               value={`${Math.round(prefs.cardSizeMultiplier * 100)}%`}
-              description="Scales cards on every battlefield and your hand fan. 100% is the classic 3-row board; battlefield cards cap at a 2-row fill so the board stays playable, while the hand keeps growing past them."
+              description={`Scales cards on every battlefield and your hand fan. 100% is the classic 3-row board; battlefield cards cap at a 2-row fill so the board stays playable, while the hand keeps growing past them.`}
             >
               <div className="flex items-start gap-4">
                 <div className="flex-1 space-y-3">
@@ -652,8 +638,8 @@ export default function Settings() {
               </div>
             </PreferenceCard>
             <PreferenceCard
-              title="Hand Ordering"
-              description="Drag cards sideways for a custom order, or keep every hand sorted automatically by color or mana value."
+              title={`Hand Ordering`}
+              description={`Drag cards sideways for a custom order, or keep every hand sorted automatically by color or mana value.`}
             >
               <div className="flex flex-wrap gap-2">
                 {HAND_ORDER_OPTIONS.map((option) => (
@@ -670,10 +656,8 @@ export default function Settings() {
             </PreferenceCard>
 
             <PreferenceCard
-              title="Battlefield Layout"
-              description={
-                '"Free placement" lets you drag cards anywhere. "Auto-arrange" keeps the battlefield tidy in rows (creatures, then others, then lands) and ignores manual placement.'
-              }
+              title={`Battlefield Layout`}
+              description={`"Free placement" lets you drag cards anywhere. "Auto-arrange" keeps the battlefield tidy in rows (creatures, then others, then lands) and ignores manual placement.`}
             >
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -694,10 +678,8 @@ export default function Settings() {
             </PreferenceCard>
 
             <PreferenceCard
-              title="Zone Piles"
-              description={
-                '"Locked" keeps the deck, graveyard, exile, and command piles fixed on the battlefield so a drag can\'t move them. Tapping to open still works.'
-              }
+              title={`Zone Piles`}
+              description={`"Locked" keeps the deck, graveyard, exile, and command piles fixed on the battlefield so a drag can't move them. Tapping to open still works.`}
             >
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -718,10 +700,8 @@ export default function Settings() {
             </PreferenceCard>
 
             <PreferenceCard
-              title="Battlefield Card Style"
-              description={
-                '"Realistic" uses the full printed card image. "Art-forward" shows the art with a crisp name/type overlay. "Mini-frame" frames the art with name and type bars. This setting only affects battlefield cards.'
-              }
+              title={`Battlefield Card Style`}
+              description={`"Realistic" uses the full printed card image. "Art-forward" shows the art with a crisp name/type overlay. "Mini-frame" frames the art with name and type bars. This setting only affects battlefield cards.`}
             >
               <div className="flex items-start gap-4">
                 <div className="flex-1 flex flex-wrap content-start gap-2">
@@ -752,8 +732,8 @@ export default function Settings() {
             </PreferenceCard>
 
             <PreferenceCard
-              title="In-game Animations"
-              description="Decorative board effects — creature entrance stomp + dust, stat and damage pops, glow pulses. Turn these off to save performance on weaker hardware; the board still works (cards move, state indicators and damage numbers stay)."
+              title={`In-game Animations`}
+              description={`Decorative board effects \u2014 creature entrance stomp + dust, stat and damage pops, glow pulses. Turn these off to save performance on weaker hardware; the board still works (cards move, state indicators and damage numbers stay).`}
             >
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -775,8 +755,8 @@ export default function Settings() {
 
             {isFeatureEnabled("ironsmithRuntime") && IRONSMITH_WASM_AVAILABLE && (
               <PreferenceCard
-                title="Ironsmith engine (experimental)"
-                description="Adds the experimental Ironsmith trusted engine as a Create Room option. Card support is partial and games may be rough — off by default. Leave this off unless you're testing Ironsmith."
+                title={`Ironsmith engine (experimental)`}
+                description={`Adds the experimental Ironsmith trusted engine as a Create Room option. Card support is partial and games may be rough \u2014 off by default. Leave this off unless you're testing Ironsmith.`}
               >
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -798,8 +778,30 @@ export default function Settings() {
             )}
 
             <PreferenceCard
-              title="Opponent layout"
-              description="Focus on one opponent, or keep every opponent field equally visible."
+              title={`AI opponent`}
+              description={`Choose who pilots computer opponents in Forge-engine games. ManaBot is fast. Forge bot makes stronger decisions, but can take 10+ seconds per bot on large Commander boards. The Manabrew engine always uses ManaBot.`}
+            >
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant={prefs.aiController === "manabot" ? "selected" : "outline"}
+                  size="sm"
+                  onClick={() => prefs.setAiController("manabot")}
+                >
+                  ManaBot
+                </Button>
+                <Button
+                  variant={prefs.aiController === "forge" ? "selected" : "outline"}
+                  size="sm"
+                  onClick={() => prefs.setAiController("forge")}
+                >
+                  Forge bot
+                </Button>
+              </div>
+            </PreferenceCard>
+
+            <PreferenceCard
+              title={`Opponent layout`}
+              description={`Focus on one opponent, or keep every opponent field equally visible.`}
             >
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -820,8 +822,8 @@ export default function Settings() {
             </PreferenceCard>
 
             <PreferenceCard
-              title="Peer to Peer"
-              description="Skip manabrew servers and connect directly to the other players at the table. This shares your IP address with the people you play with, and only activates if every player in the game has it enabled."
+              title={`Peer to Peer`}
+              description={`Skip manabrew servers and connect directly to the other players at the table. This shares your IP address with the people you play with, and only activates if every player in the game has it enabled.`}
             >
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -842,8 +844,8 @@ export default function Settings() {
             </PreferenceCard>
 
             <PreferenceCard
-              title="Hand Card Style"
-              description="Printed card shows the card image. Dynamic view uses the card's current rules and game state; each card can still be switched."
+              title={`Hand Card Style`}
+              description={`Printed card shows the card image. Dynamic view uses the card's current rules and game state; each card can still be switched.`}
             >
               <div className="flex flex-wrap gap-2">
                 {INLINE_CARD_STYLE_OPTIONS.map((option) => (
@@ -860,8 +862,8 @@ export default function Settings() {
             </PreferenceCard>
 
             <PreferenceCard
-              title="Default Stack Card View"
-              description="Choose which face stack cards show when they appear. You can still switch individual cards."
+              title={`Default Stack Card View`}
+              description={`Choose which face stack cards show when they appear. You can still switch individual cards.`}
             >
               <div className="flex flex-wrap gap-2">
                 {INLINE_CARD_STYLE_OPTIONS.map((option) => (
@@ -878,8 +880,8 @@ export default function Settings() {
             </PreferenceCard>
 
             <PreferenceCard
-              title="Card Preview Style"
-              description="Printed card shows the full card image. Dynamic view prioritizes current rules, actions, costs, counters, and other game state."
+              title={`Card Preview Style`}
+              description={`Printed card shows the full card image. Dynamic view prioritizes current rules, actions, costs, counters, and other game state.`}
             >
               <div className="flex flex-wrap gap-2">
                 {IN_GAME_CARD_PREVIEW_STYLE_OPTIONS.map((option) => (
@@ -896,9 +898,9 @@ export default function Settings() {
             </PreferenceCard>
 
             <PreferenceCard
-              title="Flash duration"
+              title={`Flash duration`}
               value={`${flashDurationMs}ms`}
-              description="Card-play and turn-start flash duration."
+              description={`Card-play and turn-start flash duration.`}
             >
               <input
                 type="range"
@@ -914,7 +916,7 @@ export default function Settings() {
           {playmatEditorOpen && (
             <PlaymatEditorModal
               onClose={() => setPlaymatEditorOpen(false)}
-              title="Default Playmat"
+              title={`Default Playmat`}
               playmat={defaultPlaymat}
               storedSettings={prefs.defaultPlaymatSettings}
               playmatAssetId={prefs.defaultPlaymatAssetId}
@@ -1058,7 +1060,7 @@ export default function Settings() {
 
           <div className="pt-2">
             <Input
-              placeholder="Filter colors... (e.g. primary, counter, arrow)"
+              placeholder={`Filter colors... (e.g. primary, counter, arrow)`}
               value={themeColorFilter}
               onChange={(e) => setThemeColorFilter(e.target.value)}
               className="max-w-sm"
@@ -1160,7 +1162,7 @@ export default function Settings() {
                                   type="button"
                                   className="flex-1 min-w-0 text-right text-[11px] font-mono text-muted-foreground hover:text-foreground underline-offset-2 hover:underline truncate"
                                   onClick={() => beginThemeColorEdit(`app.${key}`, activeValue)}
-                                  title="Click to edit color value"
+                                  title={`Click to edit color value`}
                                 >
                                   {activeValue}
                                 </button>
@@ -1215,8 +1217,10 @@ export default function Settings() {
                 const miscKeys = allPaths.filter((p) => !grouped.has(p));
                 if (miscKeys.length > 0) {
                   groups.push({
-                    heading: "Other",
-                    description: "Tokens not covered by the groups above.",
+                    heading: `Other`,
+                    get description() {
+                      return `Tokens not covered by the groups above.`;
+                    },
                     keys: miscKeys,
                   });
                 }
@@ -1306,7 +1310,7 @@ export default function Settings() {
                                     type="button"
                                     className="flex-1 min-w-0 text-right text-[11px] font-mono text-muted-foreground hover:text-foreground underline-offset-2 hover:underline truncate"
                                     onClick={() => beginThemeColorEdit(path, activeColor)}
-                                    title="Click to edit color value"
+                                    title={`Click to edit color value`}
                                   >
                                     {activeColor}
                                   </button>

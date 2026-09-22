@@ -18,7 +18,6 @@ import { PlaymatEditorModal } from "./PlaymatEditorModal";
 import { cn } from "@/lib/utils";
 import { useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
 import type { DeckFormat } from "@/protocol/deck";
-
 export function DeckHero({ onNameCommit }: { onNameCommit: (name: string) => void }) {
   const currentDeck = useDeckStore((s) => s.currentDeck);
   const isReadOnly = useDeckStore((s) => s.isReadOnly);
@@ -29,16 +28,13 @@ export function DeckHero({ onNameCommit }: { onNameCommit: (name: string) => voi
   const setDeckFormat = useDeckStore((s) => s.setDeckFormat);
   const setPlaymat = useDeckStore((s) => s.setPlaymat);
   const setPlaymatSettings = useDeckStore((s) => s.setPlaymatSettings);
-
   const [editingName, setEditingName] = useState(false);
   const [nameBeforeEdit, setNameBeforeEdit] = useState(currentDeck.name);
   const [editorOpen, setEditorOpen] = useState(false);
   const cancelNameEditRef = useRef(false);
-
   const playmat = currentDeck.playmatUrl;
   const playmatColor = currentDeck.playmatSettings?.color;
   const coverArt = resolveCoverCard(currentDeck)?.uris?.art_crop;
-
   const commanders = currentDeck.commanders ?? [];
   const slotBadges = commanders.map((_, i) =>
     commanderSlotBadge(commanders, currentDeck.format, i),
@@ -46,7 +42,6 @@ export function DeckHero({ onNameCommit }: { onNameCommit: (name: string) => voi
   const mainCount = currentDeck.cards.length + commanders.length;
   const sideCount = currentDeck.sideboard.length;
   const maybeCount = currentDeck.maybeboard?.length ?? 0;
-
   function finishNameEdit() {
     if (cancelNameEditRef.current) {
       cancelNameEditRef.current = false;
@@ -62,7 +57,6 @@ export function DeckHero({ onNameCommit }: { onNameCommit: (name: string) => voi
     setEditingName(false);
     if (name !== nameBeforeEdit) onNameCommit(name);
   }
-
   return (
     <div className={cn("relative isolate overflow-hidden border-b", shortTouch && "min-h-20")}>
       {coverArt && (
@@ -93,7 +87,7 @@ export function DeckHero({ onNameCommit }: { onNameCommit: (name: string) => voi
         >
           <button
             type="button"
-            title="Customize playmat"
+            title={`Customize playmat`}
             onClick={() => setEditorOpen(true)}
             className={cn(
               "inline-flex h-8 items-center gap-2 rounded-md border bg-background/60 text-xs font-medium text-muted-foreground backdrop-blur-sm transition-colors hover:bg-background/80 hover:text-foreground pointer-coarse:h-11",
@@ -105,7 +99,7 @@ export function DeckHero({ onNameCommit }: { onNameCommit: (name: string) => voi
               <img
                 src={playmat}
                 crossOrigin="anonymous"
-                alt="Deck playmat"
+                alt={`Deck playmat`}
                 className="h-6 w-10 rounded object-cover"
               />
             ) : playmatColor ? (

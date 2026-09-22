@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
-
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SetTile } from "@/components/limited/SetTile";
@@ -8,7 +7,6 @@ import { SET_TYPE_LABELS } from "@/components/limited/setFilters";
 import { cn } from "@/lib/utils";
 import { useIsTouch } from "@/hooks/useBreakpoints";
 import type { ScryfallSet } from "@/types/scryfall";
-
 interface SetPickerProps {
   sets: ScryfallSet[];
   selectedCode: string;
@@ -16,7 +14,6 @@ interface SetPickerProps {
   onSelect: (code: string) => void;
   variant?: "inline" | "column";
 }
-
 export function SetPicker({
   sets,
   selectedCode,
@@ -28,9 +25,7 @@ export function SetPicker({
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [changing, setChanging] = useState(false);
-
   const filtered = useMemo(() => filterSets(sets, query, typeFilter), [sets, query, typeFilter]);
-
   const counts = useMemo(() => {
     const out: Record<string, number> = { all: sets.length };
     for (const s of sets) {
@@ -38,16 +33,12 @@ export function SetPicker({
     }
     return out;
   }, [sets]);
-
   const recents = useMemo(() => sets.slice(0, 12), [sets]);
-
   const selected = selectedCode ? sets.find((s) => s.code === selectedCode) : undefined;
-
   const handleSelect = (code: string) => {
     onSelect(code === selectedCode ? "" : code);
     setChanging(false);
   };
-
   if (variant === "inline" && selected && !changing) {
     return (
       <section className="flex items-center gap-2 rounded-lg border border-border/70 bg-card/40 p-2">
@@ -71,7 +62,6 @@ export function SetPicker({
       </section>
     );
   }
-
   return (
     <section
       className={cn(
@@ -185,7 +175,7 @@ export function SetPicker({
         <div className="grid grid-cols-1 gap-1.5 @lg:grid-cols-2 @3xl:grid-cols-3 @5xl:grid-cols-4">
           {filtered.length === 0 ? (
             <div className="col-span-full py-6 text-center text-sm text-muted-foreground">
-              No sets match {query ? `"${query}"` : "the current filter"}.
+              {query ? `No sets match "${query}".` : `No sets match the current filter.`}
             </div>
           ) : (
             filtered
@@ -205,7 +195,6 @@ export function SetPicker({
     </section>
   );
 }
-
 function filterSets(sets: ScryfallSet[], q: string, typeKey: string): ScryfallSet[] {
   const needle = q.trim().toLowerCase();
   return sets.filter((s) => {

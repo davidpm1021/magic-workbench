@@ -10,7 +10,6 @@ import { TAB_BUTTON_BASE, TAB_ACTIVE, TAB_INACTIVE } from "../game.styles";
 import { ActionLog } from "./ActionLog";
 import { SnapshotsPanel } from "./SnapshotsPanel";
 import { GameDevPanel } from "@/components/dev/GameDevPanel";
-
 export function RightActionPanel({
   collapsed,
   onToggleCollapse: rawToggle,
@@ -34,7 +33,6 @@ export function RightActionPanel({
   const forceLogActivity = import.meta.env.DEV && forceLogActivityOverride;
   const logActivityCount = forceLogActivity ? Math.max(4, visibleLog.length) : visibleLog.length;
   const panelRef = useRef<HTMLElement>(null);
-
   useLayoutEffect(() => {
     const panel = panelRef.current;
     if (!panel || !onLeftEdgeChange) return;
@@ -113,7 +111,7 @@ export function RightActionPanel({
             variant="ghost"
             className="h-7 w-7 pointer-coarse:h-12 pointer-coarse:w-12 text-muted-foreground hover:text-foreground"
             onClick={rawToggle}
-            title="Close right panel"
+            title={`Close right panel`}
           >
             <PanelRightClose className="h-3.5 w-3.5" />
           </Button>

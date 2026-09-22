@@ -11,7 +11,6 @@ import { FORMAT_DISPLAY, ROUTES } from "@/lib/constants";
 import { useHubStore } from "@/stores/useHubStore";
 import { useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
 import { cn } from "@/lib/utils";
-
 interface DeckHubResultsProps {
   entries: DeckHubEntrySummary[];
   loading: boolean;
@@ -28,15 +27,13 @@ interface DeckHubResultsProps {
   onClear: () => void;
   onRetry: () => void;
 }
-
 function groupLabel(entry: DeckHubEntrySummary, group: DeckHubGroup) {
-  if (group === "source") return entry.sourceKind === "preset" ? "Official presets" : "Community";
-  if (group === "format") return FORMAT_DISPLAY[entry.format ?? ""] ?? entry.format ?? "Other";
-  if (group === "color") return entry.colors || "Unknown";
-  if (group === "tag") return entry.tags[0]?.name ?? "Untagged";
-  return "Published decks";
+  if (group === "source") return entry.sourceKind === "preset" ? `Official presets` : `Community`;
+  if (group === "format") return FORMAT_DISPLAY[entry.format ?? ""] ?? entry.format ?? `Other`;
+  if (group === "color") return entry.colors || `Unknown`;
+  if (group === "tag") return entry.tags[0]?.name ?? `Untagged`;
+  return `Published decks`;
 }
-
 export function DeckHubResults({
   entries,
   loading,
@@ -58,7 +55,6 @@ export function DeckHubResults({
     const label = groupLabel(entry, group);
     groups.set(label, [...(groups.get(label) ?? []), entry]);
   }
-
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const favoritePending = useHubStore((state) => state.favoritePending);
@@ -66,11 +62,9 @@ export function DeckHubResults({
   const shortScreen = useIsShortScreen();
   const isTouch = useIsTouch();
   const shortTouch = shortScreen && isTouch;
-
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
   }, [resetKey]);
-
   useEffect(() => {
     const target = loadMoreRef.current;
     const root = scrollRef.current;
@@ -84,7 +78,6 @@ export function DeckHubResults({
     observer.observe(target);
     return () => observer.disconnect();
   }, [hasMore, loaded, loading, onLoadMore]);
-
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:order-1">
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
@@ -126,12 +119,12 @@ export function DeckHubResults({
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <Layers className="h-9 w-9 text-muted-foreground/50" />
               <p className="mt-3 text-lg font-semibold">
-                {hasFilters ? "No publications match" : "No decks here yet"}
+                {hasFilters ? `No publications match` : `No decks here yet`}
               </p>
               <p className="mt-1 max-w-sm text-sm text-muted-foreground">
                 {hasFilters
-                  ? "Try broadening the filters or searching for another card or commander."
-                  : "Publish a version from My Decks to make its exact card snapshot discoverable."}
+                  ? `Try broadening the filters or searching for another card or commander.`
+                  : `Publish a version from My Decks to make its exact card snapshot discoverable.`}
               </p>
               {hasFilters ? (
                 <Button variant="outline" size="sm" className="mt-4" onClick={onClear}>
@@ -159,7 +152,7 @@ export function DeckHubResults({
                         {group === "color" && label !== "Unknown" ? (
                           <>
                             <span className="sr-only">
-                              {label === "C" ? "Colorless" : `${label} color identity`}
+                              {label === "C" ? `Colorless` : `${label} color identity`}
                             </span>
                             <span aria-hidden="true">
                               <ManaSymbols

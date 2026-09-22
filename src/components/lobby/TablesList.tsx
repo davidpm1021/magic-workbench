@@ -15,9 +15,7 @@ import type { ServerErrorCode } from "@/types/server";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useIsShortScreen, useIsTouch } from "@/hooks/useBreakpoints";
-
 const HIDDEN_ROOM_NAMES = new Set(["free room", "free pod"]);
-
 interface TablesListProps {
   rooms: RoomInfo[];
   currentRoom: RoomInfo | null;
@@ -45,7 +43,6 @@ interface TablesListProps {
    *  relay has no isBot field; tracking lives client-local. */
   mySpawnedBots?: string[];
 }
-
 export function TablesList({
   rooms,
   currentRoom,
@@ -79,7 +76,6 @@ export function TablesList({
   const shortScreen = useIsShortScreen();
   const isTouch = useIsTouch();
   const shortTouch = shortScreen && isTouch;
-
   async function handleJoinRoom(roomId: string, password?: string, format?: GameFormat) {
     if (joiningRoomId) return;
     setJoiningRoomId(roomId);
@@ -88,12 +84,11 @@ export function TablesList({
     } catch (error) {
       const code = error instanceof Error ? error.message : "";
       const message = USER_FACING_ERROR_MESSAGES[code as ServerErrorCode];
-      toast.error(message ?? "Couldn't join the table.");
+      toast.error(message ?? `Couldn't join the table.`);
     } finally {
       setJoiningRoomId(null);
     }
   }
-
   function requestJoin(room: RoomInfo) {
     if (room.password_protected) {
       setPasswordRoom(room);
@@ -104,7 +99,6 @@ export function TablesList({
       void handleJoinRoom(room.room_id);
     }
   }
-
   async function joinThenChooseFormat(room: RoomInfo, password: string) {
     await onJoinRoom(room.room_id, password);
     if (needsFormatChoice(room)) {
@@ -112,7 +106,6 @@ export function TablesList({
       setFormatRoom(room);
     }
   }
-
   const formatDialog = (
     <ChooseFormatDialog
       room={formatRoom}
@@ -126,7 +119,6 @@ export function TablesList({
       }}
     />
   );
-
   if (currentRoom) {
     return (
       <>
@@ -152,7 +144,6 @@ export function TablesList({
       </>
     );
   }
-
   const trimmedSearch = search.trim().toLowerCase();
   const ordinaryRooms = rooms
     .filter((room) => !HIDDEN_ROOM_NAMES.has(room.room_name.trim().toLowerCase()))
@@ -165,7 +156,6 @@ export function TablesList({
       room.host.toLowerCase().includes(trimmedSearch),
   );
   const hasTables = ordinaryRooms.length > 0;
-
   return (
     <div className="flex h-full flex-col">
       <ScrollArea className="flex-1">
@@ -215,7 +205,7 @@ export function TablesList({
             </div>
 
             <p className="ml-2 text-xs text-muted-foreground">
-              {visibleRooms.length} {visibleRooms.length === 1 ? "table" : "tables"}
+              {visibleRooms.length} {visibleRooms.length === 1 ? `table` : `tables`}
             </p>
 
             {visibleRooms.length > 0 ? (
