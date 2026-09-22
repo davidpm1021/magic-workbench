@@ -10,6 +10,7 @@ import {
   isWorkbenchAiPrompt,
   requestWorkbenchDecision,
 } from "@/workbench/aiDecision";
+import { classifyWorkbenchDecision } from "@/workbench/decisionImportance";
 
 const CONTROLLER_OPTIONS: Array<{
   value: WorkbenchControllerMode;
@@ -43,6 +44,7 @@ export function WorkbenchPanel() {
   const controllerMode = useWorkbenchStore((state) => state.controllerMode);
   const aiBaseUrl = useWorkbenchStore((state) => state.aiBaseUrl);
   const aiModel = useWorkbenchStore((state) => state.aiModel);
+  const aiFastModel = useWorkbenchStore((state) => state.aiFastModel);
   const aiApiKey = useWorkbenchStore((state) => state.aiApiKey);
   const strategyPrompt = useWorkbenchStore((state) => state.strategyPrompt);
   const autoYieldTrivial = useWorkbenchStore((state) => state.autoYieldTrivial);
@@ -51,6 +53,7 @@ export function WorkbenchPanel() {
   const setControllerMode = useWorkbenchStore((state) => state.setControllerMode);
   const setAiBaseUrl = useWorkbenchStore((state) => state.setAiBaseUrl);
   const setAiModel = useWorkbenchStore((state) => state.setAiModel);
+  const setAiFastModel = useWorkbenchStore((state) => state.setAiFastModel);
   const setAiApiKey = useWorkbenchStore((state) => state.setAiApiKey);
   const setStrategyPrompt = useWorkbenchStore((state) => state.setStrategyPrompt);
   const setAutoYieldTrivial = useWorkbenchStore((state) => state.setAutoYieldTrivial);
@@ -62,6 +65,11 @@ export function WorkbenchPanel() {
   const currentPromptId = Number(currentPrompt?.promptId ?? 0);
   const recommendationIsCurrent =
     recommendation != null && recommendation.promptId === currentPromptId;
+  const classification = currentPrompt ? classifyWorkbenchDecision(currentPrompt) : null;
+  const selectedModel =
+    classification?.importance === "routine" && aiFastModel.trim()
+      ? aiFastModel.trim()
+      : aiModel.trim();
 
   const actionCount = useMemo(() => {
     if (!currentPrompt) return 0;
@@ -87,12 +95,12 @@ export function WorkbenchPanel() {
     if (!currentPrompt || !gameView || !promptSupported) return;
     setStatus({
       kind: "thinking",
-      message: `${aiModel} is analyzing ${actionCount} legal choices...`,
+      message: `${selectedModel} is analyzing this ${classification?.importance ?? "current"} decision...`,
     });
     try {
       const next = await requestWorkbenchDecision({
         baseUrl: aiBaseUrl,
-        model: aiModel,
+        model: selectedModel,
         apiKey: aiApiKey,
         strategyPrompt,
         gameView,
@@ -153,7 +161,7 @@ export function WorkbenchPanel() {
             <p className="font-semibold">Current decision</p>
             <p className="text-muted-foreground">
               {currentPrompt ? currentPrompt.input.type : "Waiting for a prompt"}
-              {promptSupported ? ` • ${actionCount} choices` : ""}
+              {promptSupported ? ` • ${classification?.importance ?? "decision"} • ${actionCount} choices` : ""}
             </p>
           </div>
           <Brain className="h-4 w-4 text-muted-foreground" />
@@ -259,6 +267,15 @@ export function WorkbenchPanel() {
                 placeholder="your-model"
                 value={aiModel}
                 onChange={(event) => setAiModel(event.target.value)}
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-muted-foreground">Fast model, optional</span>
+              <input
+                className="w-full rounded-md border border-border bg-background px-2 py-1.5"
+                placeholder="leave blank to use the main model"
+                value={aiFastModel}
+                onChange={(event) => setAiFastModel(event.target.value)}
               />
             </label>
             <label className="block space-y-1">
