@@ -62,10 +62,9 @@ export function useWorkbenchController(paused = false): void {
       return;
     }
 
-    if (inFlightPromptRef.current === currentPrompt.promptId) return;
-    inFlightPromptRef.current = currentPrompt.promptId;
-
-    const promptId = currentPrompt.promptId;
+    const promptId = Number(currentPrompt.promptId ?? 0);
+    if (inFlightPromptRef.current === promptId) return;
+    inFlightPromptRef.current = promptId;
     const controller = new AbortController();
     const state = useGameStore.getState();
     const gameView = state.gameView;
