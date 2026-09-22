@@ -24,6 +24,7 @@ interface WorkbenchState {
   controllerMode: WorkbenchControllerMode;
   aiBaseUrl: string;
   aiModel: string;
+  aiFastModel: string;
   aiApiKey: string;
   strategyPrompt: string;
   autoYieldTrivial: boolean;
@@ -33,6 +34,7 @@ interface WorkbenchState {
   setControllerMode: (mode: WorkbenchControllerMode) => void;
   setAiBaseUrl: (value: string) => void;
   setAiModel: (value: string) => void;
+  setAiFastModel: (value: string) => void;
   setAiApiKey: (value: string) => void;
   setStrategyPrompt: (value: string) => void;
   setAutoYieldTrivial: (value: boolean) => void;
@@ -43,6 +45,7 @@ interface WorkbenchState {
 
 const defaultBaseUrl = import.meta.env.VITE_WORKBENCH_AI_BASE_URL ?? (import.meta.env.DEV ? "/workbench-ai" : "");
 const defaultModel = import.meta.env.VITE_WORKBENCH_AI_MODEL ?? "";
+const defaultFastModel = import.meta.env.VITE_WORKBENCH_AI_FAST_MODEL ?? "";
 
 const DEFAULT_STRATEGY =
   "Play to maximize your chance of winning while respecting multiplayer threat assessment. Preserve interaction when a larger threat is likely, sequence mana efficiently, and do not assume hidden information.";
@@ -53,6 +56,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       controllerMode: "manual",
       aiBaseUrl: defaultBaseUrl,
       aiModel: defaultModel,
+      aiFastModel: defaultFastModel,
       aiApiKey: "",
       strategyPrompt: DEFAULT_STRATEGY,
       autoYieldTrivial: true,
@@ -84,6 +88,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         }),
       setAiBaseUrl: (aiBaseUrl) => set({ aiBaseUrl }),
       setAiModel: (aiModel) => set({ aiModel }),
+      setAiFastModel: (aiFastModel) => set({ aiFastModel }),
       setAiApiKey: (aiApiKey) => set({ aiApiKey }),
       setStrategyPrompt: (strategyPrompt) => set({ strategyPrompt }),
       setAutoYieldTrivial: (autoYieldTrivial) => set({ autoYieldTrivial }),
