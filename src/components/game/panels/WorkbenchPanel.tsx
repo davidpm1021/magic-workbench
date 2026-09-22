@@ -83,6 +83,7 @@ export function WorkbenchPanel() {
   }, [currentPrompt]);
 
   const configured = aiBaseUrl.trim().length > 0 && aiModel.trim().length > 0;
+  const usingLocalProxy = aiBaseUrl.trim().startsWith("/workbench-ai");
   const canAsk =
     configured &&
     promptSupported &&
@@ -161,7 +162,9 @@ export function WorkbenchPanel() {
             <p className="font-semibold">Current decision</p>
             <p className="text-muted-foreground">
               {currentPrompt ? currentPrompt.input.type : "Waiting for a prompt"}
-              {promptSupported ? ` • ${classification?.importance ?? "decision"} • ${actionCount} choices` : ""}
+              {promptSupported
+                ? ` • ${classification?.importance ?? "decision"}${actionCount > 0 ? ` • ${actionCount} choices` : ""}`
+                : ""}
             </p>
           </div>
           <Brain className="h-4 w-4 text-muted-foreground" />
@@ -278,16 +281,23 @@ export function WorkbenchPanel() {
                 onChange={(event) => setAiFastModel(event.target.value)}
               />
             </label>
-            <label className="block space-y-1">
-              <span className="text-muted-foreground">API key, session only</span>
-              <input
-                type="password"
-                className="w-full rounded-md border border-border bg-background px-2 py-1.5"
-                placeholder="optional for local endpoints"
-                value={aiApiKey}
-                onChange={(event) => setAiApiKey(event.target.value)}
-              />
-            </label>
+            {usingLocalProxy ? (
+              <p className="rounded-md border border-border/50 bg-background/60 p-2 text-[10px] text-muted-foreground">
+                Secure local proxy enabled. The provider credential stays in the PowerShell/Vite
+                process and is not sent to browser storage.
+              </p>
+            ) : (
+              <label className="block space-y-1">
+                <span className="text-muted-foreground">API key, session only</span>
+                <input
+                  type="password"
+                  className="w-full rounded-md border border-border bg-background px-2 py-1.5"
+                  placeholder="optional for local endpoints"
+                  value={aiApiKey}
+                  onChange={(event) => setAiApiKey(event.target.value)}
+                />
+              </label>
+            )}
             <label className="block space-y-1">
               <span className="text-muted-foreground">Pilot instructions</span>
               <textarea
@@ -297,8 +307,8 @@ export function WorkbenchPanel() {
               />
             </label>
             <p className="text-[10px] leading-relaxed text-muted-foreground">
-              Credentials are kept only in the in-memory Workbench store. For browser play, prefer a
-              local OpenAI-compatible proxy instead of exposing a provider key to client code.
+              The local proxy is the preferred browser path. Direct endpoints remain available for
+              local OpenAI-compatible servers and advanced testing.
             </p>
           </div>
         ) : null}
