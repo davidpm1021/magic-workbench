@@ -95,7 +95,7 @@ The default Windows launcher now uses:
 - strategic reasoning effort: medium
 - routine reasoning effort: low
 - maximum model output: 2,500 tokens strategic, 1,200 routine
-- per-game soft budget: $1.00
+- per-game soft budget: $0.50
 
 The budget is a local guard, not a provider billing limit. Once the recorded game spend reaches the cap, Workbench stops making new AI calls until the cap is raised or disabled. A request already in flight can take the total slightly over the cap.
 
