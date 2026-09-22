@@ -94,7 +94,7 @@ export function useWorkbenchController(paused = false): void {
         const latestWorkbench = useWorkbenchStore.getState();
         if (
           latestWorkbench.controllerMode !== "thinking-ai" ||
-          latestGame.currentPrompt?.promptId !== promptId
+          Number(latestGame.currentPrompt?.promptId ?? 0) !== promptId
         ) {
           return;
         }
