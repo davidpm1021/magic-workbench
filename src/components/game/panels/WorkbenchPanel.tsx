@@ -11,6 +11,7 @@ import {
   requestWorkbenchDecision,
 } from "@/workbench/aiDecision";
 import { classifyWorkbenchDecision } from "@/workbench/decisionImportance";
+import { formatUsd } from "@/workbench/pricing";
 
 const CONTROLLER_OPTIONS: Array<{
   value: WorkbenchControllerMode;
@@ -48,6 +49,7 @@ export function WorkbenchPanel() {
   const aiApiKey = useWorkbenchStore((state) => state.aiApiKey);
   const strategyPrompt = useWorkbenchStore((state) => state.strategyPrompt);
   const autoYieldTrivial = useWorkbenchStore((state) => state.autoYieldTrivial);
+  const gameBudgetUsd = useWorkbenchStore((state) => state.gameBudgetUsd);
   const recommendation = useWorkbenchStore((state) => state.recommendation);
   const history = useWorkbenchStore((state) => state.history);
   const status = useWorkbenchStore((state) => state.status);
@@ -58,6 +60,7 @@ export function WorkbenchPanel() {
   const setAiApiKey = useWorkbenchStore((state) => state.setAiApiKey);
   const setStrategyPrompt = useWorkbenchStore((state) => state.setStrategyPrompt);
   const setAutoYieldTrivial = useWorkbenchStore((state) => state.setAutoYieldTrivial);
+  const setGameBudgetUsd = useWorkbenchStore((state) => state.setGameBudgetUsd);
   const setRecommendation = useWorkbenchStore((state) => state.setRecommendation);
   const clearHistory = useWorkbenchStore((state) => state.clearHistory);
   const setStatus = useWorkbenchStore((state) => state.setStatus);
@@ -72,6 +75,19 @@ export function WorkbenchPanel() {
     classification?.importance === "routine" && aiFastModel.trim()
       ? aiFastModel.trim()
       : aiModel.trim();
+  const currentGameHistory = useMemo(
+    () => history.filter((item) => item.gameId === gameView?.gameId),
+    [history, gameView?.gameId],
+  );
+  const currentGameSpend = useMemo(
+    () =>
+      currentGameHistory.reduce(
+        (sum, item) => sum + (item.estimatedCostUsd ?? 0),
+        0,
+      ),
+    [currentGameHistory],
+  );
+  const budgetReached = gameBudgetUsd > 0 && currentGameSpend >= gameBudgetUsd;
 
   const actionCount = useMemo(() => {
     if (!currentPrompt) return 0;
@@ -92,10 +108,18 @@ export function WorkbenchPanel() {
     gameView != null &&
     currentPrompt != null &&
     !isWaitingForResponse &&
-    status.kind !== "thinking";
+    status.kind !== "thinking" &&
+    !budgetReached;
 
   const askAi = async () => {
     if (!currentPrompt || !gameView || !promptSupported) return;
+    if (budgetReached) {
+      setStatus({
+        kind: "paused",
+        message: `AI budget reached (${formatUsd(currentGameSpend)} / ${formatUsd(gameBudgetUsd)}). Raise the cap before making another paid call.`,
+      });
+      return;
+    }
     setStatus({
       kind: "thinking",
       message: `${selectedModel} is analyzing this ${classification?.importance ?? "current"} decision...`,
@@ -156,6 +180,21 @@ export function WorkbenchPanel() {
         <p className="text-muted-foreground">
           {CONTROLLER_OPTIONS.find((option) => option.value === controllerMode)?.description}
         </p>
+        <div
+          className={
+            budgetReached
+              ? "rounded-md border border-destructive/40 bg-destructive/10 p-2"
+              : "rounded-md border border-border/50 bg-background/60 p-2"
+          }
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-medium">AI spend this game</span>
+            <span>{formatUsd(currentGameSpend)}</span>
+          </div>
+          <div className="mt-0.5 text-[10px] text-muted-foreground">
+            Soft cap {gameBudgetUsd > 0 ? formatUsd(gameBudgetUsd) : "off"} • {currentGameHistory.length} paid decision(s)
+          </div>
+        </div>
       </section>
 
       <section className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2">
@@ -274,7 +313,11 @@ export function WorkbenchPanel() {
                     <span className="text-muted-foreground">{item.latencyMs} ms</span>
                   </div>
                   <p className="mt-1 break-all text-[10px]">{item.label}</p>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">{item.model}</p>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    {item.model}
+                    {item.estimatedCostUsd != null ? ` • ${formatUsd(item.estimatedCostUsd)}` : ""}
+                    {item.usage ? ` • ${item.usage.totalTokens.toLocaleString()} tokens` : ""}
+                  </p>
                 </div>
               ))}
           </div>
@@ -301,7 +344,7 @@ export function WorkbenchPanel() {
               />
             </label>
             <label className="block space-y-1">
-              <span className="text-muted-foreground">Model</span>
+              <span className="text-muted-foreground">Strategic model</span>
               <input
                 className="w-full rounded-md border border-border bg-background px-2 py-1.5"
                 placeholder="your-model"
@@ -310,7 +353,7 @@ export function WorkbenchPanel() {
               />
             </label>
             <label className="block space-y-1">
-              <span className="text-muted-foreground">Fast model, optional</span>
+              <span className="text-muted-foreground">Routine model, optional</span>
               <input
                 className="w-full rounded-md border border-border bg-background px-2 py-1.5"
                 placeholder="leave blank to use the main model"
@@ -335,6 +378,20 @@ export function WorkbenchPanel() {
                 />
               </label>
             )}
+            <label className="block space-y-1">
+              <span className="text-muted-foreground">Per-game AI budget (USD)</span>
+              <input
+                type="number"
+                min="0"
+                step="0.25"
+                className="w-full rounded-md border border-border bg-background px-2 py-1.5"
+                value={gameBudgetUsd}
+                onChange={(event) => setGameBudgetUsd(Number(event.target.value) || 0)}
+              />
+              <span className="block text-[10px] text-muted-foreground">
+                Workbench stops new AI calls after this estimated spend. Set 0 to disable the cap.
+              </span>
+            </label>
             <label className="block space-y-1">
               <span className="text-muted-foreground">Pilot instructions</span>
               <textarea
