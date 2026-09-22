@@ -59,12 +59,17 @@ export function WorkbenchPanel() {
 
   const [showConfig, setShowConfig] = useState(false);
   const promptSupported = isWorkbenchAiPrompt(currentPrompt);
-  const recommendationIsCurrent =
-    recommendation != null && recommendation.promptId === currentPrompt?.promptId;
+  const currentPromptId = Number(currentPrompt?.promptId ?? 0);\n  const recommendationIsCurrent =\n    recommendation != null && recommendation.promptId === currentPromptId;
 
   const actionCount = useMemo(() => {
-    if (!currentPrompt || !isWorkbenchAiPrompt(currentPrompt)) return 0;
-    return currentPrompt.input.actions.length + (currentPrompt.input.type === "chooseAction" ? 1 : 0);
+    if (!currentPrompt) return 0;
+    if (currentPrompt.input.type === "chooseAction") {
+      return currentPrompt.input.actions.length + 1;
+    }
+    if (currentPrompt.input.type === "payManaCost") {
+      return currentPrompt.input.actions.length;
+    }
+    return 0;
   }, [currentPrompt]);
 
   const configured = aiBaseUrl.trim().length > 0 && aiModel.trim().length > 0;
@@ -165,6 +170,7 @@ export function WorkbenchPanel() {
           </Button>
           <Button
             size="sm"
+            variant="primary"
             className="h-8 px-2 text-[11px]"
             disabled={!recommendationIsCurrent || isWaitingForResponse}
             onClick={() => void actOnce()}
