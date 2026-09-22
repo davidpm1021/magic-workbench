@@ -26,6 +26,7 @@ interface WorkbenchState {
   aiModel: string;
   aiApiKey: string;
   strategyPrompt: string;
+  autoYieldTrivial: boolean;
   recommendation: WorkbenchRecommendation | null;
   status: WorkbenchStatus;
 
@@ -34,6 +35,7 @@ interface WorkbenchState {
   setAiModel: (value: string) => void;
   setAiApiKey: (value: string) => void;
   setStrategyPrompt: (value: string) => void;
+  setAutoYieldTrivial: (value: boolean) => void;
   setRecommendation: (value: WorkbenchRecommendation | null) => void;
   setStatus: (status: WorkbenchStatus) => void;
   resetSession: () => void;
@@ -53,6 +55,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       aiModel: defaultModel,
       aiApiKey: "",
       strategyPrompt: DEFAULT_STRATEGY,
+      autoYieldTrivial: true,
       recommendation: null,
       status: {
         kind: "idle",
@@ -83,6 +86,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       setAiModel: (aiModel) => set({ aiModel }),
       setAiApiKey: (aiApiKey) => set({ aiApiKey }),
       setStrategyPrompt: (strategyPrompt) => set({ strategyPrompt }),
+      setAutoYieldTrivial: (autoYieldTrivial) => set({ autoYieldTrivial }),
       setRecommendation: (recommendation) => set({ recommendation }),
       setStatus: (status) => set({ status }),
       resetSession: () =>
