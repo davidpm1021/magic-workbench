@@ -1,5 +1,5 @@
 param(
-  [string]$MainModel = "gpt-5.6-sol",
+  [string]$MainModel = "gpt-5.6-terra",
   [string]$FastModel = "gpt-5.6-luna",
   [string]$ApiBaseUrl = "https://api.openai.com/v1"
 )
