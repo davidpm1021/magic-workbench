@@ -49,6 +49,7 @@ export function WorkbenchPanel() {
   const strategyPrompt = useWorkbenchStore((state) => state.strategyPrompt);
   const autoYieldTrivial = useWorkbenchStore((state) => state.autoYieldTrivial);
   const recommendation = useWorkbenchStore((state) => state.recommendation);
+  const history = useWorkbenchStore((state) => state.history);
   const status = useWorkbenchStore((state) => state.status);
   const setControllerMode = useWorkbenchStore((state) => state.setControllerMode);
   const setAiBaseUrl = useWorkbenchStore((state) => state.setAiBaseUrl);
@@ -58,6 +59,7 @@ export function WorkbenchPanel() {
   const setStrategyPrompt = useWorkbenchStore((state) => state.setStrategyPrompt);
   const setAutoYieldTrivial = useWorkbenchStore((state) => state.setAutoYieldTrivial);
   const setRecommendation = useWorkbenchStore((state) => state.setRecommendation);
+  const clearHistory = useWorkbenchStore((state) => state.clearHistory);
   const setStatus = useWorkbenchStore((state) => state.setStatus);
 
   const [showConfig, setShowConfig] = useState(false);
@@ -243,6 +245,41 @@ export function WorkbenchPanel() {
           </p>
         ) : null}
       </section>
+
+      {history.length > 0 ? (
+        <section className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-semibold">Recent AI decisions</p>
+            <button
+              type="button"
+              className="text-[10px] text-muted-foreground hover:text-foreground"
+              onClick={clearHistory}
+            >
+              Clear
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            {history
+              .slice(-5)
+              .reverse()
+              .map((item) => (
+                <div
+                  key={`${item.promptId}-${item.createdAt}`}
+                  className="rounded-md border border-border/50 bg-background/60 p-2"
+                >
+                  <div className="flex items-center justify-between gap-2 text-[10px]">
+                    <span className="font-medium">
+                      {item.promptType} • {item.importance}
+                    </span>
+                    <span className="text-muted-foreground">{item.latencyMs} ms</span>
+                  </div>
+                  <p className="mt-1 break-all text-[10px]">{item.label}</p>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">{item.model}</p>
+                </div>
+              ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2">
         <button
