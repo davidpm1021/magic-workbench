@@ -81,8 +81,13 @@ function workbenchAiProxy(): Plugin {
                 model: requestBody.model,
                 input: requestBody.messages ?? [],
                 reasoning: {
-                  effort: requestBody.workbenchImportance === "routine" ? "low" : "high",
+                  effort:
+                    requestBody.workbenchImportance === "routine"
+                      ? "low"
+                      : (process.env.WORKBENCH_AI_STRATEGIC_EFFORT || "medium"),
                 },
+                max_output_tokens:
+                  requestBody.workbenchImportance === "routine" ? 1_200 : 2_500,
               }),
             });
 
