@@ -24,6 +24,30 @@ function chooseActionPrompt(actionId = "cast-1"): Prompt {
   } as unknown as Prompt;
 }
 
+function payManaPrompt(canConfirmFromPool: boolean): Prompt {
+  return {
+    promptId: "88",
+    input: {
+      type: "payManaCost",
+      presentation: { title: "Test spell", targets: [] },
+      cardId: "card-1",
+      cardName: "Test spell",
+      manaCost: "{G}",
+      canConfirmFromPool,
+      actions: [
+        {
+          id: "tap:forest-1:0",
+          type: "activateManaAbility",
+          cardId: "forest-1",
+          abilityIndex: 0,
+          description: "{T}: Add {G}.",
+          isManaAbility: true,
+        },
+      ],
+    },
+  } as unknown as Prompt;
+}
+
 const gameView = {
   players: [],
   battlefield: [],
@@ -116,4 +140,111 @@ describe("Workbench AI decision boundary", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("rejects pay before the mana pool can confirm", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    output: { type: "pay", auto: true },
+                    reason: "Auto-pay.",
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    await expect(
+      requestWorkbenchDecision({
+        baseUrl: "/workbench-ai",
+        model: "test-model",
+        strategyPrompt: "Play well.",
+        gameView,
+        prompt: payManaPrompt(false),
+        myPlayerSlot: "player-0",
+      }),
+    ).rejects.toThrow("before the engine said the pool was ready");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("accepts one engine-offered incremental mana action", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    output: { type: "act", actionId: "tap:forest-1:0" },
+                    reason: "Tap the Forest.",
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    const result = await requestWorkbenchDecision({
+      baseUrl: "/workbench-ai",
+      model: "test-model",
+      strategyPrompt: "Play well.",
+      gameView,
+      prompt: payManaPrompt(false),
+      myPlayerSlot: "player-0",
+    });
+
+    expect(result.output).toEqual({ type: "act", actionId: "tap:forest-1:0" });
+    vi.unstubAllGlobals();
+  });
+
+  it("normalizes a confirmable mana payment to a non-auto confirmation", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    output: { type: "pay", auto: true },
+                    reason: "Confirm payment.",
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    const result = await requestWorkbenchDecision({
+      baseUrl: "/workbench-ai",
+      model: "test-model",
+      strategyPrompt: "Play well.",
+      gameView,
+      prompt: payManaPrompt(true),
+      myPlayerSlot: "player-0",
+    });
+
+    expect(result.output).toEqual({ type: "pay", auto: false });
+    vi.unstubAllGlobals();
+  });
+
 });
