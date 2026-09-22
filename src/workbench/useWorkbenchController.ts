@@ -16,14 +16,35 @@ export function useWorkbenchController(paused = false): void {
   const aiModel = useWorkbenchStore((state) => state.aiModel);
   const aiApiKey = useWorkbenchStore((state) => state.aiApiKey);
   const strategyPrompt = useWorkbenchStore((state) => state.strategyPrompt);
+  const autoYieldTrivial = useWorkbenchStore((state) => state.autoYieldTrivial);
   const setRecommendation = useWorkbenchStore((state) => state.setRecommendation);
   const setStatus = useWorkbenchStore((state) => state.setStatus);
 
   const inFlightPromptRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (paused || !autoYieldTrivial || isWaitingForResponse) return;
+    if (currentPrompt?.input.type !== "chooseAction") return;
+    if (currentPrompt.input.actions.length !== 0) return;
+
+    setStatus({
+      kind: "idle",
+      message: "Auto-yielded priority because the engine exposed no legal actions.",
+    });
+    void respond({ type: "pass", exhaustStack: false });
+  }, [
+    paused,
+    autoYieldTrivial,
+    currentPrompt,
+    isWaitingForResponse,
+    respond,
+    setStatus,
+  ]);
+
+  useEffect(() => {
     if (paused || controllerMode !== "thinking-ai") return;
     if (!currentPrompt || isWaitingForResponse) return;
+    if (autoYieldTrivial && currentPrompt.input.type === "chooseAction" && currentPrompt.input.actions.length === 0) return;
 
     if (!isWorkbenchAiPrompt(currentPrompt)) {
       setStatus({
@@ -105,6 +126,7 @@ export function useWorkbenchController(paused = false): void {
     aiModel,
     aiApiKey,
     strategyPrompt,
+    autoYieldTrivial,
     respond,
     setRecommendation,
     setStatus,
