@@ -160,5 +160,6 @@ export function useWorkbenchController(paused = false): void {
     respond,
     setRecommendation,
     setStatus,
+    showOverrides,
   ]);
 }
