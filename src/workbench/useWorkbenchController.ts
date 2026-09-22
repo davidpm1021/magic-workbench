@@ -50,6 +50,42 @@ export function useWorkbenchController(paused = false): void {
 
   useEffect(() => {
     if (paused || controllerMode !== "thinking-ai" || isWaitingForResponse) return;
+    if (!currentPrompt) return;
+
+    // Manual play may intentionally show informational prompts. During AI
+    // takeover they contain no strategic choice, so acknowledge them locally
+    // instead of pausing takeover or spending an API call.
+    const resolver = resolvePrompt(currentPrompt, { prefs: { show: showOverrides } });
+    if (resolver.kind === "auto") return;
+
+    if (currentPrompt.input.type === "revealCards") {
+      setStatus({
+        kind: "idle",
+        message: "Acknowledged revealed cards automatically. No AI call needed.",
+      });
+      void respond({ type: "revealCardsAcknowledged" });
+      return;
+    }
+
+    if (currentPrompt.input.type === "diceRolled") {
+      setStatus({
+        kind: "idle",
+        message: "Acknowledged dice result automatically. No AI call needed.",
+      });
+      void respond({ type: "diceRolledAcknowledged" });
+    }
+  }, [
+    paused,
+    controllerMode,
+    currentPrompt,
+    isWaitingForResponse,
+    respond,
+    setStatus,
+    showOverrides,
+  ]);
+
+  useEffect(() => {
+    if (paused || controllerMode !== "thinking-ai" || isWaitingForResponse) return;
     if (currentPrompt?.input.type !== "payManaCost") return;
     if (!currentPrompt.input.canConfirmFromPool) return;
 
@@ -72,6 +108,7 @@ export function useWorkbenchController(paused = false): void {
     if (!currentPrompt || isWaitingForResponse) return;
     if (autoYieldTrivial && currentPrompt.input.type === "chooseAction" && currentPrompt.input.actions.length === 0) return;
     if (currentPrompt.input.type === "payManaCost" && currentPrompt.input.canConfirmFromPool) return;
+    if (currentPrompt.input.type === "revealCards" || currentPrompt.input.type === "diceRolled") return;
 
     const deterministic = resolvePrompt(currentPrompt, { prefs: { show: showOverrides } });
     if (deterministic.kind === "auto") return;
