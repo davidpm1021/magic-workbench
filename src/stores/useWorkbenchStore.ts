@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import type { PromptOutput } from "@/protocol";
+import type { WorkbenchTokenUsage } from "@/workbench/pricing";
 
 export type WorkbenchControllerMode = "manual" | "assisted" | "thinking-ai";
 
@@ -13,6 +14,9 @@ export interface WorkbenchRecommendation {
   promptType: string;
   importance: "routine" | "strategic";
   latencyMs: number;
+  gameId: string;
+  usage: WorkbenchTokenUsage | null;
+  estimatedCostUsd: number | null;
   createdAt: number;
 }
 
@@ -31,6 +35,7 @@ interface WorkbenchState {
   aiApiKey: string;
   strategyPrompt: string;
   autoYieldTrivial: boolean;
+  gameBudgetUsd: number;
   recommendation: WorkbenchRecommendation | null;
   history: WorkbenchRecommendation[];
   status: WorkbenchStatus;
@@ -42,6 +47,7 @@ interface WorkbenchState {
   setAiApiKey: (value: string) => void;
   setStrategyPrompt: (value: string) => void;
   setAutoYieldTrivial: (value: boolean) => void;
+  setGameBudgetUsd: (value: number) => void;
   setRecommendation: (value: WorkbenchRecommendation | null) => void;
   clearHistory: () => void;
   setStatus: (status: WorkbenchStatus) => void;
@@ -65,6 +71,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       aiApiKey: "",
       strategyPrompt: DEFAULT_STRATEGY,
       autoYieldTrivial: true,
+      gameBudgetUsd: 1,
       recommendation: null,
       history: [],
       status: {
@@ -98,6 +105,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       setAiApiKey: (aiApiKey) => set({ aiApiKey }),
       setStrategyPrompt: (strategyPrompt) => set({ strategyPrompt }),
       setAutoYieldTrivial: (autoYieldTrivial) => set({ autoYieldTrivial }),
+      setGameBudgetUsd: (gameBudgetUsd) => set({ gameBudgetUsd: Math.max(0, gameBudgetUsd) }),
       setRecommendation: (recommendation) =>
         set((state) => ({
           recommendation,
