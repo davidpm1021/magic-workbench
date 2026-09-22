@@ -41,7 +41,7 @@ interface WorkbenchState {
   resetSession: () => void;
 }
 
-const defaultBaseUrl = import.meta.env.VITE_WORKBENCH_AI_BASE_URL ?? "";
+const defaultBaseUrl = import.meta.env.VITE_WORKBENCH_AI_BASE_URL ?? (import.meta.env.DEV ? "/workbench-ai" : "");
 const defaultModel = import.meta.env.VITE_WORKBENCH_AI_MODEL ?? "";
 
 const DEFAULT_STRATEGY =
