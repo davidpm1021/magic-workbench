@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useGameStore } from "@/stores/useGameStore";
 import { usePromptPreferencesStore } from "@/stores/usePromptPreferencesStore";
 import { resolvePrompt } from "@/components/prompts/internal/promptHandlers";
+import { classifyWorkbenchDecision } from "./decisionImportance";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import {
   isWorkbenchAiPrompt,
@@ -17,6 +18,7 @@ export function useWorkbenchController(paused = false): void {
   const controllerMode = useWorkbenchStore((state) => state.controllerMode);
   const aiBaseUrl = useWorkbenchStore((state) => state.aiBaseUrl);
   const aiModel = useWorkbenchStore((state) => state.aiModel);
+  const aiFastModel = useWorkbenchStore((state) => state.aiFastModel);
   const aiApiKey = useWorkbenchStore((state) => state.aiApiKey);
   const strategyPrompt = useWorkbenchStore((state) => state.strategyPrompt);
   const autoYieldTrivial = useWorkbenchStore((state) => state.autoYieldTrivial);
@@ -69,6 +71,12 @@ export function useWorkbenchController(paused = false): void {
       return;
     }
 
+    const classification = classifyWorkbenchDecision(currentPrompt);
+    const selectedModel =
+      classification.importance === "routine" && aiFastModel.trim()
+        ? aiFastModel.trim()
+        : aiModel.trim();
+
     const promptId = Number(currentPrompt.promptId ?? 0);
     if (inFlightPromptRef.current === promptId) return;
     inFlightPromptRef.current = promptId;
@@ -83,12 +91,12 @@ export function useWorkbenchController(paused = false): void {
 
     setStatus({
       kind: "thinking",
-      message: `${aiModel} is choosing from the engine's legal actions...`,
+      message: `${selectedModel} is handling a ${classification.importance} decision...`,
     });
 
     void requestWorkbenchDecision({
       baseUrl: aiBaseUrl,
-      model: aiModel,
+      model: selectedModel,
       apiKey: aiApiKey,
       strategyPrompt,
       gameView,
@@ -130,6 +138,7 @@ export function useWorkbenchController(paused = false): void {
     isWaitingForResponse,
     aiBaseUrl,
     aiModel,
+    aiFastModel,
     aiApiKey,
     strategyPrompt,
     autoYieldTrivial,
