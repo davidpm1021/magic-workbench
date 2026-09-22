@@ -2,6 +2,7 @@ import type { Prompt, PromptOutput } from "@/protocol";
 import type { ClientGameView } from "@/stores/gameStore.types";
 import type { WorkbenchRecommendation } from "@/stores/useWorkbenchStore";
 import { classifyWorkbenchDecision } from "./decisionImportance";
+import { compactWorkbenchGameView } from "./compactGameView";
 
 export interface WorkbenchAiRequest {
   baseUrl: string;
@@ -98,7 +99,7 @@ export async function requestWorkbenchDecision(
             seat: request.myPlayerSlot,
             responseRules: responseRules(prompt),
             prompt,
-            visibleGameState: gameView,
+            visibleGameState: compactWorkbenchGameView(gameView),
           }),
         },
       ],
