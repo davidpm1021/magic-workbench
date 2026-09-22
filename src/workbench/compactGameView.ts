@@ -44,7 +44,7 @@ export function compactWorkbenchGameView(view: ClientGameView) {
     dayTime: view.dayTime,
     activePlaneNames: view.activePlaneNames,
     combatAssignments: view.combatAssignments,
-    players: view.players.map((player) => ({
+    players: (view.players ?? []).map((player) => ({
       id: player.id,
       name: player.name,
       status: player.status,
@@ -64,14 +64,14 @@ export function compactWorkbenchGameView(view: ClientGameView) {
       maxLandPlaysPerTurn: player.maxLandPlaysPerTurn,
       cardsDrawnThisTurn: player.cardsDrawnThisTurn,
       playerKeywords: player.playerKeywords,
-      hand: player.hand.map(compactCard),
-      graveyard: player.graveyard.map(compactCard),
-      exile: player.exile.map(compactCard),
-      commandZone: player.commandZone.map(compactCard),
-      visibleLibraryCards: player.library.map(compactCard),
+      hand: (player.hand ?? []).map(compactCard),
+      graveyard: (player.graveyard ?? []).map(compactCard),
+      exile: (player.exile ?? []).map(compactCard),
+      commandZone: (player.commandZone ?? []).map(compactCard),
+      visibleLibraryCards: (player.library ?? []).map(compactCard),
     })),
-    battlefield: view.battlefield.map(compactCard),
-    stack: view.stack.map((item) => ({
+    battlefield: (view.battlefield ?? []).map(compactCard),
+    stack: (view.stack ?? []).map((item) => ({
       id: item.id,
       sourceId: item.sourceId,
       controllerId: item.controllerId,
