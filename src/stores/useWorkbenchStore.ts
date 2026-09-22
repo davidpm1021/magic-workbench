@@ -71,7 +71,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       aiApiKey: "",
       strategyPrompt: DEFAULT_STRATEGY,
       autoYieldTrivial: true,
-      gameBudgetUsd: 1,
+      gameBudgetUsd: 0.5,
       recommendation: null,
       history: [],
       status: {
