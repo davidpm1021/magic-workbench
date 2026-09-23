@@ -307,6 +307,92 @@ describe("Workbench AI decision boundary", () => {
     vi.unstubAllGlobals();
   });
 
+  it("retries a transient Responses no-output failure once and aggregates usage", async () => {
+    const audit: unknown[] = [];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              message: "OpenAI Responses API returned no output text (status: completed).",
+            },
+            workbenchUsage: {
+              inputTokens: 100,
+              cachedInputTokens: 20,
+              cacheWriteTokens: 0,
+              outputTokens: 10,
+              reasoningTokens: 10,
+              totalTokens: 110,
+            },
+            workbenchMeta: {
+              responseStatus: "completed",
+            },
+          }),
+          { status: 422, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    output: { type: "act", actionId: "cast-1" },
+                    reason: "Retry produced a legal decision.",
+                  }),
+                },
+              },
+            ],
+            workbenchUsage: {
+              inputTokens: 90,
+              cachedInputTokens: 0,
+              cacheWriteTokens: 0,
+              outputTokens: 20,
+              reasoningTokens: 5,
+              totalTokens: 110,
+            },
+            workbenchMeta: {
+              responseStatus: "completed",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await requestWorkbenchDecision({
+      baseUrl: "/workbench-ai",
+      model: "gpt-6-luna",
+      strategyPrompt: "Play well.",
+      gameView,
+      prompt: chooseActionPrompt(),
+      myPlayerSlot: "player-0",
+      onAuditEntry: (entry) => audit.push(entry),
+    });
+
+    expect(result.output).toEqual({ type: "act", actionId: "cast-1" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toEqual(
+      expect.objectContaining({
+        source: "ai",
+        status: "success",
+        usage: {
+          inputTokens: 190,
+          cachedInputTokens: 20,
+          cacheWriteTokens: 0,
+          outputTokens: 30,
+          reasoningTokens: 15,
+          totalTokens: 220,
+        },
+      }),
+    );
+
+    vi.unstubAllGlobals();
+  });
+
   it("records provider failures including incomplete-response metadata", async () => {
     const audit: unknown[] = [];
     vi.stubGlobal(
