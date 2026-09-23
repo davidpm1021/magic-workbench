@@ -852,16 +852,20 @@ export function buildWorkbenchDecisionContext(args: {
     currentTurnEntries.length > 0
       ? Math.min(...currentTurnEntries.map((entry) => entry.createdAt))
       : 0;
-  const spellsActuallyCastThisTurn = gameLog
-    .filter(
-      (entry) =>
-        entry.timestampMs >= turnStartMs &&
-        (!entry.playerId || entry.playerId === decidingPlayer?.id),
-    )
+  const castLogEntriesThisTurn = gameLog
+    .filter((entry) => entry.timestampMs >= turnStartMs)
     .flatMap((entry) => {
       const match = entry.message.match(/^(?:Cast|Cascade cast):\s*(.+)$/i);
-      return match?.[1] ? [match[1]] : [];
+      return match?.[1] ? [{ entry, name: match[1] }] : [];
     });
+  const hasPlayerAttributedCastLog = castLogEntriesThisTurn.some(
+    ({ entry }) => !!entry.playerId,
+  );
+  const spellsActuallyCastThisTurn = hasPlayerAttributedCastLog
+    ? castLogEntriesThisTurn
+        .filter(({ entry }) => entry.playerId === decidingPlayer?.id)
+        .map(({ name }) => name)
+    : castActionsChosenThisTurn;
 
   const isActivePlayer = decidingPlayer?.id === gameView.activePlayerId;
   const playerTurnIds = new Set<number>();
