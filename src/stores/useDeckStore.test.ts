@@ -27,6 +27,56 @@ beforeAll(async () => {
 
 afterAll(() => vi.unstubAllGlobals());
 
+describe("Workbench deck disk backup", () => {
+  it("writes savedDecks directly to the local backup endpoint", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const id = useDeckStore.getState().addSavedDeck({
+      name: "Persistent Commander Deck",
+      format: "commander",
+      cards: [],
+      sideboard: [],
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(([url, init]) => {
+          if (url !== "/workbench-data/decks" || init?.method !== "PUT") return false;
+          const payload = JSON.parse(String(init.body)) as {
+            schemaVersion?: number;
+            savedDecks?: Array<{ id?: string; deck?: { name?: string } }>;
+          };
+          return (
+            payload.schemaVersion === 1 &&
+            payload.savedDecks?.some(
+              (saved) =>
+                saved.id === id && saved.deck?.name === "Persistent Commander Deck",
+            ) === true
+          );
+        }),
+      ).toBe(true);
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("does not delete the disk backup when browser persistence is cleared", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    useDeckStore.persist.clearStorage();
+
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) => url === "/workbench-data/decks" && init?.method === "DELETE",
+      ),
+    ).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
+});
+
 describe("deck printing updates", () => {
   it("changes only copies of the selected printing variant", () => {
     const selected = card("selected-1", "cmr", "112", true);
