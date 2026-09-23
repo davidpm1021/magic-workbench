@@ -342,12 +342,20 @@ export interface WorkbenchDecisionContext {
   };
   strategicFacts: {
     isActivePlayer: boolean;
+    turnsTaken: number;
+    currentPlayerTurnNumber: number | null;
     landsInHand: number;
     landDropsRemaining: number;
+    readyAttackers: {
+      count: number;
+      knownPower: number;
+      unknownPowerCount: number;
+    };
     opponents: Array<{
       id: string;
       life: number;
       visibleUntappedCreatures: number;
+      visibleUntappedPotentialBlockers: number;
     }>;
   };
   recentEngineLog: Array<Pick<GameLogEntry, "message" | "entryType" | "playerId" | "cardId">>;
@@ -508,26 +516,61 @@ export function buildWorkbenchDecisionContext(args: {
     gameView.players[0]?.id;
   const decidingPlayer =
     gameView.players.find((player) => player.id === decidingPlayerId) ?? gameView.players[0];
+  const isActivePlayer = decidingPlayer?.id === gameView.activePlayerId;
+  const playerTurnIds = new Set<number>();
+  for (const entry of sameGame) {
+    const state = record(entry.visibleGameState);
+    if (
+      decidingPlayer?.id &&
+      state?.activePlayerId === decidingPlayer.id &&
+      typeof state.turn === "number"
+    ) {
+      playerTurnIds.add(state.turn);
+    }
+  }
+  if (isActivePlayer) playerTurnIds.add(gameView.turn);
+
+  const readyAttackerCards = (gameView.battlefield ?? []).filter((card) => {
+    if (card.controllerId !== decidingPlayer?.id) return false;
+    if (!card.types.includes("Creature") || card.tapped) return false;
+    const hasHaste = (card.keywords ?? []).some((keyword) => /^haste$/i.test(keyword));
+    return !card.summoningSick || hasHaste;
+  });
+  const numericAttackerPowers = readyAttackerCards
+    .map((card) => Number(card.power))
+    .filter((power) => Number.isFinite(power));
+
   const strategicFacts: WorkbenchDecisionContext["strategicFacts"] = {
-    isActivePlayer: decidingPlayer?.id === gameView.activePlayerId,
+    isActivePlayer,
+    turnsTaken: playerTurnIds.size,
+    currentPlayerTurnNumber: isActivePlayer ? playerTurnIds.size : null,
     landsInHand:
       (decidingPlayer?.hand ?? []).filter((card) => card.types.includes("Land")).length,
     landDropsRemaining: Math.max(
       0,
       (decidingPlayer?.maxLandPlaysPerTurn ?? 0) - (decidingPlayer?.landsPlayedThisTurn ?? 0),
     ),
+    readyAttackers: {
+      count: readyAttackerCards.length,
+      knownPower: numericAttackerPowers.reduce((sum, power) => sum + power, 0),
+      unknownPowerCount: readyAttackerCards.length - numericAttackerPowers.length,
+    },
     opponents: gameView.players
       .filter((player) => player.id !== decidingPlayer?.id)
-      .map((player) => ({
-        id: player.id,
-        life: player.life,
-        visibleUntappedCreatures: (gameView.battlefield ?? []).filter(
+      .map((player) => {
+        const visibleUntappedCreatures = (gameView.battlefield ?? []).filter(
           (card) =>
             card.controllerId === player.id &&
             card.types.includes("Creature") &&
             !card.tapped,
-        ).length,
-      })),
+        ).length;
+        return {
+          id: player.id,
+          life: player.life,
+          visibleUntappedCreatures,
+          visibleUntappedPotentialBlockers: visibleUntappedCreatures,
+        };
+      }),
   };
 
   return {
@@ -559,7 +602,7 @@ export function buildWorkbenchDecisionContext(args: {
     recentFailedPayments,
     guidance: [
       "Treat recent decisions and engine log entries as continuity from this same game, not as hypothetical examples.",
-      "Use strategicFacts for basic counts and turn-state facts instead of recounting or inferring them from prose. Do not claim there are no blockers when visibleUntappedCreatures is nonzero.",
+      "Use strategicFacts for basic counts and turn-state facts instead of recounting or inferring them from prose. Use currentPlayerTurnNumber instead of inferring your turn number from the global turn. Do not claim there are no blockers when visibleUntappedPotentialBlockers is nonzero.",
       "When currentTransaction is present, continue the action you already initiated. Tapped/sacrificed/payment state may be the result of costs you intentionally paid.",
       "Outside the same multi-step transaction, re-evaluate every currently legal strategic option from the present game state. Do not continue a prior plan merely because an earlier decision intended it.",
       "Use manaAvailability as a highlighted estimate of the mana currently available without sacrificing cards; flexible sources list every color they can make.",
