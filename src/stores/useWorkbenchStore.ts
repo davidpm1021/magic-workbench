@@ -4,6 +4,7 @@ import type { PromptOutput } from "@/protocol";
 import type { WorkbenchTokenUsage } from "@/workbench/pricing";
 
 export type WorkbenchControllerMode = "manual" | "assisted" | "thinking-ai";
+export type WorkbenchYieldUntil = "none" | "material_state_change";
 
 export interface WorkbenchAuditEntry {
   id: string;
@@ -26,6 +27,9 @@ export interface WorkbenchAuditEntry {
   rawModelText: string | null;
   promptSnapshot: unknown;
   visibleGameState: unknown;
+  yieldUntil?: WorkbenchYieldUntil;
+  outcomeDelta?: string[] | null;
+  outcomeRecordedAt?: number | null;
 }
 
 export interface WorkbenchRecommendation {
@@ -42,6 +46,9 @@ export interface WorkbenchRecommendation {
   estimatedCostUsd: number | null;
   promptFingerprint: string;
   createdAt: number;
+  yieldUntil?: WorkbenchYieldUntil;
+  materialStateFingerprint?: string;
+  auditId?: string;
 }
 
 export type WorkbenchStatusKind = "idle" | "thinking" | "ready" | "paused" | "error";
@@ -97,6 +104,7 @@ interface WorkbenchState {
   setRecommendation: (value: WorkbenchRecommendation | null) => void;
   clearHistory: () => void;
   addAuditEntry: (entry: WorkbenchAuditEntry) => void;
+  updateAuditEntry: (id: string, patch: Partial<WorkbenchAuditEntry>) => void;
   clearAuditLog: () => void;
   setRecovery: (recovery: WorkbenchRecoveryState | null) => void;
   retryRecovery: () => void;
@@ -175,6 +183,12 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       addAuditEntry: (entry) =>
         set((state) => ({
           auditLog: [...state.auditLog.slice(-1999), entry],
+        })),
+      updateAuditEntry: (id, patch) =>
+        set((state) => ({
+          auditLog: state.auditLog.map((entry) =>
+            entry.id === id ? { ...entry, ...patch } : entry,
+          ),
         })),
       clearAuditLog: () => set({ auditLog: [] }),
       setRecovery: (recovery) => set({ recovery }),
