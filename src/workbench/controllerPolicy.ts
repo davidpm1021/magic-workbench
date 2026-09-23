@@ -214,6 +214,8 @@ export interface WorkbenchDecisionContext {
     error: string | null;
   }>;
   castActionsChosenThisTurn: string[];
+  spellsActuallyCastThisTurn: string[];
+  secondSpellAlreadyCast: boolean;
   recentFailedPayments: Array<{
     card: string | null;
     reason: string | null;
@@ -248,6 +250,17 @@ export function buildWorkbenchDecisionContext(args: {
       reason: entry.reason,
     }));
 
+  const turnStartMs =
+    currentTurnEntries.length > 0
+      ? Math.min(...currentTurnEntries.map((entry) => entry.createdAt))
+      : 0;
+  const spellsActuallyCastThisTurn = gameLog
+    .filter((entry) => entry.timestampMs >= turnStartMs)
+    .flatMap((entry) => {
+      const match = entry.message.match(/^(?:Cast|Cascade cast):\s*(.+)$/i);
+      return match?.[1] ? [match[1]] : [];
+    });
+
   return {
     currentTurn: gameView.turn,
     currentStep: gameView.step,
@@ -268,13 +281,15 @@ export function buildWorkbenchDecisionContext(args: {
       error: entry.error,
     })),
     castActionsChosenThisTurn,
+    spellsActuallyCastThisTurn,
+    secondSpellAlreadyCast: spellsActuallyCastThisTurn.length >= 2,
     recentFailedPayments,
     guidance: [
       "Treat recent decisions and engine log entries as continuity from this same game, not as hypothetical examples.",
       "Do not contradict an action you just initiated merely because paying its costs changed the visible state.",
       "If a payment attempt just failed, do not repeat the identical transaction unless resources changed; choose a cheaper mode or a different action.",
       "Workbench normally handles mechanical mana production during payManaCost. Do not float mana during ordinary priority without a concrete reason.",
-      "Use the engine log to determine what has actually resolved or been cast this turn; do not guess spell count from the current board alone.",
+      "Use spellsActuallyCastThisTurn as the authoritative spell-count continuity for this turn. Do not call a later spell the second spell if two spells are already listed.",
     ],
   };
 }
