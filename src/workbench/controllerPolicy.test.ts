@@ -6,6 +6,7 @@ import {
   chooseDeterministicManaStep,
   isManaManagementAction,
   promptForWorkbenchModel,
+  buildWorkbenchDecisionContext,
 } from "./controllerPolicy";
 
 function view(pool: Record<string, number> = {}): ClientGameView {
@@ -125,4 +126,43 @@ describe("Workbench controller policy", () => {
 
     expect(chooseDeterministicManaStep(prompt, view(), "player-0")).toBeNull();
   });
+
+  it("derives actual spells cast this turn from engine log continuity", () => {
+    const game = view();
+    const context = buildWorkbenchDecisionContext({
+      auditLog: [
+        {
+          id: "a1",
+          gameId: "g",
+          createdAt: 1000,
+          source: "deterministic",
+          status: "deterministic",
+          promptId: 1,
+          promptType: "chooseAction",
+          importance: "deterministic",
+          model: null,
+          latencyMs: 0,
+          usage: null,
+          estimatedCostUsd: 0,
+          reason: "start",
+          output: { type: "pass", exhaustStack: false },
+          error: null,
+          responseStatus: null,
+          incompleteReason: null,
+          rawModelText: null,
+          promptSnapshot: null,
+          visibleGameState: { turn: 3, step: "upkeep" },
+        },
+      ],
+      gameView: game,
+      gameLog: [
+        { message: "Cast: Consider", entryType: "stack", timestampMs: 1100 },
+        { message: "Cast: Charcoal Diamond", entryType: "stack", timestampMs: 1200 },
+      ],
+    });
+
+    expect(context.spellsActuallyCastThisTurn).toEqual(["Consider", "Charcoal Diamond"]);
+    expect(context.secondSpellAlreadyCast).toBe(true);
+  });
+
 });
