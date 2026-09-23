@@ -1,5 +1,6 @@
 import path from "path";
-import { readFileSync } from "fs";
+import os from "os";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { defineConfig } from "vite";
 import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
@@ -270,6 +271,90 @@ function workbenchAiProxy(): Plugin {
   };
 }
 
+function workbenchDeckPersistence(): Plugin {
+  const dataDir = path.join(os.homedir(), ".magic-workbench");
+  const deckFile = path.join(dataDir, "deck-storage.json");
+  const tempFile = path.join(dataDir, "deck-storage.json.tmp");
+
+  return {
+    name: "workbench-deck-persistence",
+    configureServer(server) {
+      server.middlewares.use("/workbench-data/decks", async (req, res) => {
+        res.setHeader("Content-Type", "application/json");
+
+        if (req.method === "GET") {
+          try {
+            const content = readFileSync(deckFile, "utf8");
+            res.statusCode = 200;
+            res.end(content);
+          } catch (error) {
+            const code =
+              error && typeof error === "object" && "code" in error
+                ? String((error as { code?: unknown }).code)
+                : "";
+            if (code === "ENOENT") {
+              res.statusCode = 204;
+              res.end();
+              return;
+            }
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: { message: "Could not read the Workbench deck backup." } }));
+          }
+          return;
+        }
+
+        if (req.method === "PUT") {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+          }
+          const raw = Buffer.concat(chunks).toString("utf8");
+          try {
+            JSON.parse(raw);
+            mkdirSync(dataDir, { recursive: true });
+            writeFileSync(tempFile, raw, "utf8");
+            renameSync(tempFile, deckFile);
+            res.statusCode = 204;
+            res.end();
+          } catch {
+            res.statusCode = 400;
+            res.end(JSON.stringify({ error: { message: "Invalid Workbench deck backup payload." } }));
+          }
+          return;
+        }
+
+        if (req.method === "DELETE") {
+          try {
+            writeFileSync(tempFile, "", "utf8");
+          } catch {
+            // Ignore a missing temp file cleanup target.
+          }
+          try {
+            const { unlinkSync } = await import("fs");
+            unlinkSync(deckFile);
+          } catch (error) {
+            const code =
+              error && typeof error === "object" && "code" in error
+                ? String((error as { code?: unknown }).code)
+                : "";
+            if (code !== "ENOENT") {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: { message: "Could not clear the Workbench deck backup." } }));
+              return;
+            }
+          }
+          res.statusCode = 204;
+          res.end();
+          return;
+        }
+
+        res.statusCode = 405;
+        res.end(JSON.stringify({ error: { message: "Method not allowed." } }));
+      });
+    },
+  };
+}
+
 function crossOriginIsolation(): Plugin {
   return {
     name: "cross-origin-isolation",
@@ -297,6 +382,7 @@ export default defineConfig({
     }),
     crossOriginIsolation(),
     workbenchAiProxy(),
+    workbenchDeckPersistence(),
   ],
   resolve: {
     alias: {
