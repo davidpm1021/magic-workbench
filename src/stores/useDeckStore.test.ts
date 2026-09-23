@@ -4,7 +4,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { DeckCard } from "@/protocol/deck";
 import type { ScryfallCard } from "@/types/scryfall";
 
-vi.hoisted(() => vi.stubGlobal("__APP_VERSION__", "test"));
+vi.hoisted(() => {
+  vi.stubGlobal("__APP_VERSION__", "test");
+  vi.stubGlobal("__WORKBENCH_TEST_DECK_BACKUP__", true);
+});
 vi.mock("@/platform", () => ({
   getPlatformType: () => "web",
 }));
