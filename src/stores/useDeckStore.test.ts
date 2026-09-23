@@ -16,6 +16,7 @@ vi.mock("pixi.js", () => ({
 }));
 
 let useDeckStore: typeof import("./useDeckStore").useDeckStore;
+let setWorkbenchDeckBackupTestEnabled: typeof import("./useDeckStore").setWorkbenchDeckBackupTestEnabled;
 let fetchMock: ReturnType<typeof vi.fn>;
 
 function card(id: string, setCode: string, cardNumber: string, foil = false): DeckCard {
@@ -27,19 +28,17 @@ function card(id: string, setCode: string, cardNumber: string, foil = false): De
 
 beforeAll(async () => {
   fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
-  Object.defineProperty(globalThis, "__WORKBENCH_TEST_DECK_BACKUP__", {
-    value: true,
-    configurable: true,
-    writable: true,
-  });
   Object.defineProperty(globalThis, "fetch", {
     value: fetchMock,
     configurable: true,
     writable: true,
   });
-  ({ useDeckStore } = await import("./useDeckStore"));
-  // Explicitly rehydrate once so the real persistence lifecycle has run before
-  // individual tests mutate the saved-deck library.
+  const deckModule = await import("./useDeckStore");
+  useDeckStore = deckModule.useDeckStore;
+  setWorkbenchDeckBackupTestEnabled = deckModule.setWorkbenchDeckBackupTestEnabled;
+  setWorkbenchDeckBackupTestEnabled(true);
+  // Rehydrate after enabling backup mode so the real reconciliation lifecycle
+  // runs under the same conditions as local Workbench.
   await useDeckStore.persist.rehydrate();
 });
 
@@ -48,11 +47,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  delete (
-    globalThis as typeof globalThis & {
-      __WORKBENCH_TEST_DECK_BACKUP__?: boolean;
-    }
-  ).__WORKBENCH_TEST_DECK_BACKUP__;
+  setWorkbenchDeckBackupTestEnabled(false);
   vi.unstubAllGlobals();
 });
 
