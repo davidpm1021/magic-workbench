@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Bot, Brain, Download, FastForward, Play, Sparkles } from "lucide-react";
+import { Bot, Brain, Download, FastForward, Play, RefreshCw, Sparkles, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGameStore } from "@/stores/useGameStore";
 import {
@@ -53,6 +53,7 @@ export function WorkbenchPanel() {
   const recommendation = useWorkbenchStore((state) => state.recommendation);
   const history = useWorkbenchStore((state) => state.history);
   const auditLog = useWorkbenchStore((state) => state.auditLog);
+  const recovery = useWorkbenchStore((state) => state.recovery);
   const status = useWorkbenchStore((state) => state.status);
   const setControllerMode = useWorkbenchStore((state) => state.setControllerMode);
   const setAiBaseUrl = useWorkbenchStore((state) => state.setAiBaseUrl);
@@ -65,6 +66,10 @@ export function WorkbenchPanel() {
   const setRecommendation = useWorkbenchStore((state) => state.setRecommendation);
   const clearHistory = useWorkbenchStore((state) => state.clearHistory);
   const addAuditEntry = useWorkbenchStore((state) => state.addAuditEntry);
+  const retryRecovery = useWorkbenchStore((state) => state.retryRecovery);
+  const resolveRecoveryManually = useWorkbenchStore(
+    (state) => state.resolveRecoveryManually,
+  );
   const setStatus = useWorkbenchStore((state) => state.setStatus);
 
   const [showConfig, setShowConfig] = useState(false);
@@ -312,6 +317,43 @@ export function WorkbenchPanel() {
         >
           {status.message}
         </div>
+
+        {recovery && currentPromptId === recovery.promptId ? (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 space-y-2">
+            <div>
+              <p className="font-semibold">AI paused on this decision</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                {recovery.mode === "manual"
+                  ? "Make this choice using the normal game controls. Thinking AI will resume automatically on the next prompt."
+                  : recovery.error}
+              </p>
+            </div>
+            {recovery.mode === "error" ? (
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 px-2 text-[11px]"
+                  disabled={budgetReached || isWaitingForResponse}
+                  onClick={retryRecovery}
+                >
+                  <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                  Retry AI
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="h-8 px-2 text-[11px]"
+                  disabled={isWaitingForResponse}
+                  onClick={resolveRecoveryManually}
+                >
+                  <UserRound className="mr-1.5 h-3.5 w-3.5" />
+                  Resolve manually
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {!promptSupported && currentPrompt ? (
           <p className="text-[10px] text-muted-foreground">
