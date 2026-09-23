@@ -1379,6 +1379,12 @@ useDeckStore.persist.onHydrate(beginDeckHydration);
 useDeckStore.persist.onFinishHydration(finishDeckHydration);
 if (useDeckStore.persist.hasHydrated()) {
   finishDeckHydration();
+} else {
+  // createJSONStorage(localStorage) hydrates synchronously in the browser, but
+  // schedule one post-construction check as a safety net for test/dev timing.
+  queueMicrotask(() => {
+    if (useDeckStore.persist.hasHydrated()) finishDeckHydration();
+  });
 }
 
 // Mirror the actual saved-deck library directly to disk. This does not depend
