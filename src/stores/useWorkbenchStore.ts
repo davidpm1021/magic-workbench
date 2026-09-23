@@ -5,6 +5,29 @@ import type { WorkbenchTokenUsage } from "@/workbench/pricing";
 
 export type WorkbenchControllerMode = "manual" | "assisted" | "thinking-ai";
 
+export interface WorkbenchAuditEntry {
+  id: string;
+  gameId: string;
+  createdAt: number;
+  source: "ai" | "deterministic";
+  status: "success" | "error" | "deterministic";
+  promptId: number;
+  promptType: string;
+  importance: "routine" | "strategic" | "deterministic";
+  model: string | null;
+  latencyMs: number | null;
+  usage: WorkbenchTokenUsage | null;
+  estimatedCostUsd: number | null;
+  reason: string | null;
+  output: PromptOutput["output"] | null;
+  error: string | null;
+  responseStatus: string | null;
+  incompleteReason: string | null;
+  rawModelText: string | null;
+  promptSnapshot: unknown;
+  visibleGameState: unknown;
+}
+
 export interface WorkbenchRecommendation {
   promptId: number;
   output: PromptOutput["output"];
@@ -39,6 +62,7 @@ interface WorkbenchState {
   gameBudgetUsd: number;
   recommendation: WorkbenchRecommendation | null;
   history: WorkbenchRecommendation[];
+  auditLog: WorkbenchAuditEntry[];
   status: WorkbenchStatus;
 
   setControllerMode: (mode: WorkbenchControllerMode) => void;
@@ -51,6 +75,8 @@ interface WorkbenchState {
   setGameBudgetUsd: (value: number) => void;
   setRecommendation: (value: WorkbenchRecommendation | null) => void;
   clearHistory: () => void;
+  addAuditEntry: (entry: WorkbenchAuditEntry) => void;
+  clearAuditLog: () => void;
   setStatus: (status: WorkbenchStatus) => void;
   resetSession: () => void;
 }
@@ -75,6 +101,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       gameBudgetUsd: 0.5,
       recommendation: null,
       history: [],
+      auditLog: [],
       status: {
         kind: "idle",
         message: "Manual control. Workbench is observing the game.",
@@ -111,10 +138,15 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         set((state) => ({
           recommendation,
           history: recommendation
-            ? [...state.history.slice(-49), recommendation]
+            ? [...state.history.slice(-999), recommendation]
             : state.history,
         })),
       clearHistory: () => set({ history: [] }),
+      addAuditEntry: (entry) =>
+        set((state) => ({
+          auditLog: [...state.auditLog.slice(-1999), entry],
+        })),
+      clearAuditLog: () => set({ auditLog: [] }),
       setStatus: (status) => set({ status }),
       resetSession: () =>
         set({
