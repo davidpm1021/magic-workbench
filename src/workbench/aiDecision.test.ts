@@ -24,6 +24,30 @@ function chooseActionPrompt(actionId = "cast-1"): Prompt {
   } as unknown as Prompt;
 }
 
+function chooseCardsPrompt(): Prompt {
+  return {
+    promptId: "6",
+    sourceCard: {
+      id: "gemstone-caverns",
+      identity: { name: "Gemstone Caverns" },
+    },
+    input: {
+      type: "chooseCards",
+      presentation: {
+        title: "Gemstone Caverns",
+        description: "Select a card from your hand",
+        targets: [],
+      },
+      cards: [
+        { id: "engine-card-7", identity: { name: "Artisan of Kozilek" } },
+        { id: "engine-card-3", identity: { name: "Emrakul, the Promised End" } },
+      ],
+      min: 1,
+      max: 1,
+    },
+  } as unknown as Prompt;
+}
+
 function payManaPrompt(canConfirmFromPool: boolean): Prompt {
   return {
     promptId: "88",
@@ -100,6 +124,83 @@ describe("Workbench AI decision boundary", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/workbench-ai/chat/completions",
       expect.objectContaining({ method: "POST" }),
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("normalizes the exact bare chooseCards response seen in the Gemstone Caverns audit", async () => {
+    const audit: unknown[] = [];
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        outputRules?: string[];
+        workbenchResponseSchema?: Record<string, unknown>;
+      };
+      expect(body.outputRules).toBeUndefined();
+      expect(body.workbenchResponseSchema).toEqual(
+        expect.objectContaining({
+          type: "object",
+          required: ["output", "reason"],
+          additionalProperties: false,
+        }),
+      );
+
+      const messages = JSON.parse(String(init?.body ?? "{}")).messages as Array<{
+        role: string;
+        content: string;
+      }>;
+      const userMessage = JSON.parse(messages.find((message) => message.role === "user")!.content) as {
+        outputRules: string[];
+      };
+      expect(userMessage.outputRules[0]).toContain("Set the top-level output field to");
+      expect(userMessage.outputRules[0]).not.toMatch(/^Return /);
+
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  type: "chooseCardsDecision",
+                  chosenCardIds: ["engine-card-3"],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await requestWorkbenchDecision({
+      baseUrl: "/workbench-ai",
+      model: "gpt-6-luna",
+      strategyPrompt: "Play well.",
+      gameView,
+      prompt: chooseCardsPrompt(),
+      myPlayerSlot: "player-0",
+      onAuditEntry: (entry) => audit.push(entry),
+    });
+
+    expect(result.output).toEqual({
+      type: "chooseCardsDecision",
+      chosenCardIds: ["engine-card-3"],
+    });
+    expect(result.reason).toContain("without the required output wrapper");
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toEqual(
+      expect.objectContaining({
+        source: "ai",
+        status: "success",
+        promptType: "chooseCards",
+        output: {
+          type: "chooseCardsDecision",
+          chosenCardIds: ["engine-card-3"],
+        },
+        rawModelText:
+          '{"type":"chooseCardsDecision","chosenCardIds":["engine-card-3"]}',
+      }),
     );
 
     vi.unstubAllGlobals();
