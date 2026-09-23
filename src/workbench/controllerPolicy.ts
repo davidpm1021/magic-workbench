@@ -248,8 +248,9 @@ function estimateManaAvailability(
   const pool = { ...((player?.manaPool ?? {}) as Record<string, number>) };
   const commanderColors = new Set<string>();
   for (const card of player?.commandZone ?? []) {
-    for (const color of String(card.color ?? "")) {
-      if (["W", "U", "B", "R", "G"].includes(color)) commanderColors.add(color);
+    const identityHints = `${String(card.color ?? "")}${String(card.manaCost ?? "")}`;
+    for (const color of identityHints.match(/[WUBRG]/g) ?? []) {
+      commanderColors.add(color);
     }
   }
 
