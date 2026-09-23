@@ -262,15 +262,16 @@ function dropInlinePlaymat<T extends object>(deck: T): T {
 let deckPersistReady = false;
 let deckDiskBackupReady = false;
 const WORKBENCH_DECK_BACKUP_URL = "/workbench-data/decks";
+let workbenchDeckBackupTestEnabled = false;
+
+export function setWorkbenchDeckBackupTestEnabled(enabled: boolean): void {
+  workbenchDeckBackupTestEnabled = enabled;
+}
+
 function workbenchDeckBackupEnabled(): boolean {
   return (
+    workbenchDeckBackupTestEnabled ||
     import.meta.env.DEV ||
-    import.meta.env.MODE === "test" ||
-    (
-      globalThis as typeof globalThis & {
-        __WORKBENCH_TEST_DECK_BACKUP__?: boolean;
-      }
-    ).__WORKBENCH_TEST_DECK_BACKUP__ === true ||
     (typeof window !== "undefined" &&
       ["localhost", "127.0.0.1"].includes(window.location.hostname))
   );
