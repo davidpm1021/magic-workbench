@@ -1335,33 +1335,51 @@ export const useDeckStore = create<DeckState>()(
           }
           return merged;
         },
-        onRehydrateStorage: () => {
-          // Every hydration pass must reconcile disk before savedDecks changes
-          // are allowed to mirror back. This protects the independent backup
-          // from an empty/stale browser snapshot during reloads or migrations.
-          deckPersistReady = false;
-          deckDiskBackupReady = false;
-
-          return (_state, error) => {
-            if (error) {
+        onRehydrateStorage: () => (_state, error) => {
+          if (error) {
+            // Hydration can finish while the store variable is still being
+            // assigned, so defer the observable error state.
+            queueMicrotask(() => {
               useDeckStore.setState({ migrationError: true });
-            } else {
-              deckPersistReady = true;
-              // Deferred: sync hydration fires this callback while the store is
-              // still being created, before `useDeckStore` is assigned.
-              queueMicrotask(() => {
-                void reconcileSavedDecksWithDisk().finally(() => {
-                  void completeDeckMigrations(useDeckStore.getState());
-                });
-              });
-            }
-          };
+            });
+          }
         },
       },
     ),
     { name: "deck", enabled: import.meta.env.DEV },
   ),
 );
+
+let deckHydrationGeneration = 0;
+let deckReconciledGeneration = -1;
+
+function beginDeckHydration(): void {
+  deckHydrationGeneration += 1;
+  deckPersistReady = false;
+  deckDiskBackupReady = false;
+}
+
+function finishDeckHydration(): void {
+  const generation = deckHydrationGeneration;
+  if (deckReconciledGeneration === generation) return;
+  deckReconciledGeneration = generation;
+  deckPersistReady = true;
+
+  queueMicrotask(() => {
+    void reconcileSavedDecksWithDisk().finally(() => {
+      void completeDeckMigrations(useDeckStore.getState());
+    });
+  });
+}
+
+// Register after store creation so hydration lifecycle callbacks never depend on
+// a half-assigned `useDeckStore`. The hasHydrated check covers the initial
+// synchronous hydration if it completed before these listeners were attached.
+useDeckStore.persist.onHydrate(beginDeckHydration);
+useDeckStore.persist.onFinishHydration(finishDeckHydration);
+if (useDeckStore.persist.hasHydrated()) {
+  finishDeckHydration();
+}
 
 // Mirror the actual saved-deck library directly to disk. This does not depend
 // on the localStorage persistence adapter, so browser-origin changes, storage
