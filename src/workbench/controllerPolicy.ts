@@ -499,7 +499,7 @@ function actionCardHasFight(prompt: Prompt, gameView: ClientGameView): boolean {
   return prompt.input.actions.some((action) => {
     const raw = action as unknown as AnyRecord;
     const card = typeof raw.cardId === "string" ? byId.get(raw.cardId) : null;
-    return !!card && /\bfight\b/i.test(card.text ?? "");
+    return !!card && /\bfight(?:s|ing)?\b/i.test(card.text ?? "");
   });
 }
 
