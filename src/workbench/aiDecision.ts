@@ -163,13 +163,17 @@ export async function requestWorkbenchDecision(
       signal: request.signal,
     };
     let response = await fetch(endpoint, requestInit);
-    if ([429, 500, 502, 503, 504].includes(response.status) && !request.signal?.aborted) {
+    let payload = (await response.json().catch(() => ({}))) as ChatCompletionResponse;
+    let accumulatedUsage = extractTokenUsage(payload);
+
+    if (shouldRetryWorkbenchResponse(response.status, payload) && !request.signal?.aborted) {
       await new Promise((resolve) => setTimeout(resolve, 750));
       response = await fetch(endpoint, requestInit);
+      payload = (await response.json().catch(() => ({}))) as ChatCompletionResponse;
+      accumulatedUsage = mergeTokenUsage(accumulatedUsage, extractTokenUsage(payload));
     }
 
-    const payload = (await response.json().catch(() => ({}))) as ChatCompletionResponse;
-    usage = extractTokenUsage(payload);
+    usage = accumulatedUsage;
     estimatedCostUsd = estimateOpenAiCostUsd(model, usage);
     responseStatus = payload.workbenchMeta?.responseStatus ?? null;
     incompleteReason = payload.workbenchMeta?.incompleteReason ?? null;
@@ -260,6 +264,38 @@ export async function requestWorkbenchDecision(
     });
     throw error;
   }
+}
+
+function shouldRetryWorkbenchResponse(
+  status: number,
+  payload: ChatCompletionResponse,
+): boolean {
+  if ([429, 500, 502, 503, 504].includes(status)) return true;
+  if (status !== 422) return false;
+
+  const message = payload.error?.message?.toLowerCase() ?? "";
+  return (
+    payload.workbenchMeta?.incompleteReason === "max_output_tokens" ||
+    message.includes("returned no output text") ||
+    message.includes("output-token budget")
+  );
+}
+
+function mergeTokenUsage(
+  first: WorkbenchTokenUsage | null,
+  second: WorkbenchTokenUsage | null,
+): WorkbenchTokenUsage | null {
+  if (!first) return second;
+  if (!second) return first;
+
+  return {
+    inputTokens: first.inputTokens + second.inputTokens,
+    cachedInputTokens: first.cachedInputTokens + second.cachedInputTokens,
+    cacheWriteTokens: first.cacheWriteTokens + second.cacheWriteTokens,
+    outputTokens: first.outputTokens + second.outputTokens,
+    reasoningTokens: first.reasoningTokens + second.reasoningTokens,
+    totalTokens: first.totalTokens + second.totalTokens,
+  };
 }
 
 function extractTokenUsage(payload: ChatCompletionResponse): WorkbenchTokenUsage | null {
