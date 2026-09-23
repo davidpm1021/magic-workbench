@@ -845,7 +845,11 @@ export function buildWorkbenchDecisionContext(args: {
       ? Math.min(...currentTurnEntries.map((entry) => entry.createdAt))
       : 0;
   const spellsActuallyCastThisTurn = gameLog
-    .filter((entry) => entry.timestampMs >= turnStartMs)
+    .filter(
+      (entry) =>
+        entry.timestampMs >= turnStartMs &&
+        (!entry.playerId || entry.playerId === decidingPlayer?.id),
+    )
     .flatMap((entry) => {
       const match = entry.message.match(/^(?:Cast|Cascade cast):\s*(.+)$/i);
       return match?.[1] ? [match[1]] : [];
