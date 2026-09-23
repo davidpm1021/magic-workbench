@@ -7,6 +7,7 @@ import {
   isManaManagementAction,
   promptForWorkbenchModel,
   buildWorkbenchDecisionContext,
+  countRepeatedSamePromptDecision,
 } from "./controllerPolicy";
 
 function view(pool: Record<string, number> = {}): ClientGameView {
@@ -125,6 +126,37 @@ describe("Workbench controller policy", () => {
     } as unknown as Prompt;
 
     expect(chooseDeterministicManaStep(prompt, view(), "player-0")).toBeNull();
+  });
+
+  it("only treats repeats of the same engine prompt as a loop", () => {
+    const base = {
+      output: { type: "decision", value: false } as const,
+      label: "No",
+      reason: "Decline.",
+      model: "test-model",
+      promptType: "chooseBoolean",
+      importance: "routine" as const,
+      latencyMs: 1,
+      gameId: "g",
+      usage: null,
+      estimatedCostUsd: 0,
+      promptFingerprint: JSON.stringify({ type: "chooseBoolean", title: "May?" }),
+      createdAt: 1,
+    };
+
+    const recommendation = { ...base, promptId: 30 };
+    const history = [
+      { ...base, promptId: 28, createdAt: 1 },
+      { ...base, promptId: 29, createdAt: 2 },
+    ];
+
+    expect(countRepeatedSamePromptDecision(history, recommendation)).toBe(0);
+
+    const actualLoop = [
+      { ...base, promptId: 30, createdAt: 1 },
+      { ...base, promptId: 30, createdAt: 2 },
+    ];
+    expect(countRepeatedSamePromptDecision(actualLoop, recommendation)).toBe(2);
   });
 
   it("derives actual spells cast this turn from engine log continuity", () => {
