@@ -1,4 +1,4 @@
-import { LibraryBig, Swords, Users } from "lucide-react";
+import { Download, LibraryBig, Swords, Trophy, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { UpdateCallout } from "@/components/layout/UpdateCallout";
 import { FeatureTile } from "@/components/play/FeatureTile";
@@ -14,6 +14,10 @@ import { relayUsername } from "@/lib/relayUsername";
 import { usePreferencesStore } from "@/stores/usePreferencesStore";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useServerStore } from "@/stores/useServerStore";
+import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
+import { downloadWorkbenchAudit } from "@/workbench/auditExport";
+import { formatUsd } from "@/workbench/pricing";
+import { Button } from "@/components/ui/button";
 const MODES = [
   {
     to: ROUTES.PLAY_OFFLINE_CONSTRUCTED,
@@ -53,6 +57,15 @@ export function PlayHome() {
       ? `${openTables} ${openTables === 1 ? "table" : "tables"} open · ${players.length} online`
       : null;
   const communityEnabled = isFeatureEnabled("deckHub");
+  const lastCompletedGame = useWorkbenchStore((state) => state.lastCompletedGame);
+  const auditLog = useWorkbenchStore((state) => state.auditLog);
+  const completedAuditEntries = useMemo(
+    () =>
+      lastCompletedGame
+        ? auditLog.filter((entry) => entry.gameId === lastCompletedGame.gameId)
+        : [],
+    [auditLog, lastCompletedGame],
+  );
   useEffect(() => {
     const name = relayUsername();
     if (!resumePending && !connected && !connecting && !connectionError && name) {
@@ -91,6 +104,47 @@ export function PlayHome() {
           </header>
 
           <UpdateCallout />
+
+          {lastCompletedGame && completedAuditEntries.length > 0 ? (
+            <section className="rounded-xl border border-border/60 bg-muted/20 p-4 sm:p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-lg bg-primary/10 p-2 text-primary">
+                    <Trophy className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="font-semibold">Last Magic Workbench game</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {lastCompletedGame.winnerId
+                        ? `Winner: ${lastCompletedGame.winnerId}`
+                        : "Completed game"}{" "}
+                      • turn {lastCompletedGame.turn} • {lastCompletedGame.paidAiCalls} AI calls •{" "}
+                      {formatUsd(lastCompletedGame.estimatedCostUsd)}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {lastCompletedGame.entries} audit events • {lastCompletedGame.errors} error(s)
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    downloadWorkbenchAudit({
+                      gameId: lastCompletedGame.gameId,
+                      entries: completedAuditEntries,
+                      winnerId: lastCompletedGame.winnerId,
+                      turn: lastCompletedGame.turn,
+                      filenamePrefix: "magic-workbench-completed",
+                    })
+                  }
+                >
+                  <Download className="mr-1.5 h-4 w-4" />
+                  Export audit
+                </Button>
+              </div>
+            </section>
+          ) : null}
 
           {resumeSession && (
             <RejoinMatchCard session={resumeSession} onAbandoned={() => setResumeSession(null)} />
