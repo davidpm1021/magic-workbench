@@ -46,6 +46,18 @@ export function useWorkbenchController(paused = false): void {
 
   const inFlightPromptRef = useRef<number | null>(null);
   const pendingManaColorRef = useRef<string | null>(null);
+  const pendingManaPlanRef = useRef<{
+    gameId: string;
+    cardId: string;
+    actionIds: string[];
+  } | null>(null);
+  const pendingTransactionsRef = useRef<Array<{
+    auditId: string;
+    gameId: string;
+    promptId: number;
+    beforeState: unknown;
+    promptAdvanced: boolean;
+  }>>([]);
   const pendingOutcomeRef = useRef<{
     auditId: string;
     gameId: string;
@@ -54,24 +66,62 @@ export function useWorkbenchController(paused = false): void {
   } | null>(null);
 
   useEffect(() => {
-    const pending = pendingOutcomeRef.current;
-    if (!pending || !liveGameView) return;
-    if (liveGameView.gameId !== pending.gameId) {
-      pendingOutcomeRef.current = null;
-      return;
-    }
-    const currentPromptId = Number(currentPrompt?.promptId ?? 0);
-    if (!liveGameView.gameOver && currentPrompt && currentPromptId === pending.promptId) return;
+    if (!liveGameView) return;
 
-    updateAuditEntry(pending.auditId, {
-      outcomeDelta: summarizeWorkbenchStateDelta(
-        pending.beforeState,
-        compactWorkbenchGameView(liveGameView),
-      ),
-      outcomeRecordedAt: Date.now(),
-    });
-    pendingOutcomeRef.current = null;
-  }, [liveGameView, currentPrompt, updateAuditEntry]);
+    const pending = pendingOutcomeRef.current;
+    if (pending) {
+      if (liveGameView.gameId !== pending.gameId) {
+        pendingOutcomeRef.current = null;
+      } else {
+        const currentPromptId = Number(currentPrompt?.promptId ?? 0);
+        if (liveGameView.gameOver || !currentPrompt || currentPromptId !== pending.promptId) {
+          updateAuditEntry(pending.auditId, {
+            outcomeDelta: summarizeWorkbenchStateDelta(
+              pending.beforeState,
+              compactWorkbenchGameView(liveGameView),
+            ),
+            outcomeRecordedAt: Date.now(),
+            outcomeScope: "prompt",
+          });
+          pendingOutcomeRef.current = null;
+        }
+      }
+    }
+
+    if (pendingTransactionsRef.current.length === 0) return;
+    const currentPromptId = Number(currentPrompt?.promptId ?? 0);
+    const remaining: typeof pendingTransactionsRef.current = [];
+
+    for (const transaction of pendingTransactionsRef.current) {
+      if (transaction.gameId !== liveGameView.gameId) continue;
+      const promptAdvanced =
+        transaction.promptAdvanced ||
+        !currentPrompt ||
+        currentPromptId !== transaction.promptId;
+      const complete =
+        liveGameView.gameOver ||
+        (
+          promptAdvanced &&
+          currentPrompt?.input.type === "chooseAction" &&
+          liveGameView.stack.length === 0 &&
+          !isWaitingForResponse
+        );
+
+      if (complete) {
+        updateAuditEntry(transaction.auditId, {
+          outcomeDelta: summarizeWorkbenchStateDelta(
+            transaction.beforeState,
+            compactWorkbenchGameView(liveGameView),
+          ),
+          outcomeRecordedAt: Date.now(),
+          outcomeScope: "transaction",
+        });
+      } else {
+        remaining.push({ ...transaction, promptAdvanced });
+      }
+    }
+    pendingTransactionsRef.current = remaining;
+  }, [liveGameView, currentPrompt, isWaitingForResponse, updateAuditEntry]);
 
   useEffect(() => {
     if (!liveGameView?.gameOver) return;
@@ -286,22 +336,63 @@ export function useWorkbenchController(paused = false): void {
     const gameView = state.gameView;
     if (!gameView) return;
 
-    const plan = currentPrompt.input.canConfirmFromPool
-      ? {
-          output: { type: "pay", auto: false } as const,
-          preferredColor: null,
+    let plan:
+      | { output: { type: "pay"; auto: false } | { type: "act"; actionId: string }; preferredColor: string | null }
+      | null = null;
+    let reason = "";
+
+    if (currentPrompt.input.canConfirmFromPool) {
+      plan = {
+        output: { type: "pay", auto: false },
+        preferredColor: null,
+      };
+      pendingManaPlanRef.current = null;
+      reason = "The engine reported the mana pool already satisfied the remaining cost.";
+    } else {
+      const cached = pendingManaPlanRef.current;
+      if (
+        cached &&
+        cached.gameId === gameView.gameId &&
+        cached.cardId === currentPrompt.input.cardId &&
+        cached.actionIds.length > 0
+      ) {
+        const nextActionId = cached.actionIds[0];
+        const action = currentPrompt.input.actions.find((candidate) => candidate.id === nextActionId);
+        if (action) {
+          const raw = action as unknown as { producedMana?: Array<{ color?: string; amount?: number }> };
+          const produced = raw.producedMana ?? [];
+          const preferredColor =
+            produced.length === 1 && typeof produced[0]?.color === "string"
+              ? produced[0].color
+              : null;
+          plan = {
+            output: { type: "act", actionId: nextActionId },
+            preferredColor,
+          };
+          pendingManaPlanRef.current = {
+            ...cached,
+            actionIds: cached.actionIds.slice(1),
+          };
+          reason =
+            "Continued the AI's previously chosen strategic mana-payment plan; the planned action is still engine-legal.";
+        } else {
+          pendingManaPlanRef.current = null;
         }
-      : chooseDeterministicManaPlan(currentPrompt, gameView, state.myPlayerSlot);
+      }
+
+      if (!plan) {
+        plan = chooseDeterministicManaPlan(currentPrompt, gameView, state.myPlayerSlot);
+        if (plan) {
+          reason = plan.preferredColor
+            ? `A flexible mana source unambiguously satisfied the engine's remaining ${plan.preferredColor} requirement.`
+            : "A single distinct mana source unambiguously satisfied the next engine-reported payment step.";
+        }
+      }
+    }
+
     if (!plan) return;
     const output = plan.output;
     if (plan.preferredColor) pendingManaColorRef.current = plan.preferredColor;
-
-    const reason =
-      output.type === "pay"
-        ? "The engine reported the mana pool already satisfied the cost."
-        : plan.preferredColor
-          ? `A flexible mana source unambiguously satisfied the remaining ${plan.preferredColor} requirement.`
-          : "A fixed mana source unambiguously satisfied the next simple mana requirement.";
 
     addAuditEntry({
       id: `det-${Date.now()}-${currentPrompt.promptId ?? 0}`,
@@ -330,9 +421,11 @@ export function useWorkbenchController(paused = false): void {
       message:
         output.type === "pay"
           ? "Confirmed mana payment deterministically."
-          : plan.preferredColor
-            ? "Paid the next flexible mana step deterministically. No AI call needed."
-            : "Paid the next fixed mana step deterministically. No AI call needed.",
+          : reason.startsWith("Continued the AI")
+            ? "Continued the cached strategic mana plan. No AI call needed."
+            : plan.preferredColor
+              ? "Paid the next flexible mana step deterministically. No AI call needed."
+              : "Paid the next unambiguous mana step deterministically. No AI call needed.",
     });
     void respond(output);
   }, [
@@ -347,12 +440,13 @@ export function useWorkbenchController(paused = false): void {
   ]);
 
   useEffect(() => {
-    if (!pendingManaColorRef.current || !currentPrompt) return;
+    if (!currentPrompt) return;
     if (
       currentPrompt.input.type !== "payManaCost" &&
       currentPrompt.input.type !== "chooseColor"
     ) {
       pendingManaColorRef.current = null;
+      pendingManaPlanRef.current = null;
     }
   }, [currentPrompt]);
 
@@ -623,13 +717,41 @@ export function useWorkbenchController(paused = false): void {
           kind: "ready",
           message: recommendation.reason,
         });
-        if (recommendation.auditId) {
-          pendingOutcomeRef.current = {
-            auditId: recommendation.auditId,
+        if (
+          currentPrompt.input.type === "payManaCost" &&
+          recommendation.output.type === "act" &&
+          recommendation.manaPlan &&
+          recommendation.manaPlan.length > 1
+        ) {
+          pendingManaPlanRef.current = {
             gameId: gameView.gameId,
-            promptId,
-            beforeState: compactWorkbenchGameView(gameView),
+            cardId: currentPrompt.input.cardId,
+            actionIds: recommendation.manaPlan
+              .filter((actionId) => actionId !== recommendation.output.actionId),
           };
+        }
+
+        if (recommendation.auditId) {
+          const beforeState = compactWorkbenchGameView(gameView);
+          if (
+            currentPrompt.input.type === "chooseAction" &&
+            recommendation.output.type === "act"
+          ) {
+            pendingTransactionsRef.current.push({
+              auditId: recommendation.auditId,
+              gameId: gameView.gameId,
+              promptId,
+              beforeState,
+              promptAdvanced: false,
+            });
+          } else {
+            pendingOutcomeRef.current = {
+              auditId: recommendation.auditId,
+              gameId: gameView.gameId,
+              promptId,
+              beforeState,
+            };
+          }
         }
         await respond(recommendation.output);
       })
