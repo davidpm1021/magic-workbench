@@ -440,6 +440,11 @@ export function WorkbenchPanel() {
                   >
                     {entry.error ?? entry.reason ?? "No additional detail recorded."}
                   </p>
+                  {entry.outcomeDelta && entry.outcomeDelta.length > 0 ? (
+                    <p className="mt-1 break-words text-[10px] text-muted-foreground">
+                      Outcome: {entry.outcomeDelta.join(" • ")}
+                    </p>
+                  ) : null}
                   {entry.source === "ai" ? (
                     <p className="mt-0.5 text-[10px] text-muted-foreground">
                       {entry.latencyMs != null ? `${entry.latencyMs} ms` : ""}
@@ -456,8 +461,8 @@ export function WorkbenchPanel() {
           </div>
         ) : null}
         <p className="text-[10px] leading-relaxed text-muted-foreground">
-          Includes the visible game state, engine prompt, chosen output, brief model reason, token
-          usage, estimated cost, latency, deterministic actions, and errors for every logged event.
+          Includes the visible game state, engine prompt, chosen output, brief model reason, post-decision
+          state delta, token usage, estimated cost, latency, deterministic actions, and errors for every logged event.
         </p>
       </section>
 
