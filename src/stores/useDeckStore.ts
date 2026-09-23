@@ -1280,8 +1280,11 @@ export const useDeckStore = create<DeckState>()(
             // still being created, before `useDeckStore` is assigned.
             queueMicrotask(() => {
               void completeDeckMigrations(useDeckStore.getState());
-              seedDeckStorageDiskBackupFromBrowser();
-              void restoreSavedDecksFromDisk();
+              if (useDeckStore.getState().savedDecks.length > 0) {
+                seedDeckStorageDiskBackupFromBrowser();
+              } else {
+                void restoreSavedDecksFromDisk();
+              }
             });
           }
         },
