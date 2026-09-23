@@ -7,6 +7,7 @@ import { compactWorkbenchGameView } from "./compactGameView";
 import {
   buildWorkbenchDecisionContext,
   chooseActionHasOnlyManaManagement,
+  chooseDeterministicManaPlan,
   chooseDeterministicManaStep,
   countRepeatedSamePromptDecision,
 } from "./controllerPolicy";
@@ -41,6 +42,7 @@ export function useWorkbenchController(paused = false): void {
   const setStatus = useWorkbenchStore((state) => state.setStatus);
 
   const inFlightPromptRef = useRef<number | null>(null);
+  const pendingManaColorRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!liveGameView?.gameOver) return;
@@ -255,15 +257,22 @@ export function useWorkbenchController(paused = false): void {
     const gameView = state.gameView;
     if (!gameView) return;
 
-    const output = currentPrompt.input.canConfirmFromPool
-      ? ({ type: "pay", auto: false } as const)
-      : chooseDeterministicManaStep(currentPrompt, gameView, state.myPlayerSlot);
-    if (!output) return;
+    const plan = currentPrompt.input.canConfirmFromPool
+      ? {
+          output: { type: "pay", auto: false } as const,
+          preferredColor: null,
+        }
+      : chooseDeterministicManaPlan(currentPrompt, gameView, state.myPlayerSlot);
+    if (!plan) return;
+    const output = plan.output;
+    if (plan.preferredColor) pendingManaColorRef.current = plan.preferredColor;
 
     const reason =
       output.type === "pay"
         ? "The engine reported the mana pool already satisfied the cost."
-        : "A fixed mana source unambiguously satisfied the next simple mana requirement.";
+        : plan.preferredColor
+          ? `A flexible mana source unambiguously satisfied the remaining ${plan.preferredColor} requirement.`
+          : "A fixed mana source unambiguously satisfied the next simple mana requirement.";
 
     addAuditEntry({
       id: `det-${Date.now()}-${currentPrompt.promptId ?? 0}`,
@@ -292,9 +301,91 @@ export function useWorkbenchController(paused = false): void {
       message:
         output.type === "pay"
           ? "Confirmed mana payment deterministically."
-          : "Paid the next fixed mana step deterministically. No AI call needed.",
+          : plan.preferredColor
+            ? "Paid the next flexible mana step deterministically. No AI call needed."
+            : "Paid the next fixed mana step deterministically. No AI call needed.",
     });
     void respond(output);
+  }, [
+    paused,
+    controllerMode,
+    currentPrompt,
+    isWaitingForResponse,
+    respond,
+    setStatus,
+    addAuditEntry,
+    recovery,
+  ]);
+
+  useEffect(() => {
+    if (!pendingManaColorRef.current || !currentPrompt) return;
+    if (
+      currentPrompt.input.type !== "payManaCost" &&
+      currentPrompt.input.type !== "chooseColor"
+    ) {
+      pendingManaColorRef.current = null;
+    }
+  }, [currentPrompt]);
+
+  useEffect(() => {
+    if (paused || controllerMode !== "thinking-ai" || isWaitingForResponse) return;
+    if (recovery?.mode === "manual" && Number(currentPrompt?.promptId ?? 0) === recovery.promptId) return;
+    if (currentPrompt?.input.type !== "chooseColor") return;
+    const preferred = pendingManaColorRef.current;
+    if (!preferred) return;
+
+    const colorNames: Record<string, string> = {
+      W: "White",
+      U: "Blue",
+      B: "Black",
+      R: "Red",
+      G: "Green",
+      C: "Colorless",
+    };
+    const chosenColor =
+      currentPrompt.input.validColors.find((color) => color === preferred) ??
+      currentPrompt.input.validColors.find((color) => color === colorNames[preferred]);
+    if (!chosenColor) {
+      pendingManaColorRef.current = null;
+      return;
+    }
+
+    const gameView = useGameStore.getState().gameView;
+    if (!gameView) return;
+    const output = {
+      type: "colorDecision",
+      chosenColors: { [chosenColor]: currentPrompt.input.amount },
+    } as const;
+
+    addAuditEntry({
+      id: `det-${Date.now()}-${currentPrompt.promptId ?? 0}`,
+      gameId: gameView.gameId,
+      createdAt: Date.now(),
+      source: "deterministic",
+      status: "deterministic",
+      promptId: Number(currentPrompt.promptId ?? 0),
+      promptType: currentPrompt.input.type,
+      importance: "deterministic",
+      model: null,
+      latencyMs: 0,
+      usage: null,
+      estimatedCostUsd: 0,
+      reason: `Continued the unambiguous mana payment by choosing ${chosenColor}.`,
+      output,
+      error: null,
+      responseStatus: null,
+      incompleteReason: null,
+      rawModelText: null,
+      promptSnapshot: currentPrompt,
+      visibleGameState: compactWorkbenchGameView(gameView),
+    });
+    setStatus({
+      kind: "idle",
+      message: `Chose ${chosenColor} for mana deterministically. No AI call needed.`,
+    });
+    void respond(output).finally(() => {
+      pendingManaColorRef.current = null;
+    });
   }, [
     paused,
     controllerMode,
@@ -329,6 +420,7 @@ export function useWorkbenchController(paused = false): void {
         return;
       }
     }
+    if (currentPrompt.input.type === "chooseColor" && pendingManaColorRef.current) return;
     if (currentPrompt.input.type === "revealCards" || currentPrompt.input.type === "diceRolled") return;
 
     const deterministic = resolvePrompt(currentPrompt, { prefs: { show: showOverrides } });
