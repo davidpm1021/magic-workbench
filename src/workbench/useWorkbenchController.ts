@@ -5,11 +5,13 @@ import { resolvePrompt } from "@/components/prompts/internal/promptHandlers";
 import { classifyWorkbenchDecision } from "./decisionImportance";
 import { compactWorkbenchGameView } from "./compactGameView";
 import {
+  buildMaterialDecisionFingerprint,
   buildWorkbenchDecisionContext,
   chooseActionHasOnlyManaManagement,
   chooseDeterministicManaPlan,
   chooseDeterministicManaStep,
   countRepeatedSamePromptDecision,
+  summarizeWorkbenchStateDelta,
 } from "./controllerPolicy";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import {
@@ -34,6 +36,7 @@ export function useWorkbenchController(paused = false): void {
   const gameBudgetUsd = useWorkbenchStore((state) => state.gameBudgetUsd);
   const setRecommendation = useWorkbenchStore((state) => state.setRecommendation);
   const addAuditEntry = useWorkbenchStore((state) => state.addAuditEntry);
+  const updateAuditEntry = useWorkbenchStore((state) => state.updateAuditEntry);
   const recovery = useWorkbenchStore((state) => state.recovery);
   const retryGeneration = useWorkbenchStore((state) => state.retryGeneration);
   const setRecovery = useWorkbenchStore((state) => state.setRecovery);
@@ -43,6 +46,32 @@ export function useWorkbenchController(paused = false): void {
 
   const inFlightPromptRef = useRef<number | null>(null);
   const pendingManaColorRef = useRef<string | null>(null);
+  const pendingOutcomeRef = useRef<{
+    auditId: string;
+    gameId: string;
+    promptId: number;
+    beforeState: unknown;
+  } | null>(null);
+
+  useEffect(() => {
+    const pending = pendingOutcomeRef.current;
+    if (!pending || !liveGameView) return;
+    if (liveGameView.gameId !== pending.gameId) {
+      pendingOutcomeRef.current = null;
+      return;
+    }
+    const currentPromptId = Number(currentPrompt?.promptId ?? 0);
+    if (!liveGameView.gameOver && currentPrompt && currentPromptId === pending.promptId) return;
+
+    updateAuditEntry(pending.auditId, {
+      outcomeDelta: summarizeWorkbenchStateDelta(
+        pending.beforeState,
+        compactWorkbenchGameView(liveGameView),
+      ),
+      outcomeRecordedAt: Date.now(),
+    });
+    pendingOutcomeRef.current = null;
+  }, [liveGameView, currentPrompt, updateAuditEntry]);
 
   useEffect(() => {
     if (!liveGameView?.gameOver) return;
@@ -461,6 +490,52 @@ export function useWorkbenchController(paused = false): void {
     }
 
     const workbenchState = useWorkbenchStore.getState();
+    if (currentPrompt.input.type === "chooseAction") {
+      const materialStateFingerprint = buildMaterialDecisionFingerprint(currentPrompt, gameView);
+      const preservedPass = [...workbenchState.history]
+        .reverse()
+        .find(
+          (item) =>
+            item.gameId === gameView.gameId &&
+            item.output.type === "pass" &&
+            item.yieldUntil === "material_state_change" &&
+            item.materialStateFingerprint === materialStateFingerprint,
+        );
+      if (preservedPass) {
+        inFlightPromptRef.current = null;
+        const output = { type: "pass", exhaustStack: false } as const;
+        addAuditEntry({
+          id: `det-${Date.now()}-${promptId}`,
+          gameId: gameView.gameId,
+          createdAt: Date.now(),
+          source: "deterministic",
+          status: "deterministic",
+          promptId,
+          promptType: currentPrompt.input.type,
+          importance: "deterministic",
+          model: null,
+          latencyMs: 0,
+          usage: null,
+          estimatedCostUsd: 0,
+          reason:
+            "Preserved the model's previous pass because the exposed strategic actions and material game state are unchanged.",
+          output,
+          error: null,
+          responseStatus: null,
+          incompleteReason: null,
+          rawModelText: null,
+          promptSnapshot: currentPrompt,
+          visibleGameState: compactWorkbenchGameView(gameView),
+          yieldUntil: "material_state_change",
+        });
+        setStatus({
+          kind: "idle",
+          message: "Preserved the previous strategic pass. No AI call needed.",
+        });
+        void respond(output);
+        return;
+      }
+    }
     const gameSpend = workbenchState.auditLog
       .filter((item) => item.gameId === gameView.gameId && item.source === "ai")
       .reduce((sum, item) => sum + (item.estimatedCostUsd ?? 0), 0);
@@ -548,6 +623,14 @@ export function useWorkbenchController(paused = false): void {
           kind: "ready",
           message: recommendation.reason,
         });
+        if (recommendation.auditId) {
+          pendingOutcomeRef.current = {
+            auditId: recommendation.auditId,
+            gameId: gameView.gameId,
+            promptId,
+            beforeState: compactWorkbenchGameView(gameView),
+          };
+        }
         await respond(recommendation.output);
       })
       .catch((error: unknown) => {
