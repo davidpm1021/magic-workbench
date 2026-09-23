@@ -5,6 +5,9 @@ import type { DeckCard } from "@/protocol/deck";
 import type { ScryfallCard } from "@/types/scryfall";
 
 vi.hoisted(() => vi.stubGlobal("__APP_VERSION__", "test"));
+vi.mock("@/platform", () => ({
+  getPlatformType: () => "web",
+}));
 vi.mock("pixi.js", () => ({
   ImageSource: class {},
   Texture: class {
