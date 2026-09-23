@@ -579,6 +579,9 @@ export function useWorkbenchController(paused = false): void {
         : aiModel.trim();
 
     const promptId = currentPromptId;
+    const decisionPromptType = currentPrompt.input.type;
+    const decisionPaymentCardId =
+      currentPrompt.input.type === "payManaCost" ? currentPrompt.input.cardId : null;
     if (inFlightPromptRef.current === promptId) return;
     inFlightPromptRef.current = promptId;
     const controller = new AbortController();
@@ -612,7 +615,7 @@ export function useWorkbenchController(paused = false): void {
           source: "deterministic",
           status: "deterministic",
           promptId,
-          promptType: currentPrompt.input.type,
+          promptType: decisionPromptType,
           importance: "deterministic",
           model: null,
           latencyMs: 0,
@@ -725,7 +728,8 @@ export function useWorkbenchController(paused = false): void {
           message: recommendation.reason,
         });
         if (
-          currentPrompt.input.type === "payManaCost" &&
+          decisionPromptType === "payManaCost" &&
+          decisionPaymentCardId &&
           recommendation.output.type === "act" &&
           recommendation.manaPlan &&
           recommendation.manaPlan.length > 1
@@ -733,7 +737,7 @@ export function useWorkbenchController(paused = false): void {
           const chosenManaActionId = recommendation.output.actionId;
           pendingManaPlanRef.current = {
             gameId: gameView.gameId,
-            cardId: currentPrompt.input.cardId,
+            cardId: decisionPaymentCardId,
             actionIds: recommendation.manaPlan
               .filter((actionId) => actionId !== chosenManaActionId),
           };
@@ -742,7 +746,7 @@ export function useWorkbenchController(paused = false): void {
         if (recommendation.auditId) {
           const beforeState = compactWorkbenchGameView(gameView);
           if (
-            currentPrompt.input.type === "chooseAction" &&
+            decisionPromptType === "chooseAction" &&
             recommendation.output.type === "act"
           ) {
             pendingTransactionsRef.current.push({
