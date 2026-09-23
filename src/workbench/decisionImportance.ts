@@ -63,13 +63,23 @@ export function classifyWorkbenchDecision(prompt: Prompt): WorkbenchDecisionClas
         reason: "Target selection is normally part of the spell or ability's strategic intent.",
       };
 
+    case "chooseColor":
+      return {
+        importance: "routine",
+        reason: "Color production is usually a mechanical follow-up to an already chosen spell or ability.",
+      };
+
+    case "reorder":
+      return {
+        importance: "routine",
+        reason: "Most trigger-order prompts are low-impact; GPT-6 Luna low reasoning is sufficient unless the engine later exposes stronger semantic hints.",
+      };
+
     case "chooseBoolean":
     case "chooseFromSelection":
     case "chooseCards":
-    case "chooseColor":
     case "chooseNumber":
     case "scry":
-    case "reorder":
       return {
         importance: "strategic",
         reason: "The prompt contains a choice that can change future resources or sequencing.",
