@@ -288,6 +288,10 @@ let pendingDeckBackup: SavedDeck[] | null = null;
 let deckReconcilePromise: Promise<void> = Promise.resolve();
 
 export async function waitForWorkbenchDeckBackup(): Promise<void> {
+  // Rehydration completion schedules reconciliation in a microtask so the
+  // Zustand store is fully assigned before disk work touches it. Yield once
+  // before capturing the active reconciliation promise.
+  await Promise.resolve();
   await deckReconcilePromise;
   await deckBackupWriteQueue.catch(() => undefined);
 }
@@ -1356,14 +1360,21 @@ export const useDeckStore = create<DeckState>()(
           }
           return merged;
         },
-        onRehydrateStorage: () => (_state, error) => {
-          if (error) {
-            // Hydration can finish while the store variable is still being
-            // assigned, so defer the observable error state.
-            queueMicrotask(() => {
-              useDeckStore.setState({ migrationError: true });
-            });
-          }
+        onRehydrateStorage: () => {
+          beginDeckHydration();
+          return (_state, error) => {
+            if (error) {
+              // Hydration can finish while the store variable is still being
+              // assigned, so defer the observable error state.
+              queueMicrotask(() => {
+                useDeckStore.setState({ migrationError: true });
+              });
+            }
+            // Reconciliation itself also waits until the store assignment is
+            // complete, but this callback is guaranteed to run for every
+            // explicit persist.rehydrate() as well as initial hydration.
+            queueMicrotask(finishDeckHydration);
+          };
         },
       },
     ),
@@ -1393,27 +1404,12 @@ function finishDeckHydration(): void {
   });
 }
 
-// Register after store creation so hydration lifecycle callbacks never depend on
-// a half-assigned `useDeckStore`. The hasHydrated check covers the initial
-// synchronous hydration if it completed before these listeners were attached.
-useDeckStore.persist.onHydrate(beginDeckHydration);
-useDeckStore.persist.onFinishHydration(finishDeckHydration);
-if (useDeckStore.persist.hasHydrated()) {
-  finishDeckHydration();
-} else {
-  // createJSONStorage(localStorage) hydrates synchronously in the browser, but
-  // schedule one post-construction check as a safety net for test/dev timing.
-  queueMicrotask(() => {
-    if (useDeckStore.persist.hasHydrated()) finishDeckHydration();
-  });
-}
-
 // Mirror the actual saved-deck library directly to disk. This does not depend
 // on the localStorage persistence adapter, so browser-origin changes, storage
 // migrations, and repo rebuilds cannot silently skip the backup.
 useDeckStore.subscribe((state, previousState) => {
-  if (!deckPersistReady || state.savedDecks === previousState.savedDecks) return;
-  if (!deckDiskBackupReady) {
+  if (state.savedDecks === previousState.savedDecks) return;
+  if (!deckPersistReady || !deckDiskBackupReady) {
     pendingDeckBackup = state.savedDecks;
     return;
   }
