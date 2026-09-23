@@ -528,24 +528,24 @@ export function useWorkbenchController(paused = false): void {
     ) {
       return;
     }
-    if (currentPrompt.input.type === "payManaCost") {
-      const payManaPrompt = currentPrompt;
-      if (payManaPrompt.input.canConfirmFromPool) return;
+    const currentInput = currentPrompt.input;
+    if (currentInput.type === "payManaCost") {
+      if (currentInput.canConfirmFromPool) return;
       const cachedManaPlan = pendingManaPlanRef.current;
       if (
         cachedManaPlan &&
         preflightState.gameView &&
         cachedManaPlan.gameId === preflightState.gameView.gameId &&
-        cachedManaPlan.cardId === payManaPrompt.input.cardId &&
+        cachedManaPlan.cardId === currentInput.cardId &&
         cachedManaPlan.actionIds.some((actionId) =>
-          payManaPrompt.input.actions.some((action) => action.id === actionId),
+          currentInput.actions.some((action) => action.id === actionId),
         )
       ) {
         return;
       }
       if (
         preflightState.gameView &&
-        chooseDeterministicManaStep(payManaPrompt, preflightState.gameView, preflightState.myPlayerSlot)
+        chooseDeterministicManaStep(currentPrompt, preflightState.gameView, preflightState.myPlayerSlot)
       ) {
         return;
       }
