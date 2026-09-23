@@ -1008,8 +1008,9 @@ describe("Workbench controller policy", () => {
       ],
       gameView: game,
       gameLog: [
-        { message: "Cast: Consider", entryType: "stack", timestampMs: 1100 },
-        { message: "Cast: Charcoal Diamond", entryType: "stack", timestampMs: 1200 },
+        { message: "Cast: Consider", entryType: "stack", timestampMs: 1100, playerId: "player-0" },
+        { message: "Cast: Opponent Spell", entryType: "stack", timestampMs: 1150, playerId: "player-1" },
+        { message: "Cast: Charcoal Diamond", entryType: "stack", timestampMs: 1200, playerId: "player-0" },
       ],
     });
 
