@@ -51,6 +51,19 @@ describe("Workbench pricing", () => {
     expect(mostlyCached!).toBeLessThan(allFresh!);
   });
 
+  it("prices GPT-6 Luna at the current standard rates", () => {
+    expect(
+      estimateOpenAiCostUsd("gpt-6-luna", {
+        inputTokens: 10_000,
+        cachedInputTokens: 0,
+        cacheWriteTokens: 0,
+        outputTokens: 2_000,
+        reasoningTokens: 1_500,
+        totalTokens: 12_000,
+      }),
+    ).toBeCloseTo(0.002, 8);
+  });
+
   it("returns null for unknown provider pricing", () => {
     expect(
       estimateOpenAiCostUsd("local-model", {
