@@ -1,7 +1,7 @@
 import type { Prompt, PromptOutput } from "@/protocol";
 import type { ClientGameView } from "@/stores/gameStore.types";
 import type { GameLogEntry } from "@/types/gameLog";
-import type { WorkbenchAuditEntry } from "@/stores/useWorkbenchStore";
+import type { WorkbenchAuditEntry, WorkbenchRecommendation } from "@/stores/useWorkbenchStore";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -300,6 +300,21 @@ export interface WorkbenchDecisionContext {
     reason: string | null;
   }>;
   guidance: string[];
+}
+
+export function countRepeatedSamePromptDecision(
+  history: WorkbenchRecommendation[],
+  recommendation: WorkbenchRecommendation,
+): number {
+  return history
+    .slice(-3)
+    .filter(
+      (item) =>
+        item.gameId === recommendation.gameId &&
+        item.promptId === recommendation.promptId &&
+        item.promptFingerprint === recommendation.promptFingerprint &&
+        JSON.stringify(item.output) === JSON.stringify(recommendation.output),
+    ).length;
 }
 
 export function buildWorkbenchDecisionContext(args: {
