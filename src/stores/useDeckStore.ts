@@ -274,6 +274,12 @@ function mirrorDeckStorageToDisk(value: string): void {
   });
 }
 
+function seedDeckStorageDiskBackupFromBrowser(): void {
+  if (!import.meta.env.DEV) return;
+  const value = localStorage.getItem(STORAGE_KEYS.DECK);
+  if (value) mirrorDeckStorageToDisk(value);
+}
+
 function clearDeckStorageDiskBackup(): void {
   if (!import.meta.env.DEV) return;
   void fetch(WORKBENCH_DECK_BACKUP_URL, { method: "DELETE" }).catch(() => {
@@ -1274,6 +1280,7 @@ export const useDeckStore = create<DeckState>()(
             // still being created, before `useDeckStore` is assigned.
             queueMicrotask(() => {
               void completeDeckMigrations(useDeckStore.getState());
+              seedDeckStorageDiskBackupFromBrowser();
               void restoreSavedDecksFromDisk();
             });
           }
