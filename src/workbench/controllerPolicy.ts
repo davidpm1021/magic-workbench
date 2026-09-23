@@ -162,6 +162,56 @@ export function chooseDeterministicManaStep(
   return candidate ? { type: "act", actionId: candidate.actionId } : null;
 }
 
+function estimateManaAvailability(
+  gameView: ClientGameView,
+): WorkbenchDecisionContext["manaAvailability"] {
+  const playerId = gameView.priorityPlayerId ?? gameView.activePlayerId ?? gameView.players[0]?.id;
+  const player = gameView.players.find((candidate) => candidate.id === playerId) ?? gameView.players[0];
+  const pool = { ...((player?.manaPool ?? {}) as Record<string, number>) };
+  const commanderColors = new Set<string>();
+  for (const card of player?.commandZone ?? []) {
+    for (const color of String(card.color ?? "")) {
+      if (["W", "U", "B", "R", "G"].includes(color)) commanderColors.add(color);
+    }
+  }
+
+  const untappedSources = (gameView.battlefield ?? []).flatMap((card) => {
+    if (card.controllerId !== player?.id || card.tapped) return [];
+    if (card.types.includes("Creature") && card.summoningSick) return [];
+    const text = card.text ?? "";
+    if (!/\{T\}.*Add|Add .*mana/i.test(text)) return [];
+
+    if (/one mana of any color in your commander's color identity/i.test(text)) {
+      const colors = [...commanderColors];
+      return colors.length
+        ? [{ id: card.id, name: card.identity.name, colors, amount: 1 }]
+        : [];
+    }
+    if (/one mana of any color/i.test(text)) {
+      return [
+        {
+          id: card.id,
+          name: card.identity.name,
+          colors: ["W", "U", "B", "R", "G"],
+          amount: 1,
+        },
+      ];
+    }
+
+    const addClauses = [...text.matchAll(/Add\s+([^.;\n]+)/gi)].map((match) => match[1] ?? "");
+    const symbols = addClauses.flatMap((clause) =>
+      [...clause.matchAll(/\{([WUBRGC])\}/g)].map((match) => match[1] ?? ""),
+    );
+    const colors = [...new Set(symbols.filter(Boolean))];
+    if (colors.length === 0) return [];
+    const hasAlternative = addClauses.some((clause) => /\bor\b/i.test(clause));
+    const amount = hasAlternative ? 1 : Math.max(1, symbols.length);
+    return [{ id: card.id, name: card.identity.name, colors, amount }];
+  });
+
+  return { pool, untappedSources };
+}
+
 function auditTurn(entry: WorkbenchAuditEntry): number | null {
   const state = record(entry.visibleGameState);
   return typeof state?.turn === "number" ? state.turn : null;
@@ -202,6 +252,15 @@ function sourceCardName(entry: WorkbenchAuditEntry): string | null {
 export interface WorkbenchDecisionContext {
   currentTurn: number;
   currentStep: string;
+  manaAvailability: {
+    pool: Record<string, number>;
+    untappedSources: Array<{
+      id: string;
+      name: string;
+      colors: string[];
+      amount: number;
+    }>;
+  };
   recentEngineLog: Array<Pick<GameLogEntry, "message" | "entryType" | "playerId" | "cardId">>;
   recentDecisions: Array<{
     turn: number | null;
@@ -341,6 +400,7 @@ export function buildWorkbenchDecisionContext(args: {
   return {
     currentTurn: gameView.turn,
     currentStep: gameView.step,
+    manaAvailability: estimateManaAvailability(gameView),
     recentEngineLog: gameLog.slice(-24).map((entry) => ({
       message: entry.message,
       entryType: entry.entryType,
@@ -366,6 +426,7 @@ export function buildWorkbenchDecisionContext(args: {
     guidance: [
       "Treat recent decisions and engine log entries as continuity from this same game, not as hypothetical examples.",
       "When currentTransaction is present, continue the action you already initiated. Tapped/sacrificed/payment state may be the result of costs you intentionally paid.",
+      "Use manaAvailability as a highlighted estimate of the mana currently available without sacrificing cards; flexible sources list every color they can make.",
       "If selectionCostHints is present, add the source card's baseManaCost to every selected additionalCost before judging affordability.",
       "If a payment attempt just failed, do not repeat the identical transaction unless resources changed; choose a cheaper mode or a different action.",
       "Workbench normally handles mechanical mana production during payManaCost. Do not float mana during ordinary priority without a concrete reason.",
