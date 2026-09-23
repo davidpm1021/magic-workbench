@@ -49,4 +49,4 @@ jobs:
         run: yarn exec tsc -p tsconfig.app.json --noEmit
 
       - name: Run Workbench tests
-        run: yarn vitest run src/workbench
+        run: yarn vitest run src/workbench src/stores/useDeckStore.test.ts
