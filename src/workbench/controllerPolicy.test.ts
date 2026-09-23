@@ -128,7 +128,7 @@ describe("Workbench controller policy", () => {
         {
           id: "player-0",
           manaPool: { W: 0, U: 0, B: 0, R: 2, G: 0, C: 0 },
-          commandZone: [{ color: "GUR" }],
+          commandZone: [{ manaCost: "{4}{G}{U}{R}" }],
         },
       ],
       battlefield: [
