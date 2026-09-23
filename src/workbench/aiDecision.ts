@@ -437,7 +437,10 @@ function literalSchema(value: unknown): WorkbenchJsonSchema {
   if (Array.isArray(value)) {
     return {
       type: "array",
-      prefixItems: value.map(literalSchema),
+      items:
+        value.length > 0
+          ? { anyOf: value.map(literalSchema) }
+          : { type: "string" },
       minItems: value.length,
       maxItems: value.length,
     };
@@ -1048,7 +1051,7 @@ function parseJsonDecision(content: string): ModelDecision {
     return {
       output: parsed,
       reason:
-        "Model returned a legal prompt response without the required output wrapper; Workbench normalized it.",
+        "Model returned a prompt response without the required output wrapper; Workbench normalized it after legality validation.",
     };
   }
   throw new Error("AI response is missing the output object.");
