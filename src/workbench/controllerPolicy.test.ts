@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Prompt } from "@/protocol";
 import type { ClientGameView } from "@/stores/gameStore.types";
 import {
+  buildMaterialDecisionFingerprint,
   chooseActionHasOnlyManaManagement,
   chooseDeterministicManaPlan,
   chooseDeterministicManaStep,
@@ -9,6 +10,7 @@ import {
   promptForWorkbenchModel,
   buildWorkbenchDecisionContext,
   countRepeatedSamePromptDecision,
+  summarizeWorkbenchStateDelta,
 } from "./controllerPolicy";
 
 function view(pool: Record<string, number> = {}): ClientGameView {
@@ -623,6 +625,92 @@ describe("Workbench controller policy", () => {
         targetLethalByToughness: false,
         sourceLethalByToughness: false,
       }),
+    );
+  });
+
+  it("keeps a material-state fingerprint stable across phase-only changes", () => {
+    const prompt = {
+      promptId: 130,
+      input: {
+        type: "chooseAction",
+        actions: [
+          {
+            id: "cast-high-tide",
+            type: "cast",
+            cardId: "high-tide",
+            label: "Cast High Tide",
+            mode: { type: "normal" },
+          },
+        ],
+      },
+    } as unknown as Prompt;
+    const base = {
+      ...view(),
+      turn: 4,
+      step: "main1",
+      activePlayerId: "player-0",
+      priorityPlayerId: "player-0",
+      players: [
+        {
+          id: "player-0",
+          life: 40,
+          handCount: 1,
+          libraryCount: 90,
+          manaPool: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+          hand: [{ id: "high-tide" }],
+          graveyard: [],
+          exile: [],
+          commandZone: [],
+          library: [],
+          counters: {},
+          commanderDamage: {},
+          commanderCasts: {},
+          landsPlayedThisTurn: 1,
+          cardsDrawnThisTurn: 1,
+        },
+      ],
+      battlefield: [],
+      stack: [],
+      combatAssignments: [],
+    } as unknown as ClientGameView;
+    const combat = { ...base, step: "combatBegin" } as ClientGameView;
+    const changed = {
+      ...combat,
+      players: [{ ...combat.players[0], life: 39 }],
+    } as ClientGameView;
+
+    expect(buildMaterialDecisionFingerprint(prompt, base)).toBe(
+      buildMaterialDecisionFingerprint(prompt, combat),
+    );
+    expect(buildMaterialDecisionFingerprint(prompt, changed)).not.toBe(
+      buildMaterialDecisionFingerprint(prompt, base),
+    );
+  });
+
+  it("summarizes visible post-decision state changes for the audit", () => {
+    const before = {
+      players: [{ id: "player-0", life: 20, handCount: 3, libraryCount: 80, commanderDamage: {} }],
+      battlefield: [
+        { id: "a", name: "Haldan, Avid Arcanist", damage: 0, tapped: false, counters: {} },
+        { id: "b", name: "Archmage Emeritus", damage: 0, tapped: false, counters: {} },
+      ],
+      stack: [],
+    };
+    const after = {
+      players: [{ id: "player-0", life: 19, handCount: 3, libraryCount: 80, commanderDamage: {} }],
+      battlefield: [
+        { id: "a", name: "Haldan, Avid Arcanist", damage: 2, tapped: false, counters: {} },
+        { id: "b", name: "Archmage Emeritus", damage: 1, tapped: false, counters: {} },
+      ],
+      stack: [],
+    };
+
+    expect(summarizeWorkbenchStateDelta(before, after)).toEqual(
+      expect.arrayContaining([
+        "player-0 life: 20 -> 19",
+        "Haldan, Avid Arcanist damage: 0 -> 2",
+        "Archmage Emeritus damage: 0 -> 1",
+      ]),
     );
   });
 
