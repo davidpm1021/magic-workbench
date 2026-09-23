@@ -131,6 +131,8 @@ export async function requestWorkbenchDecision(
             "Use only the visible game state, recent engine history, decision continuity, and the current engine prompt. " +
             "Recent decisions are actions you actually chose in this same game; preserve their intent across follow-up prompts. " +
             "Do not repeat a transaction that just failed unless visible resources changed. " +
+            "Do not take an action merely because the engine exposes it. Preserve mana until there is a concrete use. " +
+            "Before using counterspells or removal on your own cards, require a specific visible strategic benefit and state it in the reason. " +
             "Never invent cards, hidden information, targets, action IDs, or other choices. Return JSON only with the " +
             "shape {\\\"output\\\": <prompt response>, \\\"reason\\\": \\\"brief strategic reason\\\"}. " +
             "The reason should be 1-3 concise sentences naming the decisive visible game factors, " +
