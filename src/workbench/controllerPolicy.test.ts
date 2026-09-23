@@ -979,6 +979,71 @@ describe("Workbench controller policy", () => {
     );
   });
 
+  it("falls back to its own validated cast decisions when cast logs lack player attribution", () => {
+    const game = {
+      ...view(),
+      activePlayerId: "player-1",
+      priorityPlayerId: "player-0",
+      players: [
+        { id: "player-0", life: 40, manaPool: {}, hand: [], landsPlayedThisTurn: 0, maxLandPlaysPerTurn: 1 },
+        { id: "player-1", life: 40, manaPool: {}, hand: [], landsPlayedThisTurn: 0, maxLandPlaysPerTurn: 1 },
+      ],
+    } as unknown as ClientGameView;
+    const castEntry = (id: string, promptId: number, label: string, cardId: string, createdAt: number) => ({
+      id,
+      gameId: "g",
+      createdAt,
+      source: "ai" as const,
+      status: "success" as const,
+      promptId,
+      promptType: "chooseAction",
+      importance: "strategic" as const,
+      model: "test",
+      latencyMs: 1,
+      usage: null,
+      estimatedCostUsd: 0,
+      reason: "cast",
+      output: { type: "act", actionId: `cast-${cardId}` } as const,
+      error: null,
+      responseStatus: "completed",
+      incompleteReason: null,
+      rawModelText: null,
+      promptSnapshot: {
+        input: {
+          type: "chooseAction",
+          actions: [
+            { id: `cast-${cardId}`, type: "cast", cardId, label, mode: { type: "normal" } },
+          ],
+        },
+      },
+      visibleGameState: { turn: 3, step: "main1", activePlayerId: "player-1" },
+    });
+
+    const context = buildWorkbenchDecisionContext({
+      auditLog: [
+        castEntry("c1", 1, "Cast Consider", "consider", 1000),
+        castEntry("c2", 2, "Cast Charcoal Diamond", "diamond", 1100),
+      ],
+      gameView: game,
+      gameLog: [
+        { message: "Cast: Consider", entryType: "stack", timestampMs: 1010 },
+        { message: "Cast: Opponent Spell", entryType: "stack", timestampMs: 1050 },
+        { message: "Cast: Charcoal Diamond", entryType: "stack", timestampMs: 1110 },
+      ],
+      currentPrompt: {
+        promptId: 3,
+        decidingPlayerId: "player-0",
+        input: { type: "chooseAction", actions: [] },
+      } as unknown as Prompt,
+    });
+
+    expect(context.spellsActuallyCastThisTurn).toEqual([
+      "Cast Consider",
+      "Cast Charcoal Diamond",
+    ]);
+    expect(context.secondSpellAlreadyCast).toBe(true);
+  });
+
   it("derives actual spells cast this turn from engine log continuity", () => {
     const game = view();
     const context = buildWorkbenchDecisionContext({
