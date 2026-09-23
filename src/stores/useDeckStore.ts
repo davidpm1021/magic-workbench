@@ -262,6 +262,8 @@ function dropInlinePlaymat<T extends object>(deck: T): T {
 let deckPersistReady = false;
 let deckDiskBackupReady = false;
 const WORKBENCH_DECK_BACKUP_URL = "/workbench-data/decks";
+const WORKBENCH_DECK_BACKUP_ENABLED =
+  import.meta.env.DEV || import.meta.env.MODE === "test";
 
 interface WorkbenchDeckBackupPayload {
   schemaVersion: 1;
@@ -272,7 +274,7 @@ interface WorkbenchDeckBackupPayload {
 let deckBackupWriteQueue: Promise<void> = Promise.resolve();
 
 function mirrorSavedDecksToDisk(savedDecks: SavedDeck[]): void {
-  if (!import.meta.env.DEV) return;
+  if (!WORKBENCH_DECK_BACKUP_ENABLED) return;
   const payload: WorkbenchDeckBackupPayload = {
     schemaVersion: 1,
     updatedAt: Date.now(),
@@ -299,7 +301,7 @@ function mirrorSavedDecksToDisk(savedDecks: SavedDeck[]): void {
 }
 
 async function reconcileSavedDecksWithDisk(): Promise<void> {
-  if (!import.meta.env.DEV) {
+  if (!WORKBENCH_DECK_BACKUP_ENABLED) {
     deckDiskBackupReady = true;
     return;
   }
