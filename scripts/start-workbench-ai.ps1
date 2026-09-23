@@ -1,6 +1,6 @@
 param(
-  [string]$MainModel = "gpt-5.6-terra",
-  [string]$FastModel = "gpt-5.6-luna",
+  [string]$MainModel = "gpt-6-luna",
+  [string]$FastModel = "gpt-6-luna",
   [string]$ApiBaseUrl = "https://api.openai.com/v1"
 )
 
@@ -35,6 +35,7 @@ try {
   $env:WORKBENCH_AI_API_KEY = $plainKey
   $env:VITE_WORKBENCH_AI_MODEL = $MainModel.Trim()
   $env:VITE_WORKBENCH_AI_FAST_MODEL = $FastModel.Trim()
+  $env:WORKBENCH_AI_STRATEGIC_EFFORT = "high"
 
   Write-Host ""
   Write-Host "Starting Magic Workbench AI mode..." -ForegroundColor Green
