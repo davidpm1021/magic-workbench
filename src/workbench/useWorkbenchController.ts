@@ -17,6 +17,7 @@ import {
 
 export function useWorkbenchController(paused = false): void {
   const currentPrompt = useGameStore((state) => state.currentPrompt);
+  const liveGameView = useGameStore((state) => state.gameView);
   const isWaitingForResponse = useGameStore((state) => state.isWaitingForResponse);
   const respond = useGameStore((state) => state.respond);
   const showOverrides = usePromptPreferencesStore((state) => state.show);
@@ -35,9 +36,43 @@ export function useWorkbenchController(paused = false): void {
   const retryGeneration = useWorkbenchStore((state) => state.retryGeneration);
   const setRecovery = useWorkbenchStore((state) => state.setRecovery);
   const clearRecovery = useWorkbenchStore((state) => state.clearRecovery);
+  const completeGame = useWorkbenchStore((state) => state.completeGame);
   const setStatus = useWorkbenchStore((state) => state.setStatus);
 
   const inFlightPromptRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!liveGameView?.gameOver) return;
+    const workbench = useWorkbenchStore.getState();
+    const alreadyLoggedTerminal = workbench.auditLog.some(
+      (entry) => entry.gameId === liveGameView.gameId && entry.promptType === "gameOver",
+    );
+    if (!alreadyLoggedTerminal) {
+      addAuditEntry({
+        id: `det-${Date.now()}-game-over`,
+        gameId: liveGameView.gameId,
+        createdAt: Date.now(),
+        source: "deterministic",
+        status: "deterministic",
+        promptId: 0,
+        promptType: "gameOver",
+        importance: "deterministic",
+        model: null,
+        latencyMs: 0,
+        usage: null,
+        estimatedCostUsd: 0,
+        reason: `Game over. Winner: ${liveGameView.winnerId ?? "none recorded"}.`,
+        output: null,
+        error: null,
+        responseStatus: null,
+        incompleteReason: null,
+        rawModelText: null,
+        promptSnapshot: null,
+        visibleGameState: compactWorkbenchGameView(liveGameView),
+      });
+    }
+    completeGame(liveGameView.gameId, liveGameView.winnerId ?? null, liveGameView.turn);
+  }, [liveGameView, addAuditEntry, completeGame]);
 
   useEffect(() => {
     if (!recovery) return;
