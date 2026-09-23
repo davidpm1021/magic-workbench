@@ -49,7 +49,8 @@ try {
   Write-Host "API key is held only in this PowerShell process." -ForegroundColor DarkGray
   Write-Host ""
 
-  yarn web
+  Write-Host "Workbench URL: http://localhost:1420" -ForegroundColor DarkGray
+  yarn web --host localhost --open
 } finally {
   $env:WORKBENCH_AI_API_KEY = ""
   $plainKey = ""
