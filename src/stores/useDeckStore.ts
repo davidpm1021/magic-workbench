@@ -265,7 +265,8 @@ const WORKBENCH_DECK_BACKUP_URL = "/workbench-data/decks";
 const WORKBENCH_DECK_BACKUP_ENABLED =
   import.meta.env.DEV ||
   import.meta.env.MODE === "test" ||
-  (typeof process !== "undefined" && process.env.NODE_ENV === "test");
+  (typeof window !== "undefined" &&
+    ["localhost", "127.0.0.1"].includes(window.location.hostname));
 
 interface WorkbenchDeckBackupPayload {
   schemaVersion: 1;
