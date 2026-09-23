@@ -7,6 +7,7 @@ import type {
 import { classifyWorkbenchDecision } from "./decisionImportance";
 import { compactWorkbenchGameView } from "./compactGameView";
 import {
+  buildMaterialDecisionFingerprint,
   promptForWorkbenchModel,
   type WorkbenchDecisionContext,
 } from "./controllerPolicy";
@@ -67,6 +68,7 @@ interface ChatCompletionResponse {
 interface ModelDecision {
   output: unknown;
   reason?: unknown;
+  yieldUntil?: unknown;
 }
 
 const AI_PROMPT_TYPES = new Set([
@@ -137,7 +139,8 @@ export async function requestWorkbenchDecision(
             "Do not take an action merely because the engine exposes it. Preserve mana until there is a concrete use. " +
             "Before using counterspells or removal on your own cards, require a specific visible strategic benefit and state it in the reason. " +
             "Never invent cards, hidden information, targets, action IDs, or other choices. Return JSON only with the " +
-            "shape {\\\"output\\\": <prompt response>, \\\"reason\\\": \\\"brief strategic reason\\\"}. " +
+            "shape {\\\"output\\\": <prompt response>, \\\"reason\\\": \\\"brief strategic reason\\\", \\\"yieldUntil\\\": \\\"none|material_state_change\\\"}. " +
+            "Use yieldUntil=material_state_change only when output is a pass and the same exposed strategic options should remain declined until visible cards, resources, stack, combat assignments, or other material state changes; a phase/step change alone should not require reconsideration. Use none otherwise. " +
             "The prompt-specific outputRules describe ONLY the value inside the top-level output field. " +
             "Never return that inner prompt response as the top-level JSON object. " +
             "The reason should be 1-3 concise sentences naming the decisive visible game factors, " +
@@ -199,6 +202,11 @@ export async function requestWorkbenchDecision(
       typeof parsed.reason === "string" && parsed.reason.trim()
         ? parsed.reason.trim()
         : "Model selected a validated legal response.";
+    const yieldUntil =
+      output.type === "pass" && parsed.yieldUntil === "material_state_change"
+        ? "material_state_change"
+        : "none";
+    const materialStateFingerprint = buildMaterialDecisionFingerprint(prompt, gameView);
     const latencyMs = Math.max(0, Math.round(performance.now() - startedAt));
 
     const recommendation: WorkbenchRecommendation = {
@@ -215,6 +223,9 @@ export async function requestWorkbenchDecision(
       estimatedCostUsd,
       promptFingerprint: JSON.stringify(prompt.input),
       createdAt,
+      yieldUntil,
+      materialStateFingerprint,
+      auditId,
     };
 
     request.onAuditEntry?.({
@@ -238,6 +249,9 @@ export async function requestWorkbenchDecision(
       rawModelText,
       promptSnapshot: prompt,
       visibleGameState: compactView,
+      yieldUntil,
+      outcomeDelta: null,
+      outcomeRecordedAt: null,
     });
 
     return recommendation;
@@ -431,6 +445,10 @@ function decisionEnvelopeSchema(prompt: Prompt): WorkbenchJsonSchema {
   return objectSchema({
     output: promptOutputSchema(prompt),
     reason: { type: "string" },
+    yieldUntil: {
+      type: "string",
+      enum: ["none", "material_state_change"],
+    },
   });
 }
 
@@ -1026,6 +1044,7 @@ function parseJsonDecision(content: string): ModelDecision {
       output: parsed,
       reason:
         "Model returned a prompt response without the required output wrapper; Workbench normalized it after legality validation.",
+      yieldUntil: "none",
     };
   }
   throw new Error("AI response is missing the output object.");
