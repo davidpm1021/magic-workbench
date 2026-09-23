@@ -51,6 +51,13 @@ export interface WorkbenchStatus {
   message: string;
 }
 
+export interface WorkbenchRecoveryState {
+  promptId: number;
+  promptType: string;
+  error: string;
+  mode: "error" | "manual";
+}
+
 interface WorkbenchState {
   controllerMode: WorkbenchControllerMode;
   aiBaseUrl: string;
@@ -63,6 +70,8 @@ interface WorkbenchState {
   recommendation: WorkbenchRecommendation | null;
   history: WorkbenchRecommendation[];
   auditLog: WorkbenchAuditEntry[];
+  recovery: WorkbenchRecoveryState | null;
+  retryGeneration: number;
   status: WorkbenchStatus;
 
   setControllerMode: (mode: WorkbenchControllerMode) => void;
@@ -77,6 +86,10 @@ interface WorkbenchState {
   clearHistory: () => void;
   addAuditEntry: (entry: WorkbenchAuditEntry) => void;
   clearAuditLog: () => void;
+  setRecovery: (recovery: WorkbenchRecoveryState | null) => void;
+  retryRecovery: () => void;
+  resolveRecoveryManually: () => void;
+  clearRecovery: () => void;
   setStatus: (status: WorkbenchStatus) => void;
   resetSession: () => void;
 }
@@ -102,6 +115,8 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       recommendation: null,
       history: [],
       auditLog: [],
+      recovery: null,
+      retryGeneration: 0,
       status: {
         kind: "idle",
         message: "Manual control. Workbench is observing the game.",
@@ -147,12 +162,34 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           auditLog: [...state.auditLog.slice(-1999), entry],
         })),
       clearAuditLog: () => set({ auditLog: [] }),
+      setRecovery: (recovery) => set({ recovery }),
+      retryRecovery: () =>
+        set((state) => ({
+          recovery: null,
+          retryGeneration: state.retryGeneration + 1,
+          status: {
+            kind: "paused",
+            message: "Retrying AI on the current prompt...",
+          },
+        })),
+      resolveRecoveryManually: () =>
+        set((state) => ({
+          recovery: state.recovery ? { ...state.recovery, mode: "manual" } : null,
+          status: {
+            kind: "paused",
+            message:
+              "Manual recovery active for this decision. Thinking AI will resume automatically after the prompt advances.",
+          },
+        })),
+      clearRecovery: () => set({ recovery: null }),
       setStatus: (status) => set({ status }),
       resetSession: () =>
         set({
           controllerMode: "manual",
           aiApiKey: "",
           recommendation: null,
+          recovery: null,
+          retryGeneration: 0,
           status: {
             kind: "idle",
             message: "Manual control. Workbench is observing the game.",
