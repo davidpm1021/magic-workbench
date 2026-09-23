@@ -413,6 +413,48 @@ export function WorkbenchPanel() {
         >
           Export full game audit (.json)
         </Button>
+        {currentGameAudit.length > 0 ? (
+          <div className="space-y-1.5">
+            {currentGameAudit
+              .slice(-6)
+              .reverse()
+              .map((entry) => (
+                <div
+                  key={entry.id}
+                  className="rounded-md border border-border/50 bg-background/60 p-2"
+                >
+                  <div className="flex items-center justify-between gap-2 text-[10px]">
+                    <span className="font-medium">
+                      {entry.promptType} • {entry.source} • {entry.status}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {entry.model ?? "local"}
+                    </span>
+                  </div>
+                  <p
+                    className={
+                      entry.error
+                        ? "mt-1 break-words text-[10px] text-destructive"
+                        : "mt-1 break-words text-[10px] text-muted-foreground"
+                    }
+                  >
+                    {entry.error ?? entry.reason ?? "No additional detail recorded."}
+                  </p>
+                  {entry.source === "ai" ? (
+                    <p className="mt-0.5 text-[10px] text-muted-foreground">
+                      {entry.latencyMs != null ? `${entry.latencyMs} ms` : ""}
+                      {entry.estimatedCostUsd != null
+                        ? ` • ${formatUsd(entry.estimatedCostUsd)}`
+                        : ""}
+                      {entry.usage
+                        ? ` • ${entry.usage.totalTokens.toLocaleString()} tokens`
+                        : ""}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+          </div>
+        ) : null}
         <p className="text-[10px] leading-relaxed text-muted-foreground">
           Includes the visible game state, engine prompt, chosen output, brief model reason, token
           usage, estimated cost, latency, deterministic actions, and errors for every logged event.
