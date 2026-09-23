@@ -9,11 +9,11 @@ export interface WorkbenchAuditEntry {
   id: string;
   gameId: string;
   createdAt: number;
-  source: "ai" | "deterministic";
-  status: "success" | "error" | "deterministic";
+  source: "ai" | "deterministic" | "human";
+  status: "success" | "error" | "deterministic" | "manual";
   promptId: number;
   promptType: string;
-  importance: "routine" | "strategic" | "deterministic";
+  importance: "routine" | "strategic" | "deterministic" | "manual";
   model: string | null;
   latencyMs: number | null;
   usage: WorkbenchTokenUsage | null;
@@ -58,6 +58,17 @@ export interface WorkbenchRecoveryState {
   mode: "error" | "manual";
 }
 
+export interface WorkbenchCompletedGame {
+  gameId: string;
+  completedAt: number;
+  winnerId: string | null;
+  turn: number;
+  entries: number;
+  paidAiCalls: number;
+  errors: number;
+  estimatedCostUsd: number;
+}
+
 interface WorkbenchState {
   controllerMode: WorkbenchControllerMode;
   aiBaseUrl: string;
@@ -72,6 +83,7 @@ interface WorkbenchState {
   auditLog: WorkbenchAuditEntry[];
   recovery: WorkbenchRecoveryState | null;
   retryGeneration: number;
+  lastCompletedGame: WorkbenchCompletedGame | null;
   status: WorkbenchStatus;
 
   setControllerMode: (mode: WorkbenchControllerMode) => void;
@@ -90,6 +102,8 @@ interface WorkbenchState {
   retryRecovery: () => void;
   resolveRecoveryManually: () => void;
   clearRecovery: () => void;
+  completeGame: (gameId: string, winnerId: string | null, turn: number) => void;
+  clearCompletedGame: () => void;
   setStatus: (status: WorkbenchStatus) => void;
   resetSession: () => void;
 }
@@ -117,6 +131,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       auditLog: [],
       recovery: null,
       retryGeneration: 0,
+      lastCompletedGame: null,
       status: {
         kind: "idle",
         message: "Manual control. Workbench is observing the game.",
@@ -182,6 +197,26 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           },
         })),
       clearRecovery: () => set({ recovery: null }),
+      completeGame: (gameId, winnerId, turn) =>
+        set((state) => {
+          const entries = state.auditLog.filter((entry) => entry.gameId === gameId);
+          return {
+            lastCompletedGame: {
+              gameId,
+              completedAt: Date.now(),
+              winnerId,
+              turn,
+              entries: entries.length,
+              paidAiCalls: entries.filter((entry) => entry.source === "ai").length,
+              errors: entries.filter((entry) => entry.status === "error").length,
+              estimatedCostUsd: entries.reduce(
+                (sum, entry) => sum + (entry.estimatedCostUsd ?? 0),
+                0,
+              ),
+            },
+          };
+        }),
+      clearCompletedGame: () => set({ lastCompletedGame: null }),
       setStatus: (status) => set({ status }),
       resetSession: () =>
         set({
