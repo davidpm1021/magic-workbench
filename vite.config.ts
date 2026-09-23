@@ -1,6 +1,6 @@
 import path from "path";
 import os from "os";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "fs";
 import { defineConfig } from "vite";
 import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
@@ -325,12 +325,6 @@ function workbenchDeckPersistence(): Plugin {
 
         if (req.method === "DELETE") {
           try {
-            writeFileSync(tempFile, "", "utf8");
-          } catch {
-            // Ignore a missing temp file cleanup target.
-          }
-          try {
-            const { unlinkSync } = await import("fs");
             unlinkSync(deckFile);
           } catch (error) {
             const code =
