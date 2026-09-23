@@ -260,6 +260,7 @@ function dropInlinePlaymat<T extends object>(deck: T): T {
 // False until hydration succeeds, so a failed migration can't persist over the
 // stored decks — writes are dropped and the on-disk data survives untouched.
 let deckPersistReady = false;
+let deckDiskBackupReady = false;
 const WORKBENCH_DECK_BACKUP_URL = "/workbench-data/decks";
 
 interface WorkbenchDeckBackupPayload {
@@ -297,15 +298,32 @@ function mirrorSavedDecksToDisk(savedDecks: SavedDeck[]): void {
     });
 }
 
-async function restoreSavedDecksFromDisk(): Promise<void> {
-  if (!import.meta.env.DEV) return;
-  if (useDeckStore.getState().savedDecks.length > 0) return;
+async function reconcileSavedDecksWithDisk(): Promise<void> {
+  if (!import.meta.env.DEV) {
+    deckDiskBackupReady = true;
+    return;
+  }
 
   try {
+    const localDecks = useDeckStore.getState().savedDecks;
     const response = await fetch(WORKBENCH_DECK_BACKUP_URL, { method: "GET" });
-    if (!response.ok || response.status === 204) return;
+    if (response.status === 204) {
+      deckDiskBackupReady = true;
+      if (localDecks.length > 0) mirrorSavedDecksToDisk(localDecks);
+      return;
+    }
+    if (!response.ok) {
+      deckDiskBackupReady = true;
+      if (localDecks.length > 0) mirrorSavedDecksToDisk(localDecks);
+      return;
+    }
+
     const raw = await response.text();
-    if (!raw.trim()) return;
+    if (!raw.trim()) {
+      deckDiskBackupReady = true;
+      if (localDecks.length > 0) mirrorSavedDecksToDisk(localDecks);
+      return;
+    }
 
     const parsed = JSON.parse(raw) as {
       savedDecks?: SavedDeck[];
@@ -313,22 +331,43 @@ async function restoreSavedDecksFromDisk(): Promise<void> {
         savedDecks?: SavedDeck[];
       };
     };
-    const backedUp = parsed.savedDecks ?? parsed.state?.savedDecks ?? [];
-    const savedDecks = backedUp.map((saved) => ({
+    const diskDecks = (parsed.savedDecks ?? parsed.state?.savedDecks ?? []).map((saved) => ({
       ...saved,
       deck: dropInlinePlaymat(migrateDeck(saved.deck)),
     }));
-    if (savedDecks.length === 0) return;
-    if (useDeckStore.getState().savedDecks.length > 0) return;
 
-    useDeckStore.setState({ savedDecks });
-    toast.success(
-      `Restored ${savedDecks.length} saved deck${savedDecks.length === 1 ? "" : "s"} from your Workbench disk backup.`,
-      { id: "workbench-deck-backup-restored" },
-    );
+    const currentLocalDecks = useDeckStore.getState().savedDecks;
+    const mergedById = new Map<string, SavedDeck>();
+    for (const saved of diskDecks) mergedById.set(saved.id, saved);
+    for (const saved of currentLocalDecks) {
+      const existing = mergedById.get(saved.id);
+      if (!existing || saved.savedAt >= existing.savedAt) mergedById.set(saved.id, saved);
+    }
+    const mergedDecks = [...mergedById.values()].sort((a, b) => a.savedAt - b.savedAt);
+    const restoredCount = mergedDecks.filter(
+      (saved) => !currentLocalDecks.some((local) => local.id === saved.id),
+    ).length;
+
+    deckDiskBackupReady = true;
+    if (
+      mergedDecks.length !== currentLocalDecks.length ||
+      mergedDecks.some((saved, index) => saved !== currentLocalDecks[index])
+    ) {
+      useDeckStore.setState({ savedDecks: mergedDecks });
+    } else {
+      mirrorSavedDecksToDisk(mergedDecks);
+    }
+
+    if (restoredCount > 0) {
+      toast.success(
+        `Recovered ${restoredCount} saved deck${restoredCount === 1 ? "" : "s"} from your Workbench disk backup.`,
+        { id: "workbench-deck-backup-restored" },
+      );
+    }
   } catch {
-    // A corrupt or unavailable disk backup must not prevent normal browser
-    // storage hydration.
+    deckDiskBackupReady = true;
+    const localDecks = useDeckStore.getState().savedDecks;
+    if (localDecks.length > 0) mirrorSavedDecksToDisk(localDecks);
   }
 }
 
@@ -1291,13 +1330,9 @@ export const useDeckStore = create<DeckState>()(
             // Deferred: sync hydration fires this callback while the store is
             // still being created, before `useDeckStore` is assigned.
             queueMicrotask(() => {
-              void completeDeckMigrations(useDeckStore.getState());
-              const savedDecks = useDeckStore.getState().savedDecks;
-              if (savedDecks.length > 0) {
-                mirrorSavedDecksToDisk(savedDecks);
-              } else {
-                void restoreSavedDecksFromDisk();
-              }
+              void reconcileSavedDecksWithDisk().finally(() => {
+                void completeDeckMigrations(useDeckStore.getState());
+              });
             });
           }
         },
@@ -1311,6 +1346,10 @@ export const useDeckStore = create<DeckState>()(
 // on the localStorage persistence adapter, so browser-origin changes, storage
 // migrations, and repo rebuilds cannot silently skip the backup.
 useDeckStore.subscribe((state, previousState) => {
-  if (!deckPersistReady || state.savedDecks === previousState.savedDecks) return;
+  if (
+    !deckPersistReady ||
+    !deckDiskBackupReady ||
+    state.savedDecks === previousState.savedDecks
+  ) return;
   mirrorSavedDecksToDisk(state.savedDecks);
 });
