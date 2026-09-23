@@ -164,8 +164,10 @@ export function chooseDeterministicManaStep(
 
 function estimateManaAvailability(
   gameView: ClientGameView,
+  decidingPlayerId?: string,
 ): WorkbenchDecisionContext["manaAvailability"] {
-  const playerId = gameView.priorityPlayerId ?? gameView.activePlayerId ?? gameView.players[0]?.id;
+  const playerId =
+    decidingPlayerId ?? gameView.priorityPlayerId ?? gameView.activePlayerId ?? gameView.players[0]?.id;
   const player = gameView.players.find((candidate) => candidate.id === playerId) ?? gameView.players[0];
   const pool = { ...((player?.manaPool ?? {}) as Record<string, number>) };
   const commanderColors = new Set<string>();
@@ -400,7 +402,7 @@ export function buildWorkbenchDecisionContext(args: {
   return {
     currentTurn: gameView.turn,
     currentStep: gameView.step,
-    manaAvailability: estimateManaAvailability(gameView),
+    manaAvailability: estimateManaAvailability(gameView, currentPrompt?.decidingPlayerId),
     recentEngineLog: gameLog.slice(-24).map((entry) => ({
       message: entry.message,
       entryType: entry.entryType,
