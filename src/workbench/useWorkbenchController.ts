@@ -362,6 +362,7 @@ export function useWorkbenchController(paused = false): void {
         auditLog: useWorkbenchStore.getState().auditLog,
         gameView,
         gameLog: state.gameLog,
+        currentPrompt,
       }),
       signal: controller.signal,
       onAuditEntry: addAuditEntry,
