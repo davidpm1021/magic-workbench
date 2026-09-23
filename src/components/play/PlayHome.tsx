@@ -1,5 +1,5 @@
 import { Download, LibraryBig, Swords, Trophy, Users } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { UpdateCallout } from "@/components/layout/UpdateCallout";
 import { FeatureTile } from "@/components/play/FeatureTile";
 import { PlayDeckShelf } from "@/components/play/PlayDeckShelf";
