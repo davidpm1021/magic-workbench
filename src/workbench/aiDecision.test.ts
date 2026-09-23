@@ -140,7 +140,7 @@ describe("Workbench AI decision boundary", () => {
       expect(body.workbenchResponseSchema).toEqual(
         expect.objectContaining({
           type: "object",
-          required: ["output", "reason"],
+          required: ["output", "reason", "yieldUntil"],
           additionalProperties: false,
         }),
       );
@@ -404,6 +404,67 @@ describe("Workbench AI decision boundary", () => {
         output: { type: "act", actionId: "cast-1" },
       }),
     );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("records model-directed material-state yields only for pass decisions", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    output: { type: "pass", exhaustStack: false },
+                    reason: "Hold this option until resources or board state change.",
+                    yieldUntil: "material_state_change",
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    const result = await requestWorkbenchDecision({
+      baseUrl: "/workbench-ai",
+      model: "gpt-6-luna",
+      strategyPrompt: "Play well.",
+      gameView: {
+        gameId: "g",
+        turn: 2,
+        step: "main1",
+        players: [],
+        battlefield: [],
+        stack: [],
+        combatAssignments: [],
+      } as unknown as ClientGameView,
+      prompt: {
+        promptId: "43",
+        input: {
+          type: "chooseAction",
+          actions: [
+            {
+              id: "cast-1",
+              type: "cast",
+              cardId: "card-1",
+              label: "Cast High Tide",
+              mode: { type: "normal" },
+            },
+          ],
+        },
+      } as unknown as Prompt,
+      myPlayerSlot: "player-0",
+    });
+
+    expect(result.output).toEqual({ type: "pass", until: undefined, exhaustStack: false });
+    expect(result.yieldUntil).toBe("material_state_change");
+    expect(result.materialStateFingerprint).toBeTruthy();
 
     vi.unstubAllGlobals();
   });
