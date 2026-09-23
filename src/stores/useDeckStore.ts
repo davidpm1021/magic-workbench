@@ -284,6 +284,14 @@ interface WorkbenchDeckBackupPayload {
 }
 
 let deckBackupWriteQueue: Promise<void> = Promise.resolve();
+let pendingDeckBackup: SavedDeck[] | null = null;
+
+function flushPendingDeckBackup(): void {
+  if (!deckDiskBackupReady || !pendingDeckBackup) return;
+  const pending = pendingDeckBackup;
+  pendingDeckBackup = null;
+  mirrorSavedDecksToDisk(pending);
+}
 
 function mirrorSavedDecksToDisk(savedDecks: SavedDeck[]): void {
   if (!workbenchDeckBackupEnabled()) return;
@@ -324,11 +332,13 @@ async function reconcileSavedDecksWithDisk(): Promise<void> {
     if (response.status === 204) {
       deckDiskBackupReady = true;
       if (localDecks.length > 0) mirrorSavedDecksToDisk(localDecks);
+      flushPendingDeckBackup();
       return;
     }
     if (!response.ok) {
       deckDiskBackupReady = true;
       if (localDecks.length > 0) mirrorSavedDecksToDisk(localDecks);
+      flushPendingDeckBackup();
       return;
     }
 
@@ -336,6 +346,7 @@ async function reconcileSavedDecksWithDisk(): Promise<void> {
     if (!raw.trim()) {
       deckDiskBackupReady = true;
       if (localDecks.length > 0) mirrorSavedDecksToDisk(localDecks);
+      flushPendingDeckBackup();
       return;
     }
 
@@ -372,6 +383,8 @@ async function reconcileSavedDecksWithDisk(): Promise<void> {
       mirrorSavedDecksToDisk(mergedDecks);
     }
 
+    flushPendingDeckBackup();
+
     if (restoredCount > 0) {
       toast.success(
         `Recovered ${restoredCount} saved deck${restoredCount === 1 ? "" : "s"} from your Workbench disk backup.`,
@@ -382,6 +395,7 @@ async function reconcileSavedDecksWithDisk(): Promise<void> {
     deckDiskBackupReady = true;
     const localDecks = useDeckStore.getState().savedDecks;
     if (localDecks.length > 0) mirrorSavedDecksToDisk(localDecks);
+    flushPendingDeckBackup();
   }
 }
 
@@ -1392,10 +1406,10 @@ if (useDeckStore.persist.hasHydrated()) {
 // on the localStorage persistence adapter, so browser-origin changes, storage
 // migrations, and repo rebuilds cannot silently skip the backup.
 useDeckStore.subscribe((state, previousState) => {
-  if (
-    !deckPersistReady ||
-    !deckDiskBackupReady ||
-    state.savedDecks === previousState.savedDecks
-  ) return;
+  if (!deckPersistReady || state.savedDecks === previousState.savedDecks) return;
+  if (!deckDiskBackupReady) {
+    pendingDeckBackup = state.savedDecks;
+    return;
+  }
   mirrorSavedDecksToDisk(state.savedDecks);
 });
