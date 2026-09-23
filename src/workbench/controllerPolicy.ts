@@ -135,7 +135,7 @@ interface ManaActionCandidate {
 }
 
 export interface DeterministicManaPlan {
-  output: PromptOutput["output"];
+  output: { type: "act"; actionId: string };
   preferredColor: string | null;
 }
 
