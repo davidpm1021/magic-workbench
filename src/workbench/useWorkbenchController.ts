@@ -8,9 +8,11 @@ import {
   buildMaterialDecisionFingerprint,
   buildWorkbenchDecisionContext,
   chooseActionHasOnlyManaManagement,
+  chooseCachedManaPlanStep,
   chooseDeterministicManaPlan,
   chooseDeterministicManaStep,
   countRepeatedSamePromptDecision,
+  shouldCompleteWorkbenchTransaction,
   summarizeWorkbenchStateDelta,
 } from "./controllerPolicy";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
@@ -98,14 +100,13 @@ export function useWorkbenchController(paused = false): void {
         transaction.promptAdvanced ||
         !currentPrompt ||
         currentPromptId !== transaction.promptId;
-      const complete =
-        liveGameView.gameOver ||
-        (
-          promptAdvanced &&
-          currentPrompt?.input.type === "chooseAction" &&
-          liveGameView.stack.length === 0 &&
-          !isWaitingForResponse
-        );
+      const complete = shouldCompleteWorkbenchTransaction({
+        gameOver: liveGameView.gameOver,
+        promptAdvanced,
+        currentPrompt,
+        stackSize: liveGameView.stack.length,
+        isWaitingForResponse,
+      });
 
       if (complete) {
         updateAuditEntry(transaction.auditId, {
@@ -356,23 +357,15 @@ export function useWorkbenchController(paused = false): void {
         cached.cardId === currentPrompt.input.cardId &&
         cached.actionIds.length > 0
       ) {
-        const nextActionId = cached.actionIds[0];
-        const action = currentPrompt.input.actions.find((candidate) => candidate.id === nextActionId);
-        if (action) {
-          const raw = action as unknown as { producedMana?: Array<{ color?: string; amount?: number }> };
-          const produced = raw.producedMana ?? [];
-          const actionIdColor = nextActionId.match(/:([WUBRGC])$/)?.[1] ?? null;
-          const preferredColor =
-            produced.length === 1 && typeof produced[0]?.color === "string"
-              ? produced[0].color
-              : actionIdColor;
+        const cachedStep = chooseCachedManaPlanStep(currentPrompt, cached.actionIds);
+        if (cachedStep) {
           plan = {
-            output: { type: "act", actionId: nextActionId },
-            preferredColor,
+            output: cachedStep.output,
+            preferredColor: cachedStep.preferredColor,
           };
           pendingManaPlanRef.current = {
             ...cached,
-            actionIds: cached.actionIds.slice(1),
+            actionIds: cachedStep.remainingActionIds,
           };
           reason =
             "Continued the AI's previously chosen strategic mana-payment plan; the planned action is still engine-legal.";
