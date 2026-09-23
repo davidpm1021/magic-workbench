@@ -104,6 +104,7 @@ try {
   Write-Host ""
 
   Write-Host "Workbench URL: http://localhost:1420" -ForegroundColor Cyan
+  Write-Host "Deck backup: $env:USERPROFILE\.magic-workbench\deck-storage.json" -ForegroundColor DarkGray
   Write-Host "Open that URL in the same browser profile you normally use for Workbench." -ForegroundColor DarkGray
   yarn web --host localhost
 } finally {
