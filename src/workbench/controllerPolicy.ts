@@ -632,8 +632,19 @@ export function buildMaterialDecisionFingerprint(
   const decidingPlayerId =
     prompt.decidingPlayerId ?? gameView.priorityPlayerId ?? gameView.activePlayerId ?? null;
   const decidingPlayer = gameView.players.find((player) => player.id === decidingPlayerId);
-  const text = actionDependencyText(modelPrompt);
   const byId = new Map(allVisibleCards(gameView).map((card) => [card.id, card]));
+  const actionCardText =
+    modelPrompt.input.type === "chooseAction"
+      ? modelPrompt.input.actions
+          .flatMap((action) => {
+            const value = action as unknown as AnyRecord;
+            const card =
+              typeof value.cardId === "string" ? byId.get(value.cardId) : null;
+            return card?.text ? [card.text] : [];
+          })
+          .join(" ")
+      : "";
+  const text = `${actionDependencyText(modelPrompt)} ${actionCardText}`;
 
   const strategicActions =
     modelPrompt.input.type === "chooseAction"
@@ -659,7 +670,7 @@ export function buildMaterialDecisionFingerprint(
       : modelPrompt.input;
 
   const needsBattlefield =
-    /\b(target|creature|permanent|destroy|exile|fight|damage|aura|attack|block|counter|tap|untap)\b/i.test(text);
+    /\b(target|creature|permanent|destroy|exile|fight|damage|aura|attack|block|counter|tap|untap|land|island|swamp|forest|plains|mountain|mana)\b/i.test(text);
   const needsGraveyards =
     /\b(graveyard|flashback|escape|delve|reanimate|return|exile|copy)\b/i.test(text);
   const needsHands = /\b(hand|discard|draw)\b/i.test(text);
