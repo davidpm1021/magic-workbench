@@ -361,10 +361,11 @@ export function useWorkbenchController(paused = false): void {
         if (action) {
           const raw = action as unknown as { producedMana?: Array<{ color?: string; amount?: number }> };
           const produced = raw.producedMana ?? [];
+          const actionIdColor = nextActionId.match(/:([WUBRGC])$/)?.[1] ?? null;
           const preferredColor =
             produced.length === 1 && typeof produced[0]?.color === "string"
               ? produced[0].color
-              : null;
+              : actionIdColor;
           plan = {
             output: { type: "act", actionId: nextActionId },
             preferredColor,
@@ -536,6 +537,18 @@ export function useWorkbenchController(paused = false): void {
     }
     if (currentPrompt.input.type === "payManaCost") {
       if (currentPrompt.input.canConfirmFromPool) return;
+      const cachedManaPlan = pendingManaPlanRef.current;
+      if (
+        cachedManaPlan &&
+        preflightState.gameView &&
+        cachedManaPlan.gameId === preflightState.gameView.gameId &&
+        cachedManaPlan.cardId === currentPrompt.input.cardId &&
+        cachedManaPlan.actionIds.some((actionId) =>
+          currentPrompt.input.actions.some((action) => action.id === actionId),
+        )
+      ) {
+        return;
+      }
       if (
         preflightState.gameView &&
         chooseDeterministicManaStep(currentPrompt, preflightState.gameView, preflightState.myPlayerSlot)
