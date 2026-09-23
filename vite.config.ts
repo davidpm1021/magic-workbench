@@ -54,6 +54,7 @@ function workbenchAiProxy(): Plugin {
             model?: string;
             messages?: Array<{ role?: string; content?: unknown }>;
             workbenchImportance?: "routine" | "strategic";
+            workbenchResponseSchema?: Record<string, unknown>;
             [key: string]: unknown;
           };
 
@@ -87,7 +88,18 @@ function workbenchAiProxy(): Plugin {
                       ? "low"
                       : (process.env.WORKBENCH_AI_STRATEGIC_EFFORT || "medium"),
                 },
-                text: { format: { type: "json_object" } },
+                text: {
+                  format: requestBody.workbenchResponseSchema
+                    ? {
+                        type: "json_schema",
+                        name: "workbench_decision",
+                        description:
+                          "A validated Magic Workbench decision envelope containing output and a brief reason.",
+                        schema: requestBody.workbenchResponseSchema,
+                        strict: true,
+                      }
+                    : { type: "json_object" },
+                },
                 max_output_tokens:
                   requestBody.workbenchImportance === "routine" ? 4_000 : 20_000,
               }),
@@ -204,6 +216,7 @@ function workbenchAiProxy(): Plugin {
 
           const chatBody = { ...requestBody };
           delete chatBody.workbenchImportance;
+          delete chatBody.workbenchResponseSchema;
           const upstream = await fetch(`${targetBase}/chat/completions`, {
             method: "POST",
             headers: {
