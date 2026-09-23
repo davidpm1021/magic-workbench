@@ -82,49 +82,71 @@ function parseSimpleManaCost(manaCost: string): ManaRequirement | null {
   };
 }
 
-interface FixedManaAction {
+interface ManaActionCandidate {
   actionId: string;
-  color: string;
+  colors: string[];
   amount: number;
 }
 
-function fixedManaActions(prompt: Prompt): FixedManaAction[] {
+export interface DeterministicManaPlan {
+  output: PromptOutput["output"];
+  preferredColor: string | null;
+}
+
+function manaActionCandidates(
+  prompt: Prompt,
+  gameView: ClientGameView,
+  playerId: string | null,
+): ManaActionCandidate[] {
   if (prompt.input.type !== "payManaCost") return [];
+  const visibleSources = estimateManaAvailability(gameView, playerId ?? undefined).untappedSources;
+
   return prompt.input.actions.flatMap((rawAction) => {
     const action = actionRecord(rawAction);
     if (!action) return [];
     const isMana =
       action.type === "activateManaAbility" ||
       (action.type === "activateAbility" && action.isManaAbility === true);
-    if (!isMana || !Array.isArray(action.producedMana)) return [];
+    if (!isMana) return [];
 
-    const produced = action.producedMana
-      .map(record)
-      .filter((item): item is AnyRecord => item != null)
-      .filter(
-        (item) =>
-          typeof item.color === "string" &&
-          ["W", "U", "B", "R", "G", "C"].includes(item.color) &&
-          typeof item.amount === "number" &&
-          item.amount > 0,
-      );
-    if (produced.length !== 1) return [];
-    const item = produced[0];
-    return [
-      {
+    const produced = Array.isArray(action.producedMana)
+      ? action.producedMana
+          .map(record)
+          .filter((item): item is AnyRecord => item != null)
+          .filter(
+            (item) =>
+              typeof item.color === "string" &&
+              ["W", "U", "B", "R", "G", "C"].includes(item.color) &&
+              typeof item.amount === "number" &&
+              item.amount > 0,
+          )
+      : [];
+
+    if (produced.length === 1) {
+      return [{
         actionId: action.id as string,
-        color: item.color as string,
-        amount: item.amount as number,
-      },
-    ];
+        colors: [produced[0].color as string],
+        amount: produced[0].amount as number,
+      }];
+    }
+
+    const cardId = typeof action.cardId === "string" ? action.cardId : null;
+    const flexible = cardId ? visibleSources.find((source) => source.id === cardId) : null;
+    if (!flexible || flexible.colors.length === 0 || flexible.amount <= 0) return [];
+
+    return [{
+      actionId: action.id as string,
+      colors: flexible.colors,
+      amount: flexible.amount,
+    }];
   });
 }
 
-export function chooseDeterministicManaStep(
+export function chooseDeterministicManaPlan(
   prompt: Prompt,
   gameView: ClientGameView,
   playerId: string | null,
-): PromptOutput["output"] | null {
+): DeterministicManaPlan | null {
   if (prompt.input.type !== "payManaCost" || prompt.input.canConfirmFromPool) return null;
   const requirement = parseSimpleManaCost(prompt.input.manaCost);
   if (!requirement) return null;
@@ -132,16 +154,43 @@ export function chooseDeterministicManaStep(
   if (!player) return null;
 
   const pool = player.manaPool as Record<string, number>;
-  const candidates = fixedManaActions(prompt);
+  const candidates = manaActionCandidates(prompt, gameView, playerId);
   if (candidates.length === 0) return null;
 
-  for (const color of ["W", "U", "B", "R", "G", "C"]) {
-    const needed = Math.max(0, requirement.colored[color] - (pool[color] ?? 0));
-    if (needed <= 0) continue;
-    const candidate = candidates.find((item) => item.color === color);
-    if (candidate) return { type: "act", actionId: candidate.actionId };
-    // A colored deficit exists but no fixed source can satisfy it. A flexible
-    // source may still work, so leave this step to the model.
+  const coloredDeficits = ["W", "U", "B", "R", "G", "C"]
+    .map((color) => ({
+      color,
+      needed: Math.max(0, requirement.colored[color] - (pool[color] ?? 0)),
+    }))
+    .filter((item) => item.needed > 0);
+
+  for (const deficit of coloredDeficits) {
+    const fixed = candidates.find(
+      (item) => item.colors.length === 1 && item.colors[0] === deficit.color,
+    );
+    if (fixed) {
+      return {
+        output: { type: "act", actionId: fixed.actionId },
+        preferredColor: null,
+      };
+    }
+  }
+
+  // A flexible source is deterministic only when exactly one colored deficit
+  // remains. This covers Command Tower-style "choose a color" plumbing without
+  // making strategic choices between multiple needed colors.
+  if (coloredDeficits.length === 1) {
+    const { color } = coloredDeficits[0];
+    const flexible = candidates.find(
+      (item) => item.colors.length > 1 && item.colors.includes(color),
+    );
+    if (flexible) {
+      return {
+        output: { type: "act", actionId: flexible.actionId },
+        preferredColor: color,
+      };
+    }
+  } else if (coloredDeficits.length > 1) {
     return null;
   }
 
@@ -151,15 +200,42 @@ export function chooseDeterministicManaStep(
   );
   if (poolTotal >= requirement.total) return null;
 
+  const fixedCandidates = candidates.filter((item) => item.colors.length === 1);
   const surplusByColor = (color: string) =>
     (pool[color] ?? 0) - (requirement.colored[color] ?? 0);
-  const candidate = [...candidates].sort((a, b) => {
-    const aScore = a.color === "C" ? 100 : Math.max(0, surplusByColor(a.color));
-    const bScore = b.color === "C" ? 100 : Math.max(0, surplusByColor(b.color));
+  const fixed = [...fixedCandidates].sort((a, b) => {
+    const aColor = a.colors[0];
+    const bColor = b.colors[0];
+    const aScore = aColor === "C" ? 100 : Math.max(0, surplusByColor(aColor));
+    const bScore = bColor === "C" ? 100 : Math.max(0, surplusByColor(bColor));
     return bScore - aScore;
   })[0];
+  if (fixed) {
+    return {
+      output: { type: "act", actionId: fixed.actionId },
+      preferredColor: null,
+    };
+  }
 
-  return candidate ? { type: "act", actionId: candidate.actionId } : null;
+  // For a purely generic remainder, any color from a flexible source is
+  // equivalent because the mana is immediately spent on this payment.
+  const flexible = candidates.find((item) => item.colors.length > 1);
+  if (flexible) {
+    return {
+      output: { type: "act", actionId: flexible.actionId },
+      preferredColor: flexible.colors[0] ?? null,
+    };
+  }
+
+  return null;
+}
+
+export function chooseDeterministicManaStep(
+  prompt: Prompt,
+  gameView: ClientGameView,
+  playerId: string | null,
+): PromptOutput["output"] | null {
+  return chooseDeterministicManaPlan(prompt, gameView, playerId)?.output ?? null;
 }
 
 function estimateManaAvailability(
@@ -261,6 +337,16 @@ export interface WorkbenchDecisionContext {
       name: string;
       colors: string[];
       amount: number;
+    }>;
+  };
+  strategicFacts: {
+    isActivePlayer: boolean;
+    landsInHand: number;
+    landDropsRemaining: number;
+    opponents: Array<{
+      id: string;
+      life: number;
+      visibleUntappedCreatures: number;
     }>;
   };
   recentEngineLog: Array<Pick<GameLogEntry, "message" | "entryType" | "playerId" | "cardId">>;
@@ -414,10 +500,40 @@ export function buildWorkbenchDecisionContext(args: {
       return match?.[1] ? [match[1]] : [];
     });
 
+  const decidingPlayerId =
+    currentPrompt?.decidingPlayerId ??
+    gameView.priorityPlayerId ??
+    gameView.activePlayerId ??
+    gameView.players[0]?.id;
+  const decidingPlayer =
+    gameView.players.find((player) => player.id === decidingPlayerId) ?? gameView.players[0];
+  const strategicFacts: WorkbenchDecisionContext["strategicFacts"] = {
+    isActivePlayer: decidingPlayer?.id === gameView.activePlayerId,
+    landsInHand:
+      decidingPlayer?.hand.filter((card) => card.types.includes("Land")).length ?? 0,
+    landDropsRemaining: Math.max(
+      0,
+      (decidingPlayer?.maxLandPlaysPerTurn ?? 0) - (decidingPlayer?.landsPlayedThisTurn ?? 0),
+    ),
+    opponents: gameView.players
+      .filter((player) => player.id !== decidingPlayer?.id)
+      .map((player) => ({
+        id: player.id,
+        life: player.life,
+        visibleUntappedCreatures: (gameView.battlefield ?? []).filter(
+          (card) =>
+            card.controllerId === player.id &&
+            card.types.includes("Creature") &&
+            !card.tapped,
+        ).length,
+      })),
+  };
+
   return {
     currentTurn: gameView.turn,
     currentStep: gameView.step,
     manaAvailability: estimateManaAvailability(gameView, currentPrompt?.decidingPlayerId),
+    strategicFacts,
     recentEngineLog: gameLog.slice(-24).map((entry) => ({
       message: entry.message,
       entryType: entry.entryType,
@@ -442,7 +558,9 @@ export function buildWorkbenchDecisionContext(args: {
     recentFailedPayments,
     guidance: [
       "Treat recent decisions and engine log entries as continuity from this same game, not as hypothetical examples.",
+      "Use strategicFacts for basic counts and turn-state facts instead of recounting or inferring them from prose. Do not claim there are no blockers when visibleUntappedCreatures is nonzero.",
       "When currentTransaction is present, continue the action you already initiated. Tapped/sacrificed/payment state may be the result of costs you intentionally paid.",
+      "Outside the same multi-step transaction, re-evaluate every currently legal strategic option from the present game state. Do not continue a prior plan merely because an earlier decision intended it.",
       "Use manaAvailability as a highlighted estimate of the mana currently available without sacrificing cards; flexible sources list every color they can make.",
       "If selectionCostHints is present, add the source card's baseManaCost to every selected additionalCost before judging affordability.",
       "If a payment attempt just failed, do not repeat the identical transaction unless resources changed; choose a cheaper mode or a different action.",
