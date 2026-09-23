@@ -427,33 +427,6 @@ function stringEnum(values: string[]): WorkbenchJsonSchema {
   return values.length > 0 ? { type: "string", enum: values } : { type: "string" };
 }
 
-function literalSchema(value: unknown): WorkbenchJsonSchema {
-  if (value === null) return { type: "null" };
-  if (typeof value === "string") return { type: "string", enum: [value] };
-  if (typeof value === "number") return Number.isInteger(value)
-    ? { type: "integer", enum: [value] }
-    : { type: "number", enum: [value] };
-  if (typeof value === "boolean") return { type: "boolean", enum: [value] };
-  if (Array.isArray(value)) {
-    return {
-      type: "array",
-      items:
-        value.length > 0
-          ? { anyOf: value.map(literalSchema) }
-          : { type: "string" },
-      minItems: value.length,
-      maxItems: value.length,
-    };
-  }
-  if (isRecord(value)) {
-    const properties = Object.fromEntries(
-      Object.entries(value).map(([key, child]) => [key, literalSchema(child)]),
-    );
-    return objectSchema(properties);
-  }
-  return {};
-}
-
 function decisionEnvelopeSchema(prompt: Prompt): WorkbenchJsonSchema {
   return objectSchema({
     output: promptOutputSchema(prompt),
@@ -531,10 +504,10 @@ function promptOutputSchema(prompt: Prompt): WorkbenchJsonSchema {
           typed("boardTargets", {
             chosen: {
               type: "array",
-              items:
-                prompt.input.candidates.length > 0
-                  ? { anyOf: prompt.input.candidates.map(literalSchema) }
-                  : {},
+              items: objectSchema({
+                kind: stringEnum(prompt.input.candidates.map((candidate) => candidate.kind)),
+                id: stringEnum(prompt.input.candidates.map((candidate) => candidate.id)),
+              }),
               minItems: 0,
               maxItems: 1,
             },
