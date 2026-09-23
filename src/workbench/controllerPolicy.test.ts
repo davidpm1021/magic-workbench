@@ -3,6 +3,7 @@ import type { Prompt } from "@/protocol";
 import type { ClientGameView } from "@/stores/gameStore.types";
 import {
   chooseActionHasOnlyManaManagement,
+  chooseDeterministicManaPlan,
   chooseDeterministicManaStep,
   isManaManagementAction,
   promptForWorkbenchModel,
@@ -104,6 +105,51 @@ describe("Workbench controller policy", () => {
     });
   });
 
+  it("uses a flexible source deterministically when exactly one color is still required", () => {
+    const prompt = {
+      promptId: 3,
+      input: {
+        type: "payManaCost",
+        manaCost: "{2}{G}",
+        canConfirmFromPool: false,
+        actions: [
+          {
+            type: "activateManaAbility",
+            id: "tap-command-tower",
+            cardId: "tower",
+            isManaAbility: true,
+          },
+        ],
+      },
+    } as unknown as Prompt;
+    const game = {
+      ...view({ G: 0, R: 2 }),
+      players: [
+        {
+          id: "player-0",
+          manaPool: { W: 0, U: 0, B: 0, R: 2, G: 0, C: 0 },
+          commandZone: [{ color: "GUR" }],
+        },
+      ],
+      battlefield: [
+        {
+          id: "tower",
+          controllerId: "player-0",
+          tapped: false,
+          summoningSick: false,
+          types: ["Land"],
+          text: "{T}: Add one mana of any color in your commander's color identity.",
+          identity: { name: "Command Tower" },
+        },
+      ],
+    } as unknown as ClientGameView;
+
+    expect(chooseDeterministicManaPlan(prompt, game, "player-0")).toEqual({
+      output: { type: "act", actionId: "tap-command-tower" },
+      preferredColor: "G",
+    });
+  });
+
   it("leaves ambiguous flexible mana to the model", () => {
     const prompt = {
       promptId: 2,
@@ -157,6 +203,74 @@ describe("Workbench controller policy", () => {
       { ...base, promptId: 30, createdAt: 2 },
     ];
     expect(countRepeatedSamePromptDecision(actualLoop, recommendation)).toBe(2);
+  });
+
+  it("provides grounded strategic facts for land counts and visible blockers", () => {
+    const game = {
+      ...view(),
+      activePlayerId: "player-0",
+      priorityPlayerId: "player-0",
+      players: [
+        {
+          id: "player-0",
+          life: 40,
+          manaPool: {},
+          hand: [
+            { types: ["Land"] },
+            { types: ["Creature"] },
+            { types: ["Land"] },
+          ],
+          landsPlayedThisTurn: 0,
+          maxLandPlaysPerTurn: 1,
+        },
+        {
+          id: "player-1",
+          life: 17,
+          manaPool: {},
+          hand: [],
+          landsPlayedThisTurn: 0,
+          maxLandPlaysPerTurn: 1,
+        },
+      ],
+      battlefield: [
+        {
+          id: "blocker",
+          controllerId: "player-1",
+          tapped: false,
+          types: ["Creature"],
+        },
+        {
+          id: "tapped-creature",
+          controllerId: "player-1",
+          tapped: true,
+          types: ["Creature"],
+        },
+      ],
+    } as unknown as ClientGameView;
+
+    const context = buildWorkbenchDecisionContext({
+      auditLog: [],
+      gameView: game,
+      gameLog: [],
+      currentPrompt: {
+        promptId: 77,
+        decidingPlayerId: "player-0",
+        input: { type: "chooseBoolean", presentation: { title: "Test", targets: [] } },
+      } as unknown as Prompt,
+    });
+
+    expect(context.strategicFacts).toEqual({
+      isActivePlayer: true,
+      landsInHand: 2,
+      landDropsRemaining: 1,
+      opponents: [
+        {
+          id: "player-1",
+          life: 17,
+          visibleUntappedCreatures: 1,
+        },
+      ],
+    });
   });
 
   it("derives actual spells cast this turn from engine log continuity", () => {
