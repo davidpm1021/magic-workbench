@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeckCard } from "@/protocol/deck";
 import type { ScryfallCard } from "@/types/scryfall";
 
@@ -16,6 +16,7 @@ vi.mock("pixi.js", () => ({
 }));
 
 let useDeckStore: typeof import("./useDeckStore").useDeckStore;
+let fetchMock: ReturnType<typeof vi.fn>;
 
 function card(id: string, setCode: string, cardNumber: string, foil = false): DeckCard {
   return {
@@ -25,16 +26,26 @@ function card(id: string, setCode: string, cardNumber: string, foil = false): De
 }
 
 beforeAll(async () => {
+  fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+  vi.stubGlobal("fetch", fetchMock);
   ({ useDeckStore } = await import("./useDeckStore"));
+  await vi.waitFor(() => {
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) => url === "/workbench-data/decks" && init?.method === "GET",
+      ),
+    ).toBe(true);
+  });
+});
+
+beforeEach(() => {
+  fetchMock.mockClear();
 });
 
 afterAll(() => vi.unstubAllGlobals());
 
 describe("Workbench deck disk backup", () => {
   it("writes savedDecks directly to the local backup endpoint", async () => {
-    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
-    vi.stubGlobal("fetch", fetchMock);
-
     const id = useDeckStore.getState().addSavedDeck({
       name: "Persistent Commander Deck",
       format: "commander",
@@ -61,7 +72,6 @@ describe("Workbench deck disk backup", () => {
       ).toBe(true);
     });
 
-    vi.unstubAllGlobals();
   });
 
   it("does not delete the disk backup when browser persistence is cleared", async () => {
@@ -76,7 +86,6 @@ describe("Workbench deck disk backup", () => {
       ),
     ).toBe(false);
 
-    vi.unstubAllGlobals();
   });
 });
 
