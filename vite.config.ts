@@ -86,16 +86,20 @@ function workbenchAiProxy(): Plugin {
                       ? "low"
                       : (process.env.WORKBENCH_AI_STRATEGIC_EFFORT || "medium"),
                 },
+                text: { format: { type: "json_object" } },
                 max_output_tokens:
-                  requestBody.workbenchImportance === "routine" ? 1_200 : 2_500,
+                  requestBody.workbenchImportance === "routine" ? 3_000 : 8_000,
               }),
             });
 
             const payload = (await upstream.json().catch(() => ({}))) as {
+              id?: string;
+              status?: string;
+              incomplete_details?: { reason?: string };
               error?: { message?: string };
               output?: Array<{
                 type?: string;
-                content?: Array<{ type?: string; text?: string }>;
+                content?: Array<{ type?: string; text?: string; refusal?: string }>;
               }>;
               usage?: {
                 input_tokens?: number;
@@ -126,11 +130,41 @@ function workbenchAiProxy(): Plugin {
               .trim();
 
             if (!text) {
-              res.statusCode = 502;
+              const incompleteReason = payload.incomplete_details?.reason;
+              const refusal = payload.output
+                ?.flatMap((item) => item.content ?? [])
+                .find((part) => part.type === "refusal")?.refusal;
+              const usage = payload.usage;
+              const message =
+                refusal ||
+                (payload.status === "incomplete" && incompleteReason === "max_output_tokens"
+                  ? "OpenAI used the output-token budget during reasoning before producing a decision."
+                  : `OpenAI Responses API returned no output text (status: ${payload.status ?? "unknown"}).`);
+
+              res.statusCode = 422;
               res.setHeader("Content-Type", "application/json");
               res.end(
                 JSON.stringify({
-                  error: { message: "OpenAI Responses API returned no output text." },
+                  error: { message },
+                  workbenchUsage: usage
+                    ? {
+                        inputTokens: usage.input_tokens ?? 0,
+                        cachedInputTokens: usage.input_tokens_details?.cached_tokens ?? 0,
+                        cacheWriteTokens:
+                          usage.input_tokens_details?.cache_write_tokens ?? 0,
+                        outputTokens: usage.output_tokens ?? 0,
+                        reasoningTokens:
+                          usage.output_tokens_details?.reasoning_tokens ?? 0,
+                        totalTokens:
+                          usage.total_tokens ??
+                          (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0),
+                      }
+                    : null,
+                  workbenchMeta: {
+                    responseStatus: payload.status ?? null,
+                    incompleteReason: incompleteReason ?? null,
+                    responseId: payload.id ?? null,
+                  },
                 }),
               );
               return;
@@ -157,6 +191,11 @@ function workbenchAiProxy(): Plugin {
                           (payload.usage.output_tokens ?? 0),
                     }
                   : null,
+                workbenchMeta: {
+                  responseStatus: payload.status ?? null,
+                  incompleteReason: payload.incomplete_details?.reason ?? null,
+                  responseId: payload.id ?? null,
+                },
               }),
             );
             return;
