@@ -20,6 +20,24 @@ const LONG_CONTEXT_THRESHOLD = 272_000;
 // and treated as estimates because providers and prices can change.
 const OPENAI_PRICING: Array<{ prefix: string; pricing: ModelPricing }> = [
   {
+    prefix: "gpt-6-sol",
+    pricing: {
+      inputPerMillion: 2,
+      cachedInputPerMillion: 0.2,
+      cacheWritePerMillion: 2.5,
+      outputPerMillion: 10,
+    },
+  },
+  {
+    prefix: "gpt-6-luna",
+    pricing: {
+      inputPerMillion: 0.1,
+      cachedInputPerMillion: 0.01,
+      cacheWritePerMillion: 0.125,
+      outputPerMillion: 0.5,
+    },
+  },
+  {
     prefix: "gpt-5.6-sol",
     pricing: {
       inputPerMillion: 4,
