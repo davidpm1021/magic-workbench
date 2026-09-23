@@ -743,7 +743,15 @@ describe("Workbench controller policy", () => {
           handCount: 1,
           libraryCount: 90,
           manaPool: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
-          hand: [{ id: "high-tide" }],
+          hand: [{
+            id: "high-tide",
+            identity: { name: "High Tide" },
+            zoneId: "hand",
+            controllerId: "player-0",
+            ownerId: "player-0",
+            types: ["Instant"],
+            text: "Until end of turn, whenever a player taps an Island for mana, that player adds an additional {U}.",
+          }],
           graveyard: [],
           exile: [],
           commandZone: [],
@@ -827,6 +835,28 @@ describe("Workbench controller policy", () => {
     } as ClientGameView;
 
     expect(buildMaterialDecisionFingerprint(prompt, unrelated)).toBe(
+      buildMaterialDecisionFingerprint(prompt, base),
+    );
+
+    const relevantLandChange = {
+      ...base,
+      battlefield: [
+        {
+          id: "new-island",
+          identity: { name: "Island" },
+          zoneId: "battlefield",
+          controllerId: "player-0",
+          ownerId: "player-0",
+          types: ["Land"],
+          subtypes: ["Island"],
+          text: "({T}: Add {U}.)",
+          tapped: false,
+          counters: {},
+          damage: 0,
+        },
+      ],
+    } as unknown as ClientGameView;
+    expect(buildMaterialDecisionFingerprint(prompt, relevantLandChange)).not.toBe(
       buildMaterialDecisionFingerprint(prompt, base),
     );
   });
