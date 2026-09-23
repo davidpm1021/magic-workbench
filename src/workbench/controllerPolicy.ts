@@ -840,6 +840,14 @@ export function buildWorkbenchDecisionContext(args: {
       reason: entry.reason,
     }));
 
+  const decidingPlayerId =
+    currentPrompt?.decidingPlayerId ??
+    gameView.priorityPlayerId ??
+    gameView.activePlayerId ??
+    gameView.players[0]?.id;
+  const decidingPlayer =
+    gameView.players.find((player) => player.id === decidingPlayerId) ?? gameView.players[0];
+
   const turnStartMs =
     currentTurnEntries.length > 0
       ? Math.min(...currentTurnEntries.map((entry) => entry.createdAt))
@@ -855,13 +863,6 @@ export function buildWorkbenchDecisionContext(args: {
       return match?.[1] ? [match[1]] : [];
     });
 
-  const decidingPlayerId =
-    currentPrompt?.decidingPlayerId ??
-    gameView.priorityPlayerId ??
-    gameView.activePlayerId ??
-    gameView.players[0]?.id;
-  const decidingPlayer =
-    gameView.players.find((player) => player.id === decidingPlayerId) ?? gameView.players[0];
   const isActivePlayer = decidingPlayer?.id === gameView.activePlayerId;
   const playerTurnIds = new Set<number>();
   for (const entry of sameGame) {
