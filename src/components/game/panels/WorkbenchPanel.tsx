@@ -12,6 +12,8 @@ import {
 } from "@/workbench/aiDecision";
 import { classifyWorkbenchDecision } from "@/workbench/decisionImportance";
 import { formatUsd } from "@/workbench/pricing";
+import { buildWorkbenchDecisionContext } from "@/workbench/controllerPolicy";
+import { downloadWorkbenchAudit } from "@/workbench/auditExport";
 
 const CONTROLLER_OPTIONS: Array<{
   value: WorkbenchControllerMode;
@@ -40,6 +42,7 @@ export function WorkbenchPanel() {
   const gameView = useGameStore((state) => state.gameView);
   const myPlayerSlot = useGameStore((state) => state.myPlayerSlot);
   const isWaitingForResponse = useGameStore((state) => state.isWaitingForResponse);
+  const gameLog = useGameStore((state) => state.gameLog);
   const respond = useGameStore((state) => state.respond);
 
   const controllerMode = useWorkbenchStore((state) => state.controllerMode);
@@ -146,6 +149,11 @@ export function WorkbenchPanel() {
         gameView,
         prompt: currentPrompt,
         myPlayerSlot,
+        decisionContext: buildWorkbenchDecisionContext({
+          auditLog,
+          gameView,
+          gameLog,
+        }),
         onAuditEntry: addAuditEntry,
       });
       setRecommendation(next);
@@ -175,29 +183,12 @@ export function WorkbenchPanel() {
 
   const exportGameAudit = () => {
     if (!gameView || currentGameAudit.length === 0) return;
-    const payload = {
-      schemaVersion: 1,
-      exportedAt: new Date().toISOString(),
+    downloadWorkbenchAudit({
       gameId: gameView.gameId,
-      summary: {
-        entries: currentGameAudit.length,
-        paidAiCalls: paidDecisionCount,
-        errors: auditErrorCount,
-        estimatedCostUsd: currentGameSpend,
-      },
       entries: currentGameAudit,
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-      type: "application/json",
+      winnerId: gameView.gameOver ? gameView.winnerId ?? null : undefined,
+      turn: gameView.gameOver ? gameView.turn : undefined,
     });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `magic-workbench-audit-${gameView.gameId}.json`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
   };
 
   return (
