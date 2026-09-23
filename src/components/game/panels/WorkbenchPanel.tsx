@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Bot, Brain, FastForward, Play, Sparkles } from "lucide-react";
+import { Bot, Brain, Download, FastForward, Play, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGameStore } from "@/stores/useGameStore";
 import {
@@ -52,6 +52,7 @@ export function WorkbenchPanel() {
   const gameBudgetUsd = useWorkbenchStore((state) => state.gameBudgetUsd);
   const recommendation = useWorkbenchStore((state) => state.recommendation);
   const history = useWorkbenchStore((state) => state.history);
+  const auditLog = useWorkbenchStore((state) => state.auditLog);
   const status = useWorkbenchStore((state) => state.status);
   const setControllerMode = useWorkbenchStore((state) => state.setControllerMode);
   const setAiBaseUrl = useWorkbenchStore((state) => state.setAiBaseUrl);
@@ -63,6 +64,7 @@ export function WorkbenchPanel() {
   const setGameBudgetUsd = useWorkbenchStore((state) => state.setGameBudgetUsd);
   const setRecommendation = useWorkbenchStore((state) => state.setRecommendation);
   const clearHistory = useWorkbenchStore((state) => state.clearHistory);
+  const addAuditEntry = useWorkbenchStore((state) => state.addAuditEntry);
   const setStatus = useWorkbenchStore((state) => state.setStatus);
 
   const [showConfig, setShowConfig] = useState(false);
@@ -79,14 +81,20 @@ export function WorkbenchPanel() {
     () => history.filter((item) => item.gameId === gameView?.gameId),
     [history, gameView?.gameId],
   );
+  const currentGameAudit = useMemo(
+    () => auditLog.filter((item) => item.gameId === gameView?.gameId),
+    [auditLog, gameView?.gameId],
+  );
   const currentGameSpend = useMemo(
     () =>
-      currentGameHistory.reduce(
+      currentGameAudit.reduce(
         (sum, item) => sum + (item.estimatedCostUsd ?? 0),
         0,
       ),
-    [currentGameHistory],
+    [currentGameAudit],
   );
+  const paidDecisionCount = currentGameAudit.filter((item) => item.source === "ai").length;
+  const auditErrorCount = currentGameAudit.filter((item) => item.status === "error").length;
   const budgetReached = gameBudgetUsd > 0 && currentGameSpend >= gameBudgetUsd;
 
   const actionCount = useMemo(() => {
@@ -133,6 +141,7 @@ export function WorkbenchPanel() {
         gameView,
         prompt: currentPrompt,
         myPlayerSlot,
+        onAuditEntry: addAuditEntry,
       });
       setRecommendation(next);
       setStatus({ kind: "ready", message: next.reason });
@@ -158,6 +167,33 @@ export function WorkbenchPanel() {
   };
 
   const recommendationLabel = recommendation?.label ?? null;
+
+  const exportGameAudit = () => {
+    if (!gameView || currentGameAudit.length === 0) return;
+    const payload = {
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      gameId: gameView.gameId,
+      summary: {
+        entries: currentGameAudit.length,
+        paidAiCalls: paidDecisionCount,
+        errors: auditErrorCount,
+        estimatedCostUsd: currentGameSpend,
+      },
+      entries: currentGameAudit,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `magic-workbench-audit-${gameView.gameId}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="min-h-0 flex-1 space-y-3 text-xs">
@@ -192,7 +228,7 @@ export function WorkbenchPanel() {
             <span>{formatUsd(currentGameSpend)}</span>
           </div>
           <div className="mt-0.5 text-[10px] text-muted-foreground">
-            Soft cap {gameBudgetUsd > 0 ? formatUsd(gameBudgetUsd) : "off"} • {currentGameHistory.length} paid decision(s)
+            Soft cap {gameBudgetUsd > 0 ? formatUsd(gameBudgetUsd) : "off"} • {paidDecisionCount} paid call(s)
           </div>
         </div>
       </section>
@@ -285,7 +321,7 @@ export function WorkbenchPanel() {
         ) : null}
       </section>
 
-      {history.length > 0 ? (
+      {currentGameHistory.length > 0 ? (
         <section className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2">
           <div className="flex items-center justify-between gap-2">
             <p className="font-semibold">Recent AI decisions</p>
@@ -298,7 +334,7 @@ export function WorkbenchPanel() {
             </button>
           </div>
           <div className="space-y-1.5">
-            {history
+            {currentGameHistory
               .slice(-5)
               .reverse()
               .map((item) => (
@@ -323,6 +359,31 @@ export function WorkbenchPanel() {
           </div>
         </section>
       ) : null}
+
+      <section className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="font-semibold">Game decision audit</p>
+            <p className="text-[10px] text-muted-foreground">
+              {currentGameAudit.length} events • {paidDecisionCount} AI calls • {auditErrorCount} error(s)
+            </p>
+          </div>
+          <Download className="h-4 w-4 text-muted-foreground" />
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 w-full px-2 text-[11px]"
+          disabled={currentGameAudit.length === 0}
+          onClick={exportGameAudit}
+        >
+          Export full game audit (.json)
+        </Button>
+        <p className="text-[10px] leading-relaxed text-muted-foreground">
+          Includes the visible game state, engine prompt, chosen output, brief model reason, token
+          usage, estimated cost, latency, deterministic actions, and errors for every logged event.
+        </p>
+      </section>
 
       <section className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2">
         <button
