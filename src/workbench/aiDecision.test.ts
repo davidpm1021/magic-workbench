@@ -140,7 +140,7 @@ describe("Workbench AI decision boundary", () => {
       expect(body.workbenchResponseSchema).toEqual(
         expect.objectContaining({
           type: "object",
-          required: ["output", "reason", "yieldUntil"],
+          required: ["output", "reason", "yieldUntil", "manaPlan"],
           additionalProperties: false,
         }),
       );
@@ -310,6 +310,103 @@ describe("Workbench AI decision boundary", () => {
     });
 
     expect(result.output).toEqual({ type: "act", actionId: "tap:forest-1:0" });
+    vi.unstubAllGlobals();
+  });
+
+  it("captures one strategic mana plan for later local execution", async () => {
+    const audit: unknown[] = [];
+    const prompt = {
+      promptId: "89",
+      input: {
+        type: "payManaCost",
+        presentation: { title: "Test spell", targets: [] },
+        cardId: "card-1",
+        cardName: "Test spell",
+        manaCost: "{1}{U}",
+        canConfirmFromPool: false,
+        actions: [
+          {
+            id: "tap:island:0:U",
+            type: "activateManaAbility",
+            cardId: "island",
+            abilityIndex: 0,
+            producedMana: [{ color: "U", amount: 1 }],
+          },
+          {
+            id: "tap:swamp:0:B",
+            type: "activateManaAbility",
+            cardId: "swamp",
+            abilityIndex: 0,
+            producedMana: [{ color: "B", amount: 1 }],
+          },
+        ],
+      },
+    } as unknown as Prompt;
+
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const messages = JSON.parse(String(init?.body ?? "{}")).messages as Array<{
+        role: string;
+        content: string;
+      }>;
+      const userMessage = JSON.parse(messages.find((message) => message.role === "user")!.content) as {
+        outputRules: string[];
+      };
+      expect(userMessage.outputRules.join(" ")).toContain(
+        "authoritative remaining cost",
+      );
+
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  output: { type: "act", actionId: "tap:island:0:U" },
+                  reason: "Pay blue first, then use the Swamp for the generic remainder.",
+                  yieldUntil: "none",
+                  manaPlan: [
+                    "tap:island:0:U",
+                    "tap:swamp:0:B",
+                    "invented-action",
+                  ],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await requestWorkbenchDecision({
+      baseUrl: "/workbench-ai",
+      model: "gpt-6-luna",
+      strategyPrompt: "Play well.",
+      gameView: {
+        gameId: "g",
+        turn: 3,
+        step: "main1",
+        players: [{ id: "player-0", manaPool: {} }],
+        battlefield: [],
+        stack: [],
+        combatAssignments: [],
+      } as unknown as ClientGameView,
+      prompt,
+      myPlayerSlot: "player-0",
+      onAuditEntry: (entry) => audit.push(entry),
+    });
+
+    expect(result.manaPlan).toEqual([
+      "tap:island:0:U",
+      "tap:swamp:0:B",
+    ]);
+    expect(audit[0]).toEqual(
+      expect.objectContaining({
+        manaPlan: ["tap:island:0:U", "tap:swamp:0:B"],
+      }),
+    );
+
     vi.unstubAllGlobals();
   });
 
