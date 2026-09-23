@@ -26,12 +26,39 @@ export function useWorkbenchController(paused = false): void {
   const gameBudgetUsd = useWorkbenchStore((state) => state.gameBudgetUsd);
   const setRecommendation = useWorkbenchStore((state) => state.setRecommendation);
   const addAuditEntry = useWorkbenchStore((state) => state.addAuditEntry);
+  const recovery = useWorkbenchStore((state) => state.recovery);
+  const retryGeneration = useWorkbenchStore((state) => state.retryGeneration);
+  const setRecovery = useWorkbenchStore((state) => state.setRecovery);
+  const clearRecovery = useWorkbenchStore((state) => state.clearRecovery);
   const setStatus = useWorkbenchStore((state) => state.setStatus);
 
   const inFlightPromptRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (!recovery) return;
+    if (isWaitingForResponse) return;
+    const currentPromptId = Number(currentPrompt?.promptId ?? 0);
+    if (currentPrompt && currentPromptId === recovery.promptId) return;
+
+    clearRecovery();
+    if (controllerMode === "thinking-ai") {
+      setStatus({
+        kind: "paused",
+        message: "Manual recovery completed. Thinking AI takeover resumed.",
+      });
+    }
+  }, [
+    recovery,
+    currentPrompt,
+    isWaitingForResponse,
+    controllerMode,
+    clearRecovery,
+    setStatus,
+  ]);
+
+  useEffect(() => {
     if (paused || !autoYieldTrivial || isWaitingForResponse) return;
+    if (recovery?.mode === "manual" && Number(currentPrompt?.promptId ?? 0) === recovery.promptId) return;
     if (currentPrompt?.input.type !== "chooseAction") return;
     if (currentPrompt.input.actions.length !== 0) return;
 
@@ -74,47 +101,13 @@ export function useWorkbenchController(paused = false): void {
     setStatus,
     showOverrides,
     addAuditEntry,
+    recovery,
   ]);
 
   useEffect(() => {
     if (paused || controllerMode !== "thinking-ai" || isWaitingForResponse) return;
     if (!currentPrompt) return;
-
-    // Manual play may intentionally show informational prompts. During AI
-    // takeover they contain no strategic choice, so acknowledge them locally
-    // instead of pausing takeover or spending an API call.
-    const resolver = resolvePrompt(currentPrompt, { prefs: { show: showOverrides } });
-    if (resolver.kind === "auto") return;
-
-    if (currentPrompt.input.type === "revealCards") {
-      setStatus({
-        kind: "idle",
-        message: "Acknowledged revealed cards automatically. No AI call needed.",
-      });
-      void respond({ type: "revealCardsAcknowledged" });
-      return;
-    }
-
-    if (currentPrompt.input.type === "diceRolled") {
-      setStatus({
-        kind: "idle",
-        message: "Acknowledged dice result automatically. No AI call needed.",
-      });
-      void respond({ type: "diceRolledAcknowledged" });
-    }
-  }, [
-    paused,
-    controllerMode,
-    currentPrompt,
-    isWaitingForResponse,
-    respond,
-    setStatus,
-    showOverrides,
-  ]);
-
-  useEffect(() => {
-    if (paused || controllerMode !== "thinking-ai" || isWaitingForResponse) return;
-    if (!currentPrompt) return;
+    if (recovery?.mode === "manual" && Number(currentPrompt.promptId ?? 0) === recovery.promptId) return;
     if (currentPrompt.input.type !== "revealCards" && currentPrompt.input.type !== "diceRolled") {
       return;
     }
@@ -161,10 +154,12 @@ export function useWorkbenchController(paused = false): void {
     respond,
     setStatus,
     addAuditEntry,
+    recovery,
   ]);
 
   useEffect(() => {
     if (paused || controllerMode !== "thinking-ai" || isWaitingForResponse) return;
+    if (recovery?.mode === "manual" && Number(currentPrompt?.promptId ?? 0) === recovery.promptId) return;
     if (currentPrompt?.input.type !== "payManaCost") return;
     if (!currentPrompt.input.canConfirmFromPool) return;
 
@@ -206,14 +201,16 @@ export function useWorkbenchController(paused = false): void {
     respond,
     setStatus,
     addAuditEntry,
+    recovery,
   ]);
 
   useEffect(() => {
     if (paused || controllerMode !== "thinking-ai") return;
     if (!currentPrompt || isWaitingForResponse) return;
+    const currentPromptId = Number(currentPrompt.promptId ?? 0);
+    if (recovery && recovery.promptId === currentPromptId) return;
     if (autoYieldTrivial && currentPrompt.input.type === "chooseAction" && currentPrompt.input.actions.length === 0) return;
     if (currentPrompt.input.type === "payManaCost" && currentPrompt.input.canConfirmFromPool) return;
-    if (currentPrompt.input.type === "revealCards" || currentPrompt.input.type === "diceRolled") return;
     if (currentPrompt.input.type === "revealCards" || currentPrompt.input.type === "diceRolled") return;
 
     const deterministic = resolvePrompt(currentPrompt, { prefs: { show: showOverrides } });
@@ -241,7 +238,7 @@ export function useWorkbenchController(paused = false): void {
         ? aiFastModel.trim()
         : aiModel.trim();
 
-    const promptId = Number(currentPrompt.promptId ?? 0);
+    const promptId = currentPromptId;
     if (inFlightPromptRef.current === promptId) return;
     inFlightPromptRef.current = promptId;
     const controller = new AbortController();
@@ -302,6 +299,7 @@ export function useWorkbenchController(paused = false): void {
               JSON.stringify(item.output) === JSON.stringify(recommendation.output),
           ).length;
 
+        clearRecovery();
         setRecommendation(recommendation);
 
         if (recentSame >= 2) {
@@ -323,7 +321,16 @@ export function useWorkbenchController(paused = false): void {
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         const message = error instanceof Error ? error.message : String(error);
-        setStatus({ kind: "error", message });
+        setRecovery({
+          promptId,
+          promptType: currentPrompt.input.type,
+          error: message,
+          mode: "error",
+        });
+        setStatus({
+          kind: "error",
+          message: `${message} AI takeover is paused on this decision.`,
+        });
       })
       .finally(() => {
         if (inFlightPromptRef.current === promptId) inFlightPromptRef.current = null;
@@ -347,5 +354,9 @@ export function useWorkbenchController(paused = false): void {
     setStatus,
     showOverrides,
     addAuditEntry,
+    recovery,
+    retryGeneration,
+    setRecovery,
+    clearRecovery,
   ]);
 }
