@@ -4,10 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { DeckCard } from "@/protocol/deck";
 import type { ScryfallCard } from "@/types/scryfall";
 
-vi.hoisted(() => {
-  vi.stubGlobal("__APP_VERSION__", "test");
-  vi.stubGlobal("__WORKBENCH_TEST_DECK_BACKUP__", true);
-});
+vi.hoisted(() => vi.stubGlobal("__APP_VERSION__", "test"));
 vi.mock("@/platform", () => ({
   getPlatformType: () => "web",
 }));
@@ -30,7 +27,16 @@ function card(id: string, setCode: string, cardNumber: string, foil = false): De
 
 beforeAll(async () => {
   fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
-  vi.stubGlobal("fetch", fetchMock);
+  Object.defineProperty(globalThis, "__WORKBENCH_TEST_DECK_BACKUP__", {
+    value: true,
+    configurable: true,
+    writable: true,
+  });
+  Object.defineProperty(globalThis, "fetch", {
+    value: fetchMock,
+    configurable: true,
+    writable: true,
+  });
   ({ useDeckStore } = await import("./useDeckStore"));
   // Import-time hydration timing is intentionally not part of this test.
   // Explicitly rehydrate so the real reconciliation path runs deterministically.
@@ -48,7 +54,14 @@ beforeEach(() => {
   fetchMock.mockClear();
 });
 
-afterAll(() => vi.unstubAllGlobals());
+afterAll(() => {
+  delete (
+    globalThis as typeof globalThis & {
+      __WORKBENCH_TEST_DECK_BACKUP__?: boolean;
+    }
+  ).__WORKBENCH_TEST_DECK_BACKUP__;
+  vi.unstubAllGlobals();
+});
 
 describe("Workbench deck disk backup", () => {
   it("writes savedDecks directly to the local backup endpoint", async () => {
