@@ -320,7 +320,8 @@ function responseRules(prompt: Prompt): string[] {
       ];
     case "chooseColor":
       return [
-        'Return {"type":"colorDecision","chosenColors":{"W":1}} using only prompt.input.validColors.',
+        `Return {"type":"colorDecision","chosenColors":{"<color>":1}} using ONLY these exact color keys: ${JSON.stringify(prompt.input.validColors)}.`,
+        "Copy color strings exactly from validColors. Do not abbreviate, expand, or translate them.",
         "Counts must be nonnegative integers totaling prompt.input.amount. If repeatAllowed is false, each count is at most 1.",
       ];
     case "chooseNumber":
@@ -552,18 +553,20 @@ function validatePromptOutput(prompt: Prompt, value: unknown): PromptOutput["out
       if (value.type !== "colorDecision" || !isRecord(value.chosenColors)) {
         throw new Error("AI returned an invalid color choice.");
       }
-      const allowed = new Set(prompt.input.validColors);
       const chosenColors: Record<string, number> = {};
       let total = 0;
-      for (const [color, rawCount] of Object.entries(value.chosenColors)) {
-        if (!allowed.has(color) || !Number.isInteger(rawCount) || (rawCount as number) < 0) {
-          throw new Error("AI returned an illegal color allocation.");
+      for (const [rawColor, rawCount] of Object.entries(value.chosenColors)) {
+        const color = normalizeColorKey(rawColor, prompt.input.validColors);
+        if (!color || !Number.isInteger(rawCount) || (rawCount as number) < 0) {
+          throw new Error(
+            `AI returned an illegal color allocation. Legal colors: ${prompt.input.validColors.join(", ")}.`,
+          );
         }
         const count = rawCount as number;
         if (!prompt.input.repeatAllowed && count > 1) {
           throw new Error("AI repeated a color when repetition is not allowed.");
         }
-        if (count > 0) chosenColors[color] = count;
+        if (count > 0) chosenColors[color] = (chosenColors[color] ?? 0) + count;
         total += count;
       }
       if (total !== prompt.input.amount) {
@@ -743,6 +746,31 @@ function parseJsonDecision(content: string): ModelDecision {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeColorKey(raw: string, validColors: string[]): string | null {
+  if (validColors.includes(raw)) return raw;
+
+  const aliases: Record<string, string[]> = {
+    W: ["W", "White"],
+    U: ["U", "Blue"],
+    B: ["B", "Black"],
+    R: ["R", "Red"],
+    G: ["G", "Green"],
+    C: ["C", "Colorless"],
+  };
+
+  const normalized = raw.trim().toLowerCase();
+  for (const values of Object.values(aliases)) {
+    const matchesAlias = values.some((value) => value.toLowerCase() === normalized);
+    if (!matchesAlias) continue;
+    const legal = validColors.find((valid) =>
+      values.some((value) => value.toLowerCase() === valid.toLowerCase()),
+    );
+    if (legal) return legal;
+  }
+
+  return null;
 }
 
 function stringArray(value: unknown): value is string[] {
