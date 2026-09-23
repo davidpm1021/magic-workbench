@@ -29,6 +29,9 @@ beforeAll(async () => {
   fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
   vi.stubGlobal("fetch", fetchMock);
   ({ useDeckStore } = await import("./useDeckStore"));
+  // Import-time hydration timing is intentionally not part of this test.
+  // Explicitly rehydrate so the real reconciliation path runs deterministically.
+  await useDeckStore.persist.rehydrate();
   await vi.waitFor(() => {
     expect(
       fetchMock.mock.calls.some(
