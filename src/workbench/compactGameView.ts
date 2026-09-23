@@ -1,5 +1,19 @@
 import type { ClientCardDto, ClientGameView } from "@/stores/gameStore.types";
 
+function cardCharacteristicsKey(card: ClientCardDto): string {
+  return JSON.stringify({
+    name: card.identity.name,
+    manaCost: card.manaCost,
+    cmc: card.cmc,
+    types: card.types,
+    subtypes: card.subtypes,
+    power: card.power,
+    toughness: card.toughness,
+    text: card.text,
+    keywords: card.keywords,
+  });
+}
+
 function compactCard(card: ClientCardDto) {
   return {
     id: card.id,
@@ -28,6 +42,36 @@ function compactCard(card: ClientCardDto) {
     transformed: card.isTransformed,
     faceDown: card.isFaceDown,
   };
+}
+
+function compactBattlefield(cards: ClientCardDto[]) {
+  const firstByCharacteristics = new Map<string, string>();
+  return cards.map((card) => {
+    const key = cardCharacteristicsKey(card);
+    const firstId = firstByCharacteristics.get(key);
+    const full = compactCard(card);
+    if (!firstId) {
+      firstByCharacteristics.set(key, card.id);
+      return full;
+    }
+
+    const {
+      manaCost: _manaCost,
+      cmc: _cmc,
+      types: _types,
+      subtypes: _subtypes,
+      power: _power,
+      toughness: _toughness,
+      text: _text,
+      keywords: _keywords,
+      choices: _choices,
+      ...state
+    } = full;
+    return {
+      ...state,
+      sameCharacteristicsAs: firstId,
+    };
+  });
 }
 
 export function compactWorkbenchGameView(view: ClientGameView) {
@@ -70,7 +114,7 @@ export function compactWorkbenchGameView(view: ClientGameView) {
       commandZone: (player.commandZone ?? []).map(compactCard),
       visibleLibraryCards: (player.library ?? []).map(compactCard),
     })),
-    battlefield: (view.battlefield ?? []).map(compactCard),
+    battlefield: compactBattlefield(view.battlefield ?? []),
     stack: (view.stack ?? []).map((item) => ({
       id: item.id,
       sourceId: item.sourceId,
