@@ -3,6 +3,7 @@ import { useGameStore } from "@/stores/useGameStore";
 import { usePromptPreferencesStore } from "@/stores/usePromptPreferencesStore";
 import { resolvePrompt } from "@/components/prompts/internal/promptHandlers";
 import { classifyWorkbenchDecision } from "./decisionImportance";
+import { compactWorkbenchGameView } from "./compactGameView";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import {
   isWorkbenchAiPrompt,
@@ -24,6 +25,7 @@ export function useWorkbenchController(paused = false): void {
   const autoYieldTrivial = useWorkbenchStore((state) => state.autoYieldTrivial);
   const gameBudgetUsd = useWorkbenchStore((state) => state.gameBudgetUsd);
   const setRecommendation = useWorkbenchStore((state) => state.setRecommendation);
+  const addAuditEntry = useWorkbenchStore((state) => state.addAuditEntry);
   const setStatus = useWorkbenchStore((state) => state.setStatus);
 
   const inFlightPromptRef = useRef<number | null>(null);
@@ -33,6 +35,31 @@ export function useWorkbenchController(paused = false): void {
     if (currentPrompt?.input.type !== "chooseAction") return;
     if (currentPrompt.input.actions.length !== 0) return;
 
+    const gameView = useGameStore.getState().gameView;
+    if (gameView) {
+      addAuditEntry({
+        id: `det-${Date.now()}-${currentPrompt.promptId ?? 0}`,
+        gameId: gameView.gameId,
+        createdAt: Date.now(),
+        source: "deterministic",
+        status: "deterministic",
+        promptId: Number(currentPrompt.promptId ?? 0),
+        promptType: currentPrompt.input.type,
+        importance: "deterministic",
+        model: null,
+        latencyMs: 0,
+        usage: null,
+        estimatedCostUsd: 0,
+        reason: "No legal action was available beyond passing priority.",
+        output: { type: "pass", exhaustStack: false },
+        error: null,
+        responseStatus: null,
+        incompleteReason: null,
+        rawModelText: null,
+        promptSnapshot: currentPrompt,
+        visibleGameState: compactWorkbenchGameView(gameView),
+      });
+    }
     setStatus({
       kind: "idle",
       message: "Auto-yielded priority because the engine exposed no legal actions.",
@@ -46,6 +73,7 @@ export function useWorkbenchController(paused = false): void {
     respond,
     setStatus,
     showOverrides,
+    addAuditEntry,
   ]);
 
   useEffect(() => {
@@ -86,9 +114,85 @@ export function useWorkbenchController(paused = false): void {
 
   useEffect(() => {
     if (paused || controllerMode !== "thinking-ai" || isWaitingForResponse) return;
+    if (!currentPrompt) return;
+    if (currentPrompt.input.type !== "revealCards" && currentPrompt.input.type !== "diceRolled") {
+      return;
+    }
+
+    const gameView = useGameStore.getState().gameView;
+    const output =
+      currentPrompt.input.type === "revealCards"
+        ? ({ type: "revealCardsAcknowledged" } as const)
+        : ({ type: "diceRolledAcknowledged" } as const);
+    if (gameView) {
+      addAuditEntry({
+        id: `det-${Date.now()}-${currentPrompt.promptId ?? 0}`,
+        gameId: gameView.gameId,
+        createdAt: Date.now(),
+        source: "deterministic",
+        status: "deterministic",
+        promptId: Number(currentPrompt.promptId ?? 0),
+        promptType: currentPrompt.input.type,
+        importance: "deterministic",
+        model: null,
+        latencyMs: 0,
+        usage: null,
+        estimatedCostUsd: 0,
+        reason: "Informational prompt acknowledged automatically; no strategic choice was required.",
+        output,
+        error: null,
+        responseStatus: null,
+        incompleteReason: null,
+        rawModelText: null,
+        promptSnapshot: currentPrompt,
+        visibleGameState: compactWorkbenchGameView(gameView),
+      });
+    }
+    setStatus({
+      kind: "idle",
+      message: "Acknowledged informational prompt automatically. No AI call needed.",
+    });
+    void respond(output);
+  }, [
+    paused,
+    controllerMode,
+    currentPrompt,
+    isWaitingForResponse,
+    respond,
+    setStatus,
+    addAuditEntry,
+  ]);
+
+  useEffect(() => {
+    if (paused || controllerMode !== "thinking-ai" || isWaitingForResponse) return;
     if (currentPrompt?.input.type !== "payManaCost") return;
     if (!currentPrompt.input.canConfirmFromPool) return;
 
+    const gameView = useGameStore.getState().gameView;
+    if (gameView) {
+      addAuditEntry({
+        id: `det-${Date.now()}-${currentPrompt.promptId ?? 0}`,
+        gameId: gameView.gameId,
+        createdAt: Date.now(),
+        source: "deterministic",
+        status: "deterministic",
+        promptId: Number(currentPrompt.promptId ?? 0),
+        promptType: currentPrompt.input.type,
+        importance: "deterministic",
+        model: null,
+        latencyMs: 0,
+        usage: null,
+        estimatedCostUsd: 0,
+        reason: "The engine reported the mana pool already satisfied the cost.",
+        output: { type: "pay", auto: false },
+        error: null,
+        responseStatus: null,
+        incompleteReason: null,
+        rawModelText: null,
+        promptSnapshot: currentPrompt,
+        visibleGameState: compactWorkbenchGameView(gameView),
+      });
+    }
     setStatus({
       kind: "idle",
       message: "Confirmed mana payment deterministically because the pool satisfies the cost.",
@@ -101,6 +205,7 @@ export function useWorkbenchController(paused = false): void {
     isWaitingForResponse,
     respond,
     setStatus,
+    addAuditEntry,
   ]);
 
   useEffect(() => {
@@ -108,6 +213,7 @@ export function useWorkbenchController(paused = false): void {
     if (!currentPrompt || isWaitingForResponse) return;
     if (autoYieldTrivial && currentPrompt.input.type === "chooseAction" && currentPrompt.input.actions.length === 0) return;
     if (currentPrompt.input.type === "payManaCost" && currentPrompt.input.canConfirmFromPool) return;
+    if (currentPrompt.input.type === "revealCards" || currentPrompt.input.type === "diceRolled") return;
     if (currentPrompt.input.type === "revealCards" || currentPrompt.input.type === "diceRolled") return;
 
     const deterministic = resolvePrompt(currentPrompt, { prefs: { show: showOverrides } });
@@ -148,8 +254,8 @@ export function useWorkbenchController(paused = false): void {
     }
 
     const workbenchState = useWorkbenchStore.getState();
-    const gameSpend = workbenchState.history
-      .filter((item) => item.gameId === gameView.gameId)
+    const gameSpend = workbenchState.auditLog
+      .filter((item) => item.gameId === gameView.gameId && item.source === "ai")
       .reduce((sum, item) => sum + (item.estimatedCostUsd ?? 0), 0);
     if (gameBudgetUsd > 0 && gameSpend >= gameBudgetUsd) {
       inFlightPromptRef.current = null;
@@ -174,6 +280,7 @@ export function useWorkbenchController(paused = false): void {
       prompt: currentPrompt,
       myPlayerSlot: state.myPlayerSlot,
       signal: controller.signal,
+      onAuditEntry: addAuditEntry,
     })
       .then(async (recommendation) => {
         const latestGame = useGameStore.getState();
@@ -239,5 +346,6 @@ export function useWorkbenchController(paused = false): void {
     setRecommendation,
     setStatus,
     showOverrides,
+    addAuditEntry,
   ]);
 }
