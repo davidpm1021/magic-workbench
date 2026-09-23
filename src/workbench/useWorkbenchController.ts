@@ -8,6 +8,7 @@ import {
   buildWorkbenchDecisionContext,
   chooseActionHasOnlyManaManagement,
   chooseDeterministicManaStep,
+  countRepeatedSamePromptDecision,
 } from "./controllerPolicy";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import {
@@ -433,15 +434,10 @@ export function useWorkbenchController(paused = false): void {
           return;
         }
 
-        const recentSame = latestWorkbench.history
-          .slice(-3)
-          .reverse()
-          .filter(
-            (item) =>
-              item.gameId === recommendation.gameId &&
-              item.promptFingerprint === recommendation.promptFingerprint &&
-              JSON.stringify(item.output) === JSON.stringify(recommendation.output),
-          ).length;
+        const recentSame = countRepeatedSamePromptDecision(
+          latestWorkbench.history,
+          recommendation,
+        );
 
         clearRecovery();
         setRecommendation(recommendation);
