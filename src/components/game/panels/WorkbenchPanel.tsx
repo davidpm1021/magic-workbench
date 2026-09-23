@@ -153,6 +153,7 @@ export function WorkbenchPanel() {
           auditLog,
           gameView,
           gameLog,
+          currentPrompt,
         }),
         onAuditEntry: addAuditEntry,
       });
