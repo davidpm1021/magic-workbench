@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Prompt } from "@/protocol";
 import type { ClientGameView } from "@/stores/gameStore.types";
 import { compactWorkbenchGameView } from "./compactGameView";
 
@@ -72,6 +73,128 @@ describe("compactWorkbenchGameView", () => {
     const hand = players[0]?.hand as Array<Record<string, unknown>>;
     expect(hand[0]?.name).toBe("Sol Ring");
     expect(hand[0]?.text).toBe("{T}: Add {C}{C}.");
+  });
+
+  it("keeps long graveyard/exile zones lean except for cards relevant to the current prompt", () => {
+    const graveCard = (id: string, name: string, text: string) => ({
+      id,
+      identity: { name },
+      zoneId: "graveyard",
+      controllerId: "player-1",
+      ownerId: "player-1",
+      manaCost: "{1}{B}",
+      cmc: 2,
+      types: ["Instant"],
+      subtypes: [],
+      power: null,
+      toughness: null,
+      text,
+      tapped: false,
+      isAttacking: false,
+      summoningSick: false,
+      keywords: [],
+      counters: {},
+      damage: 0,
+      choices: [],
+      attachmentIds: [],
+    });
+
+    const view = {
+      gameId: "game-long",
+      turn: 20,
+      step: "main1",
+      activePlayerId: "player-0",
+      priorityPlayerId: "player-0",
+      gameOver: false,
+      players: [
+        {
+          id: "player-0",
+          name: "You",
+          status: "playing",
+          life: 30,
+          handCount: 0,
+          libraryCount: 60,
+          hand: [],
+          graveyard: [],
+          exile: [],
+          commandZone: [],
+          library: [],
+          manaPool: {},
+          counters: {},
+          commanderDamage: {},
+          commanderCasts: {},
+          poison: 0,
+          energyCounters: 0,
+          experienceCounters: 0,
+          radiationCounters: 0,
+          ticketCounters: 0,
+          landsPlayedThisTurn: 1,
+          maxLandPlaysPerTurn: 1,
+          cardsDrawnThisTurn: 1,
+          playerKeywords: [],
+        },
+        {
+          id: "player-1",
+          name: "Opponent",
+          status: "playing",
+          life: 30,
+          handCount: 0,
+          libraryCount: 60,
+          hand: [],
+          graveyard: [
+            graveCard("terminate", "Terminate", "Destroy target creature. It can't be regenerated."),
+            graveCard("other", "Other Spell", "Draw three cards, then discard a card."),
+          ],
+          exile: [],
+          commandZone: [],
+          library: [],
+          manaPool: {},
+          counters: {},
+          commanderDamage: {},
+          commanderCasts: {},
+          poison: 0,
+          energyCounters: 0,
+          experienceCounters: 0,
+          radiationCounters: 0,
+          ticketCounters: 0,
+          landsPlayedThisTurn: 1,
+          maxLandPlaysPerTurn: 1,
+          cardsDrawnThisTurn: 1,
+          playerKeywords: [],
+        },
+      ],
+      battlefield: [],
+      stack: [],
+      combatAssignments: [],
+    } as unknown as ClientGameView;
+    const prompt = {
+      promptId: 1,
+      decidingPlayerId: "player-0",
+      input: {
+        type: "chooseBoardTargets",
+        presentation: { title: "Exile", targets: [] },
+        candidates: [{ kind: "card", id: "terminate" }],
+        hostile: true,
+        intent: "exile",
+        minTargets: 1,
+        maxTargets: 1,
+        chosenTargets: 0,
+        cancellable: false,
+      },
+    } as unknown as Prompt;
+
+    const compact = compactWorkbenchGameView(view, prompt);
+    const opponent = compact.players[1];
+    const graveyard = opponent.graveyard as Array<Record<string, unknown>>;
+    expect(graveyard[0]?.text).toBe("Destroy target creature. It can't be regenerated.");
+    expect(graveyard[1]?.text).toBeUndefined();
+    expect(graveyard[1]).toEqual(
+      expect.objectContaining({
+        id: "other",
+        name: "Other Spell",
+        cmc: 2,
+      }),
+    );
   });
 
   it("deduplicates repeated battlefield characteristics while keeping individual IDs and state", () => {
