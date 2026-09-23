@@ -247,4 +247,118 @@ describe("Workbench AI decision boundary", () => {
     vi.unstubAllGlobals();
   });
 
+
+  it("records a complete audit entry for a successful AI decision", async () => {
+    const audit: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    output: { type: "act", actionId: "cast-1" },
+                    reason: "Use the available tempo.",
+                  }),
+                },
+              },
+            ],
+            workbenchUsage: {
+              inputTokens: 100,
+              cachedInputTokens: 0,
+              cacheWriteTokens: 0,
+              outputTokens: 20,
+              reasoningTokens: 10,
+              totalTokens: 120,
+            },
+            workbenchMeta: {
+              responseStatus: "completed",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    await requestWorkbenchDecision({
+      baseUrl: "/workbench-ai",
+      model: "gpt-6-luna",
+      strategyPrompt: "Play well.",
+      gameView,
+      prompt: chooseActionPrompt(),
+      myPlayerSlot: "player-0",
+      onAuditEntry: (entry) => audit.push(entry),
+    });
+
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toEqual(
+      expect.objectContaining({
+        source: "ai",
+        status: "success",
+        promptType: "chooseAction",
+        model: "gpt-6-luna",
+        responseStatus: "completed",
+        output: { type: "act", actionId: "cast-1" },
+      }),
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("records provider failures including incomplete-response metadata", async () => {
+    const audit: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              message:
+                "OpenAI used the output-token budget during reasoning before producing a decision.",
+            },
+            workbenchUsage: {
+              inputTokens: 100,
+              cachedInputTokens: 0,
+              cacheWriteTokens: 0,
+              outputTokens: 8000,
+              reasoningTokens: 8000,
+              totalTokens: 8100,
+            },
+            workbenchMeta: {
+              responseStatus: "incomplete",
+              incompleteReason: "max_output_tokens",
+            },
+          }),
+          { status: 422, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    await expect(
+      requestWorkbenchDecision({
+        baseUrl: "/workbench-ai",
+        model: "gpt-6-luna",
+        strategyPrompt: "Play well.",
+        gameView,
+        prompt: chooseActionPrompt(),
+        myPlayerSlot: "player-0",
+        onAuditEntry: (entry) => audit.push(entry),
+      }),
+    ).rejects.toThrow("output-token budget");
+
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toEqual(
+      expect.objectContaining({
+        source: "ai",
+        status: "error",
+        responseStatus: "incomplete",
+        incompleteReason: "max_output_tokens",
+      }),
+    );
+
+    vi.unstubAllGlobals();
+  });
+
 });
