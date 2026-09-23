@@ -261,6 +261,8 @@ function dropInlinePlaymat<T extends object>(deck: T): T {
 // stored decks — writes are dropped and the on-disk data survives untouched.
 let deckPersistReady = false;
 let deckDiskBackupReady = false;
+let deckHydrationGeneration = 0;
+let deckReconciledGeneration = -1;
 const WORKBENCH_DECK_BACKUP_URL = "/workbench-data/decks";
 let workbenchDeckBackupTestEnabled = false;
 
@@ -1381,9 +1383,6 @@ export const useDeckStore = create<DeckState>()(
     { name: "deck", enabled: import.meta.env.DEV },
   ),
 );
-
-let deckHydrationGeneration = 0;
-let deckReconciledGeneration = -1;
 
 function beginDeckHydration(): void {
   deckHydrationGeneration += 1;
