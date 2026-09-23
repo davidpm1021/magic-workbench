@@ -399,6 +399,11 @@ export interface WorkbenchDecisionContext {
       damageNeeded: number;
       lethalIfUnblockedNow: boolean;
     }>;
+    ownCommanders: Array<{
+      id: string;
+      name: string;
+      visibleZone: string | null;
+    }>;
     fightOutcomes: Array<{
       sourceId: string;
       sourceName: string;
@@ -803,6 +808,15 @@ export function buildWorkbenchDecisionContext(args: {
       });
     });
 
+  const ownCommanders = commanderIds.map((commanderId) => {
+    const card = visibleById.get(commanderId);
+    return {
+      id: commanderId,
+      name: card?.identity.name ?? commanderId,
+      visibleZone: card?.zoneId ?? null,
+    };
+  });
+
   const fightOutcomes: WorkbenchDecisionContext["strategicFacts"]["fightOutcomes"] = [];
   if (currentPrompt && actionCardHasFight(currentPrompt, gameView)) {
     const ownCreatures = (gameView.battlefield ?? []).filter(
@@ -879,6 +893,7 @@ export function buildWorkbenchDecisionContext(args: {
     combatAssignments,
     unblockedAttackers,
     commanderThreats,
+    ownCommanders,
     fightOutcomes,
   };
 
@@ -924,6 +939,7 @@ export function buildWorkbenchDecisionContext(args: {
       "Use fightOutcomes for baseline fight damage arithmetic. Do not claim a creature is removed when targetLethalByToughness is false unless a visible keyword or effect changes that result.",
       "Use combatAssignments and unblockedAttackers instead of inferring blocks from which creatures are untapped.",
       "Use commanderThreats for commander-damage arithmetic and actively check for deterministic lethal before choosing slower value lines.",
+      "ownCommanders identifies the commander's currently visible zone. In a normal singleton Commander game, if a named commander is already visibly outside the library, do not assume a Partner/search effect can find another copy of that commander.",
       "Never treat hidden-library or other unresolved random outcomes as known. Describe future trigger results conditionally until the engine reveals them.",
       "On your turn, prefer to cast proactive spells in a main phase after the draw step and available land drop unless acting earlier has a concrete tactical benefit. State that benefit when deviating.",
     ],
