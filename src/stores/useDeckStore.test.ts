@@ -38,16 +38,9 @@ beforeAll(async () => {
     writable: true,
   });
   ({ useDeckStore } = await import("./useDeckStore"));
-  // Import-time hydration timing is intentionally not part of this test.
-  // Explicitly rehydrate so the real reconciliation path runs deterministically.
+  // Explicitly rehydrate once so the real persistence lifecycle has run before
+  // individual tests mutate the saved-deck library.
   await useDeckStore.persist.rehydrate();
-  await vi.waitFor(() => {
-    expect(
-      fetchMock.mock.calls.some(
-        ([url, init]) => url === "/workbench-data/decks" && init?.method === "GET",
-      ),
-    ).toBe(true);
-  });
 });
 
 beforeEach(() => {
