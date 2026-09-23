@@ -45,6 +45,37 @@ function compactCard(card: ClientCardDto) {
   };
 }
 
+function compactModelCard(card: ClientCardDto) {
+  const result: Record<string, unknown> = {
+    id: card.id,
+    name: card.identity.name,
+    zone: card.zoneId,
+    controllerId: card.controllerId,
+    ownerId: card.ownerId,
+    manaCost: card.manaCost,
+    cmc: card.cmc,
+    types: card.types,
+    subtypes: card.subtypes,
+    text: card.text,
+  };
+  if (card.power != null) result.power = card.power;
+  if (card.toughness != null) result.toughness = card.toughness;
+  if (card.tapped) result.tapped = true;
+  if (card.isAttacking) result.attacking = true;
+  if (card.attackTargetId) result.attackTargetId = card.attackTargetId;
+  if (card.summoningSick) result.summoningSick = true;
+  if ((card.keywords ?? []).length > 0) result.keywords = card.keywords;
+  if (card.counters && Object.keys(card.counters).length > 0) result.counters = card.counters;
+  if ((card.damage ?? 0) > 0) result.damage = card.damage;
+  if ((card.choices ?? []).length > 0) result.choices = card.choices;
+  if (card.attachedTo) result.attachedTo = card.attachedTo;
+  if ((card.attachmentIds ?? []).length > 0) result.attachmentIds = card.attachmentIds;
+  if ((card.commanderTax ?? 0) > 0) result.commanderTax = card.commanderTax;
+  if (card.isTransformed) result.transformed = true;
+  if (card.isFaceDown) result.faceDown = true;
+  return result;
+}
+
 function compactReferenceCard(card: ClientCardDto) {
   return {
     id: card.id,
@@ -103,12 +134,12 @@ function promptRelevantCardIds(prompt?: Prompt): Set<string> {
   return ids;
 }
 
-function compactBattlefield(cards: ClientCardDto[]) {
+function compactBattlefield(cards: ClientCardDto[], forModel = false) {
   const firstByCharacteristics = new Map<string, string>();
   return cards.map((card) => {
     const key = cardCharacteristicsKey(card);
     const firstId = firstByCharacteristics.get(key);
-    const full = compactCard(card);
+    const full = forModel ? compactModelCard(card) : compactCard(card);
     if (!firstId) {
       firstByCharacteristics.set(key, card.id);
       return full;
@@ -135,10 +166,19 @@ function compactBattlefield(cards: ClientCardDto[]) {
 
 export function compactWorkbenchGameView(view: ClientGameView, prompt?: Prompt) {
   const relevantCardIds = promptRelevantCardIds(prompt);
+  const forModel = prompt != null;
+  const fullCard = (card: ClientCardDto) =>
+    forModel ? compactModelCard(card) : compactCard(card);
   const compactLongZoneCard = (card: ClientCardDto) =>
-    relevantCardIds.has(card.id) ? compactCard(card) : compactReferenceCard(card);
+    relevantCardIds.has(card.id) ? fullCard(card) : compactReferenceCard(card);
 
   return {
+    ...(forModel
+      ? {
+          compactEncoding:
+            "Omitted boolean fields are false; omitted arrays/objects are empty; omitted nullable fields are null.",
+        }
+      : {}),
     gameId: view.gameId,
     turn: view.turn,
     step: view.step,
@@ -171,13 +211,13 @@ export function compactWorkbenchGameView(view: ClientGameView, prompt?: Prompt) 
       maxLandPlaysPerTurn: player.maxLandPlaysPerTurn,
       cardsDrawnThisTurn: player.cardsDrawnThisTurn,
       playerKeywords: player.playerKeywords,
-      hand: (player.hand ?? []).map(compactCard),
+      hand: (player.hand ?? []).map(fullCard),
       graveyard: (player.graveyard ?? []).map(compactLongZoneCard),
       exile: (player.exile ?? []).map(compactLongZoneCard),
-      commandZone: (player.commandZone ?? []).map(compactCard),
-      visibleLibraryCards: (player.library ?? []).map(compactCard),
+      commandZone: (player.commandZone ?? []).map(fullCard),
+      visibleLibraryCards: (player.library ?? []).map(fullCard),
     })),
-    battlefield: compactBattlefield(view.battlefield ?? []),
+    battlefield: compactBattlefield(view.battlefield ?? [], forModel),
     stack: (view.stack ?? []).map((item) => ({
       id: item.id,
       sourceId: item.sourceId,
