@@ -687,6 +687,185 @@ describe("Workbench controller policy", () => {
     );
   });
 
+  it("does not invalidate an action-scoped yield for unrelated opponent life changes", () => {
+    const prompt = {
+      promptId: 131,
+      decidingPlayerId: "player-0",
+      input: {
+        type: "chooseAction",
+        actions: [
+          {
+            id: "cast-high-tide",
+            type: "cast",
+            cardId: "high-tide",
+            label: "Cast High Tide",
+            mode: { type: "normal" },
+          },
+        ],
+      },
+    } as unknown as Prompt;
+    const base = {
+      ...view(),
+      turn: 4,
+      activePlayerId: "player-1",
+      priorityPlayerId: "player-0",
+      players: [
+        {
+          id: "player-0",
+          life: 30,
+          manaPool: {},
+          hand: [{ id: "high-tide" }],
+          graveyard: [],
+          exile: [],
+          commandZone: [],
+          library: [],
+        },
+        {
+          id: "player-1",
+          life: 40,
+          manaPool: {},
+          hand: [],
+          graveyard: [],
+          exile: [],
+          commandZone: [],
+          library: [],
+        },
+      ],
+      battlefield: [],
+      stack: [],
+      combatAssignments: [],
+    } as unknown as ClientGameView;
+    const unrelated = {
+      ...base,
+      players: [base.players[0], { ...base.players[1], life: 37 }],
+    } as ClientGameView;
+
+    expect(buildMaterialDecisionFingerprint(prompt, unrelated)).toBe(
+      buildMaterialDecisionFingerprint(prompt, base),
+    );
+  });
+
+  it("exposes authoritative owner/controller and zone-active facts for unusual commanders", () => {
+    const game = {
+      ...view(),
+      activePlayerId: "player-0",
+      priorityPlayerId: "player-0",
+      players: [
+        {
+          id: "player-0",
+          life: 10,
+          manaPool: {},
+          hand: [],
+          graveyard: [],
+          exile: [],
+          library: [],
+          commandZone: [
+            {
+              id: "saruman",
+              identity: { name: "Saruman of Many Colors" },
+              zoneId: "command",
+              controllerId: "player-0",
+              ownerId: "player-0",
+              types: ["Creature"],
+              text: "Whenever you cast your second spell each turn, each opponent mills two cards.",
+            },
+          ],
+          commanderCasts: { saruman: 0 },
+        },
+        {
+          id: "player-1",
+          life: 46,
+          manaPool: {},
+          hand: [],
+          graveyard: [],
+          exile: [],
+          library: [],
+          commandZone: [],
+          commanderCasts: { xantcha: 1 },
+        },
+      ],
+      battlefield: [
+        {
+          id: "xantcha",
+          identity: { name: "Xantcha, Sleeper Agent" },
+          zoneId: "battlefield",
+          controllerId: "player-0",
+          ownerId: "player-1",
+          types: ["Creature"],
+          text: "{3}: Xantcha's controller loses 2 life and you draw a card. Any player may activate this ability.",
+          tapped: false,
+          summoningSick: false,
+          keywords: [],
+        },
+      ],
+      stack: [],
+      combatAssignments: [],
+    } as unknown as ClientGameView;
+
+    const xantchaContext = buildWorkbenchDecisionContext({
+      auditLog: [],
+      gameView: game,
+      gameLog: [],
+      currentPrompt: {
+        promptId: 132,
+        decidingPlayerId: "player-0",
+        input: {
+          type: "chooseAction",
+          actions: [
+            {
+              id: "activate-xantcha",
+              type: "activateAbility",
+              cardId: "xantcha",
+              abilityIndex: 0,
+              description: "{3}: Xantcha's controller loses 2 life and you draw a card.",
+              isManaAbility: false,
+            },
+          ],
+        },
+      } as unknown as Prompt,
+    });
+
+    expect(xantchaContext.actionSourceFacts[0]).toEqual(
+      expect.objectContaining({
+        cardId: "xantcha",
+        zone: "battlefield",
+        controllerId: "player-0",
+        ownerId: "player-1",
+        permanentBattlefieldAbilitiesActiveByDefault: true,
+      }),
+    );
+
+    const sarumanContext = buildWorkbenchDecisionContext({
+      auditLog: [],
+      gameView: game,
+      gameLog: [],
+      currentPrompt: {
+        promptId: 133,
+        decidingPlayerId: "player-0",
+        input: {
+          type: "chooseAction",
+          actions: [
+            {
+              id: "cast-saruman",
+              type: "cast",
+              cardId: "saruman",
+              label: "Cast Saruman of Many Colors",
+              mode: { type: "normal" },
+            },
+          ],
+        },
+      } as unknown as Prompt,
+    });
+
+    expect(sarumanContext.actionSourceFacts[0]).toEqual(
+      expect.objectContaining({
+        cardId: "saruman",
+        zone: "command",
+        permanentBattlefieldAbilitiesActiveByDefault: false,
+      }),
+    );
+  });
+
   it("summarizes visible post-decision state changes for the audit", () => {
     const before = {
       players: [{ id: "player-0", life: 20, handCount: 3, libraryCount: 80, commanderDamage: {} }],
