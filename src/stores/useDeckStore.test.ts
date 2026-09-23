@@ -78,9 +78,6 @@ describe("Workbench deck disk backup", () => {
   });
 
   it("does not delete the disk backup when browser persistence is cleared", async () => {
-    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
-    vi.stubGlobal("fetch", fetchMock);
-
     useDeckStore.persist.clearStorage();
 
     expect(
@@ -88,7 +85,49 @@ describe("Workbench deck disk backup", () => {
         ([url, init]) => url === "/workbench-data/decks" && init?.method === "DELETE",
       ),
     ).toBe(false);
+  });
 
+  it("restores saved decks from disk when browser storage is empty", async () => {
+    const persistedDeck = {
+      id: "disk-deck-1",
+      deck: {
+        name: "Recovered Commander Deck",
+        format: "commander",
+        cards: [],
+        sideboard: [],
+      },
+      savedAt: 1234,
+    };
+
+    localStorage.removeItem("manabrew-deck-storage");
+    useDeckStore.setState({ savedDecks: [] });
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/workbench-data/decks" && (!init?.method || init.method === "GET")) {
+        return new Response(
+          JSON.stringify({
+            schemaVersion: 1,
+            updatedAt: 2000,
+            savedDecks: [persistedDeck],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(null, { status: 204 });
+    });
+
+    await useDeckStore.persist.rehydrate();
+
+    await vi.waitFor(() => {
+      expect(
+        useDeckStore.getState().savedDecks.some(
+          (saved) =>
+            saved.id === persistedDeck.id &&
+            saved.deck.name === "Recovered Commander Deck",
+        ),
+      ).toBe(true);
+    });
   });
 });
 
