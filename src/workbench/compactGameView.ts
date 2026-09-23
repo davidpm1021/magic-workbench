@@ -1,3 +1,4 @@
+import type { Prompt } from "@/protocol";
 import type { ClientCardDto, ClientGameView } from "@/stores/gameStore.types";
 
 function cardCharacteristicsKey(card: ClientCardDto): string {
@@ -44,6 +45,64 @@ function compactCard(card: ClientCardDto) {
   };
 }
 
+function compactReferenceCard(card: ClientCardDto) {
+  return {
+    id: card.id,
+    name: card.identity.name,
+    zone: card.zoneId,
+    controllerId: card.controllerId,
+    ownerId: card.ownerId,
+    manaCost: card.manaCost,
+    cmc: card.cmc,
+    types: card.types,
+    subtypes: card.subtypes,
+    power: card.power,
+    toughness: card.toughness,
+    tapped: card.tapped,
+    attacking: card.isAttacking,
+    counters: card.counters,
+    damage: card.damage,
+  };
+}
+
+function promptRelevantCardIds(prompt?: Prompt): Set<string> {
+  const ids = new Set<string>();
+  if (!prompt) return ids;
+  if (prompt.sourceCard?.id) ids.add(prompt.sourceCard.id);
+
+  switch (prompt.input.type) {
+    case "chooseAction":
+    case "payManaCost":
+      for (const action of prompt.input.actions) {
+        const cardId = (action as { cardId?: string }).cardId;
+        if (cardId) ids.add(cardId);
+      }
+      if (prompt.input.type === "payManaCost" && prompt.input.cardId) ids.add(prompt.input.cardId);
+      break;
+    case "chooseBoardTargets":
+      for (const target of prompt.input.candidates) {
+        if (target.kind === "card") ids.add(target.id);
+      }
+      break;
+    case "chooseCards":
+    case "scry":
+      for (const card of prompt.input.cards) ids.add(card.id);
+      break;
+    case "chooseDamageAssignmentOrder":
+      ids.add(prompt.input.attackerId);
+      for (const id of prompt.input.blockerIds) ids.add(id);
+      break;
+    case "chooseCombatDamageAssignment":
+      ids.add(prompt.input.attackerId);
+      for (const id of prompt.input.blockerIds) ids.add(id);
+      if (prompt.input.defenderId) ids.add(prompt.input.defenderId);
+      break;
+    default:
+      break;
+  }
+  return ids;
+}
+
 function compactBattlefield(cards: ClientCardDto[]) {
   const firstByCharacteristics = new Map<string, string>();
   return cards.map((card) => {
@@ -74,7 +133,11 @@ function compactBattlefield(cards: ClientCardDto[]) {
   });
 }
 
-export function compactWorkbenchGameView(view: ClientGameView) {
+export function compactWorkbenchGameView(view: ClientGameView, prompt?: Prompt) {
+  const relevantCardIds = promptRelevantCardIds(prompt);
+  const compactLongZoneCard = (card: ClientCardDto) =>
+    relevantCardIds.has(card.id) ? compactCard(card) : compactReferenceCard(card);
+
   return {
     gameId: view.gameId,
     turn: view.turn,
@@ -109,8 +172,8 @@ export function compactWorkbenchGameView(view: ClientGameView) {
       cardsDrawnThisTurn: player.cardsDrawnThisTurn,
       playerKeywords: player.playerKeywords,
       hand: (player.hand ?? []).map(compactCard),
-      graveyard: (player.graveyard ?? []).map(compactCard),
-      exile: (player.exile ?? []).map(compactCard),
+      graveyard: (player.graveyard ?? []).map(compactLongZoneCard),
+      exile: (player.exile ?? []).map(compactLongZoneCard),
       commandZone: (player.commandZone ?? []).map(compactCard),
       visibleLibraryCards: (player.library ?? []).map(compactCard),
     })),
