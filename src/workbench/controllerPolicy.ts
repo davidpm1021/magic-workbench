@@ -34,19 +34,64 @@ export function chooseActionHasOnlyManaManagement(prompt: Prompt): boolean {
   return prompt.input.actions.length > 0 && prompt.input.actions.every(isManaManagementAction);
 }
 
-export function promptForWorkbenchModel(prompt: Prompt): Prompt {
-  if (prompt.input.type !== "chooseAction") return prompt;
-  const strategicActions = prompt.input.actions.filter((action) => !isManaManagementAction(action));
-  if (strategicActions.length === 0 || strategicActions.length === prompt.input.actions.length) {
-    return prompt;
-  }
+function compactPromptCard(card: AnyRecord): AnyRecord {
+  const identity = record(card.identity);
   return {
-    ...prompt,
-    input: {
-      ...prompt.input,
-      actions: strategicActions,
+    id: card.id,
+    identity: {
+      name: identity?.name,
     },
-  } as Prompt;
+    zoneId: card.zoneId,
+    controllerId: card.controllerId,
+    ownerId: card.ownerId,
+    manaCost: card.manaCost,
+    cmc: card.cmc,
+    types: card.types,
+    subtypes: card.subtypes,
+    power: card.power,
+    toughness: card.toughness,
+    text: card.text,
+    keywords: card.keywords,
+    counters: card.counters,
+  };
+}
+
+export function promptForWorkbenchModel(prompt: Prompt): Prompt {
+  if (prompt.input.type === "chooseAction") {
+    const strategicActions = prompt.input.actions.filter((action) => !isManaManagementAction(action));
+    if (strategicActions.length === 0 || strategicActions.length === prompt.input.actions.length) {
+      return prompt;
+    }
+    return {
+      ...prompt,
+      input: {
+        ...prompt.input,
+        actions: strategicActions,
+      },
+    } as Prompt;
+  }
+
+  if (prompt.input.type === "chooseCards") {
+    return {
+      ...prompt,
+      input: {
+        ...prompt.input,
+        cards: prompt.input.cards.map((card) => compactPromptCard(card as unknown as AnyRecord)),
+      },
+    } as unknown as Prompt;
+  }
+
+  if (prompt.input.type === "scry") {
+    return {
+      ...prompt,
+      input: {
+        ...prompt.input,
+        cards: prompt.input.cards.map((card) => compactPromptCard(card as unknown as AnyRecord)),
+      },
+    } as unknown as Prompt;
+  }
+
+  return prompt;
 }
 
 interface ManaRequirement {
@@ -84,6 +129,7 @@ function parseSimpleManaCost(manaCost: string): ManaRequirement | null {
 
 interface ManaActionCandidate {
   actionId: string;
+  cardId: string;
   colors: string[];
   amount: number;
 }
@@ -122,20 +168,25 @@ function manaActionCandidates(
           )
       : [];
 
+    const cardId = typeof action.cardId === "string" ? action.cardId : null;
+    if (!cardId) return [];
+
     if (produced.length === 1) {
       return [{
         actionId: action.id as string,
+        cardId,
         colors: [produced[0].color as string],
         amount: produced[0].amount as number,
       }];
     }
 
-    const cardId = typeof action.cardId === "string" ? action.cardId : null;
+
     const flexible = cardId ? visibleSources.find((source) => source.id === cardId) : null;
     if (!flexible || flexible.colors.length === 0 || flexible.amount <= 0) return [];
 
     return [{
       actionId: action.id as string,
+      cardId,
       colors: flexible.colors,
       amount: flexible.amount,
     }];
@@ -165,33 +216,18 @@ export function chooseDeterministicManaPlan(
     .filter((item) => item.needed > 0);
 
   for (const deficit of coloredDeficits) {
-    const fixed = candidates.find(
-      (item) => item.colors.length === 1 && item.colors[0] === deficit.color,
-    );
-    if (fixed) {
-      return {
-        output: { type: "act", actionId: fixed.actionId },
-        preferredColor: null,
-      };
-    }
-  }
-
-  // A flexible source is deterministic only when exactly one colored deficit
-  // remains. This covers Command Tower-style "choose a color" plumbing without
-  // making strategic choices between multiple needed colors.
-  if (coloredDeficits.length === 1) {
-    const { color } = coloredDeficits[0];
-    const flexible = candidates.find(
-      (item) => item.colors.length > 1 && item.colors.includes(color),
-    );
-    if (flexible) {
-      return {
-        output: { type: "act", actionId: flexible.actionId },
-        preferredColor: color,
-      };
-    }
-  } else if (coloredDeficits.length > 1) {
-    return null;
+    const eligible = candidates.filter((item) => item.colors.includes(deficit.color));
+    const sourceIds = [...new Set(eligible.map((item) => item.cardId))];
+    // Producing a required color is mechanical only when exactly one permanent
+    // can do it. Choosing between distinct sources can change future colors,
+    // life payments, land abilities, or post-resolution mana and is strategic.
+    if (sourceIds.length !== 1) return null;
+    const chosen = eligible.find((item) => item.cardId === sourceIds[0]);
+    if (!chosen) return null;
+    return {
+      output: { type: "act", actionId: chosen.actionId },
+      preferredColor: chosen.colors.length > 1 ? deficit.color : null,
+    };
   }
 
   const poolTotal = ["W", "U", "B", "R", "G", "C"].reduce(
@@ -200,32 +236,18 @@ export function chooseDeterministicManaPlan(
   );
   if (poolTotal >= requirement.total) return null;
 
-  const fixedCandidates = candidates.filter((item) => item.colors.length === 1);
-  const surplusByColor = (color: string) =>
-    (pool[color] ?? 0) - (requirement.colored[color] ?? 0);
-  const fixed = [...fixedCandidates].sort((a, b) => {
-    const aColor = a.colors[0];
-    const bColor = b.colors[0];
-    const aScore = aColor === "C" ? 100 : Math.max(0, surplusByColor(aColor));
-    const bScore = bColor === "C" ? 100 : Math.max(0, surplusByColor(bColor));
-    return bScore - aScore;
-  })[0];
-  if (fixed) {
-    return {
-      output: { type: "act", actionId: fixed.actionId },
-      preferredColor: null,
-    };
-  }
-
-  // For a purely generic remainder, any color from a flexible source is
-  // equivalent because the mana is immediately spent on this payment.
-  const flexible = candidates.find((item) => item.colors.length > 1);
-  if (flexible) {
-    return {
-      output: { type: "act", actionId: flexible.actionId },
-      preferredColor: flexible.colors[0] ?? null,
-    };
-  }
+  // Generic mana is also source-sensitive. Only automate it when one distinct
+  // permanent is available, even if that permanent exposes multiple color
+  // actions. This deliberately trades a few AI calls for correct sequencing.
+  const sourceIds = [...new Set(candidates.map((item) => item.cardId))];
+  if (sourceIds.length !== 1) return null;
+  const sourceCandidates = candidates.filter((item) => item.cardId === sourceIds[0]);
+  const chosen = sourceCandidates.find((item) => item.colors.length === 1) ?? sourceCandidates[0];
+  if (!chosen) return null;
+  return {
+    output: { type: "act", actionId: chosen.actionId },
+    preferredColor: chosen.colors.length > 1 ? chosen.colors[0] ?? null : null,
+  };
 
   return null;
 }
@@ -357,7 +379,42 @@ export interface WorkbenchDecisionContext {
       visibleUntappedCreatures: number;
       visibleUntappedPotentialBlockers: number;
     }>;
+    combatAssignments: Array<{
+      attackerId: string;
+      attackerName: string;
+      blockerId: string;
+      blockerName: string;
+    }>;
+    unblockedAttackers: Array<{
+      id: string;
+      name: string;
+      power: number | null;
+    }>;
+    commanderThreats: Array<{
+      opponentId: string;
+      commanderId: string;
+      commanderName: string;
+      currentPower: number | null;
+      damageDealt: number;
+      damageNeeded: number;
+      lethalIfUnblockedNow: boolean;
+    }>;
+    fightOutcomes: Array<{
+      sourceId: string;
+      sourceName: string;
+      sourcePower: number | null;
+      sourceToughness: number | null;
+      targetId: string;
+      targetName: string;
+      targetPower: number | null;
+      targetToughness: number | null;
+      damageToTarget: number | null;
+      damageToSource: number | null;
+      targetLethalByToughness: boolean | null;
+      sourceLethalByToughness: boolean | null;
+    }>;
   };
+  resolvingAbilityText: string | null;
   recentEngineLog: Array<Pick<GameLogEntry, "message" | "entryType" | "playerId" | "cardId">>;
   recentDecisions: Array<{
     turn: number | null;
@@ -410,6 +467,165 @@ export function countRepeatedSamePromptDecision(
         item.promptFingerprint === recommendation.promptFingerprint &&
         JSON.stringify(item.output) === JSON.stringify(recommendation.output),
     ).length;
+}
+
+
+function allVisibleCards(gameView: ClientGameView) {
+  return [
+    ...(gameView.battlefield ?? []),
+    ...gameView.players.flatMap((player) => [
+      ...(player.hand ?? []),
+      ...(player.graveyard ?? []),
+      ...(player.exile ?? []),
+      ...(player.commandZone ?? []),
+      ...(player.library ?? []),
+    ]),
+  ];
+}
+
+function numericStat(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function actionCardHasFight(prompt: Prompt, gameView: ClientGameView): boolean {
+  if (prompt.input.type !== "chooseAction") return false;
+  const byId = new Map(allVisibleCards(gameView).map((card) => [card.id, card]));
+  return prompt.input.actions.some((action) => {
+    const raw = action as unknown as AnyRecord;
+    const card = typeof raw.cardId === "string" ? byId.get(raw.cardId) : null;
+    return !!card && /\bfight\b/i.test(card.text ?? "");
+  });
+}
+
+function materialCardState(card: AnyRecord): AnyRecord {
+  const identity = record(card.identity);
+  return {
+    id: card.id,
+    name: identity?.name ?? card.name,
+    controllerId: card.controllerId,
+    ownerId: card.ownerId,
+    zone: card.zoneId ?? card.zone,
+    tapped: card.tapped,
+    attacking: card.isAttacking ?? card.attacking,
+    attackTargetId: card.attackTargetId,
+    summoningSick: card.summoningSick,
+    power: card.power,
+    toughness: card.toughness,
+    damage: card.damage,
+    counters: card.counters,
+    attachmentIds: card.attachmentIds,
+    attachedTo: card.attachedTo,
+    transformed: card.isTransformed ?? card.transformed,
+    faceDown: card.isFaceDown ?? card.faceDown,
+  };
+}
+
+export function buildMaterialDecisionFingerprint(
+  prompt: Prompt,
+  gameView: ClientGameView,
+): string {
+  const modelPrompt = promptForWorkbenchModel(prompt);
+  const promptInput = modelPrompt.input as unknown as AnyRecord;
+  let strategicPrompt: unknown = promptInput;
+  if (modelPrompt.input.type === "chooseAction") {
+    strategicPrompt = {
+      type: "chooseAction",
+      actions: modelPrompt.input.actions.map((action) => {
+        const value = action as unknown as AnyRecord;
+        return {
+          type: value.type,
+          cardId: value.cardId,
+          abilityIndex: value.abilityIndex,
+          label: value.label,
+          description: value.description,
+          mode: value.mode,
+        };
+      }),
+    };
+  }
+
+  return JSON.stringify({
+    turn: gameView.turn,
+    activePlayerId: gameView.activePlayerId,
+    priorityPlayerId: gameView.priorityPlayerId,
+    players: gameView.players.map((player) => ({
+      id: player.id,
+      life: player.life,
+      handCount: player.handCount,
+      libraryCount: player.libraryCount,
+      manaPool: player.manaPool,
+      counters: player.counters,
+      commanderDamage: player.commanderDamage,
+      commanderCasts: player.commanderCasts,
+      landsPlayedThisTurn: player.landsPlayedThisTurn,
+      cardsDrawnThisTurn: player.cardsDrawnThisTurn,
+      hand: (player.hand ?? []).map((card) => card.id),
+      graveyard: (player.graveyard ?? []).map((card) => card.id),
+      exile: (player.exile ?? []).map((card) => materialCardState(card as unknown as AnyRecord)),
+      commandZone: (player.commandZone ?? []).map((card) => materialCardState(card as unknown as AnyRecord)),
+    })),
+    battlefield: (gameView.battlefield ?? []).map((card) => materialCardState(card as unknown as AnyRecord)),
+    stack: (gameView.stack ?? []).map((item) => ({
+      id: item.id,
+      sourceId: item.sourceId,
+      controllerId: item.controllerId,
+      name: item.identity.name,
+      targets: item.targets,
+    })),
+    combatAssignments: gameView.combatAssignments,
+    prompt: strategicPrompt,
+  });
+}
+
+export function summarizeWorkbenchStateDelta(before: unknown, after: unknown): string[] {
+  const previous = record(before);
+  const next = record(after);
+  if (!previous || !next) return [];
+
+  const deltas: string[] = [];
+  const previousPlayers = Array.isArray(previous.players) ? previous.players.map(record).filter(Boolean) as AnyRecord[] : [];
+  const nextPlayers = Array.isArray(next.players) ? next.players.map(record).filter(Boolean) as AnyRecord[] : [];
+  for (const player of nextPlayers) {
+    const id = typeof player.id === "string" ? player.id : "";
+    const prior = previousPlayers.find((candidate) => candidate.id === id);
+    if (!prior) continue;
+    for (const key of ["life", "handCount", "libraryCount"] as const) {
+      if (prior[key] !== player[key]) deltas.push(`${id} ${key}: ${String(prior[key])} -> ${String(player[key])}`);
+    }
+    if (JSON.stringify(prior.commanderDamage) !== JSON.stringify(player.commanderDamage)) {
+      deltas.push(`${id} commanderDamage: ${JSON.stringify(prior.commanderDamage ?? {})} -> ${JSON.stringify(player.commanderDamage ?? {})}`);
+    }
+  }
+
+  const previousBattlefield = Array.isArray(previous.battlefield) ? previous.battlefield.map(record).filter(Boolean) as AnyRecord[] : [];
+  const nextBattlefield = Array.isArray(next.battlefield) ? next.battlefield.map(record).filter(Boolean) as AnyRecord[] : [];
+  const nameOf = (card: AnyRecord) => typeof card.name === "string" ? card.name : String(card.id ?? "card");
+  for (const card of nextBattlefield) {
+    const prior = previousBattlefield.find((candidate) => candidate.id === card.id);
+    if (!prior) {
+      deltas.push(`battlefield + ${nameOf(card)}`);
+      continue;
+    }
+    if (prior.damage !== card.damage) deltas.push(`${nameOf(card)} damage: ${String(prior.damage ?? 0)} -> ${String(card.damage ?? 0)}`);
+    if (prior.tapped !== card.tapped) deltas.push(`${nameOf(card)} tapped: ${String(prior.tapped)} -> ${String(card.tapped)}`);
+    if (JSON.stringify(prior.counters) !== JSON.stringify(card.counters)) {
+      deltas.push(`${nameOf(card)} counters: ${JSON.stringify(prior.counters ?? {})} -> ${JSON.stringify(card.counters ?? {})}`);
+    }
+  }
+  for (const card of previousBattlefield) {
+    if (!nextBattlefield.some((candidate) => candidate.id === card.id)) {
+      deltas.push(`battlefield - ${nameOf(card)}`);
+    }
+  }
+
+  const previousStack = Array.isArray(previous.stack) ? previous.stack.map(record).filter(Boolean) as AnyRecord[] : [];
+  const nextStack = Array.isArray(next.stack) ? next.stack.map(record).filter(Boolean) as AnyRecord[] : [];
+  if (JSON.stringify(previousStack.map((item) => item?.name)) !== JSON.stringify(nextStack.map((item) => item?.name))) {
+    deltas.push(`stack: ${JSON.stringify(previousStack.map((item) => item?.name))} -> ${JSON.stringify(nextStack.map((item) => item?.name))}`);
+  }
+
+  return deltas.slice(0, 24);
 }
 
 export function buildWorkbenchDecisionContext(args: {
@@ -540,6 +756,95 @@ export function buildWorkbenchDecisionContext(args: {
     .map((card) => Number(card.power))
     .filter((power) => Number.isFinite(power));
 
+
+  const battlefieldById = new Map((gameView.battlefield ?? []).map((card) => [card.id, card]));
+  const combatAssignments = (gameView.combatAssignments ?? []).flatMap((assignment) => {
+    const raw = assignment as unknown as AnyRecord;
+    if (typeof raw.attackerId !== "string" || typeof raw.blockerId !== "string") return [];
+    const attacker = battlefieldById.get(raw.attackerId);
+    const blocker = battlefieldById.get(raw.blockerId);
+    return [{
+      attackerId: raw.attackerId,
+      attackerName: attacker?.identity.name ?? raw.attackerId,
+      blockerId: raw.blockerId,
+      blockerName: blocker?.identity.name ?? raw.blockerId,
+    }];
+  });
+  const blockedAttackerIds = new Set(combatAssignments.map((assignment) => assignment.attackerId));
+  const unblockedAttackers = (gameView.battlefield ?? [])
+    .filter((card) => card.controllerId === decidingPlayer?.id && card.isAttacking && !blockedAttackerIds.has(card.id))
+    .map((card) => ({
+      id: card.id,
+      name: card.identity.name,
+      power: numericStat(card.power),
+    }));
+
+  const commanderCastRecord = record(decidingPlayer?.commanderCasts) ?? {};
+  const commanderIds = Object.keys(commanderCastRecord);
+  const visibleById = new Map(allVisibleCards(gameView).map((card) => [card.id, card]));
+  const commanderThreats = gameView.players
+    .filter((player) => player.id !== decidingPlayer?.id)
+    .flatMap((opponent) => {
+      const damage = record(opponent.commanderDamage) ?? {};
+      return commanderIds.map((commanderId) => {
+        const card = visibleById.get(commanderId);
+        const currentPower = card ? numericStat(card.power) : null;
+        const damageDealt = typeof damage[commanderId] === "number" ? damage[commanderId] as number : 0;
+        const damageNeeded = Math.max(0, 21 - damageDealt);
+        return {
+          opponentId: opponent.id,
+          commanderId,
+          commanderName: card?.identity.name ?? commanderId,
+          currentPower,
+          damageDealt,
+          damageNeeded,
+          lethalIfUnblockedNow: currentPower != null && currentPower >= damageNeeded,
+        };
+      });
+    });
+
+  const fightOutcomes: WorkbenchDecisionContext["strategicFacts"]["fightOutcomes"] = [];
+  if (currentPrompt && actionCardHasFight(currentPrompt, gameView)) {
+    const ownCreatures = (gameView.battlefield ?? []).filter(
+      (card) => card.controllerId === decidingPlayer?.id && card.types.includes("Creature"),
+    );
+    const opposingCreatures = (gameView.battlefield ?? []).filter(
+      (card) => card.controllerId !== decidingPlayer?.id && card.types.includes("Creature"),
+    );
+    for (const source of ownCreatures) {
+      for (const target of opposingCreatures) {
+        const sourcePower = numericStat(source.power);
+        const sourceToughness = numericStat(source.toughness);
+        const targetPower = numericStat(target.power);
+        const targetToughness = numericStat(target.toughness);
+        const targetRemaining = targetToughness == null ? null : targetToughness - (target.damage ?? 0);
+        const sourceRemaining = sourceToughness == null ? null : sourceToughness - (source.damage ?? 0);
+        fightOutcomes.push({
+          sourceId: source.id,
+          sourceName: source.identity.name,
+          sourcePower,
+          sourceToughness,
+          targetId: target.id,
+          targetName: target.identity.name,
+          targetPower,
+          targetToughness,
+          damageToTarget: sourcePower,
+          damageToSource: targetPower,
+          targetLethalByToughness:
+            sourcePower == null || targetRemaining == null ? null : sourcePower >= targetRemaining,
+          sourceLethalByToughness:
+            targetPower == null || sourceRemaining == null ? null : targetPower >= sourceRemaining,
+        });
+      }
+    }
+  }
+
+  const promptRecord = currentPrompt ? record(currentPrompt) : null;
+  const resolvingAbilityText =
+    typeof promptRecord?.sourceAbilityText === "string" && promptRecord.sourceAbilityText.trim()
+      ? promptRecord.sourceAbilityText.trim()
+      : null;
+
   const strategicFacts: WorkbenchDecisionContext["strategicFacts"] = {
     isActivePlayer,
     turnsTaken: playerTurnIds.size,
@@ -571,6 +876,10 @@ export function buildWorkbenchDecisionContext(args: {
           visibleUntappedPotentialBlockers: visibleUntappedCreatures,
         };
       }),
+    combatAssignments,
+    unblockedAttackers,
+    commanderThreats,
+    fightOutcomes,
   };
 
   return {
@@ -578,6 +887,7 @@ export function buildWorkbenchDecisionContext(args: {
     currentStep: gameView.step,
     manaAvailability: estimateManaAvailability(gameView, currentPrompt?.decidingPlayerId),
     strategicFacts,
+    resolvingAbilityText,
     recentEngineLog: gameLog.slice(-24).map((entry) => ({
       message: entry.message,
       entryType: entry.entryType,
@@ -610,6 +920,12 @@ export function buildWorkbenchDecisionContext(args: {
       "If a payment attempt just failed, do not repeat the identical transaction unless resources changed; choose a cheaper mode or a different action.",
       "Workbench normally handles mechanical mana production during payManaCost. Do not float mana during ordinary priority without a concrete reason.",
       "Use spellsActuallyCastThisTurn as the authoritative spell-count continuity for this turn. Do not call a later spell the second spell if two spells are already listed.",
+      "When resolvingAbilityText is present, it is the authoritative ability currently resolving. Do not substitute a different ability printed on the same card.",
+      "Use fightOutcomes for baseline fight damage arithmetic. Do not claim a creature is removed when targetLethalByToughness is false unless a visible keyword or effect changes that result.",
+      "Use combatAssignments and unblockedAttackers instead of inferring blocks from which creatures are untapped.",
+      "Use commanderThreats for commander-damage arithmetic and actively check for deterministic lethal before choosing slower value lines.",
+      "Never treat hidden-library or other unresolved random outcomes as known. Describe future trigger results conditionally until the engine reveals them.",
+      "On your turn, prefer to cast proactive spells in a main phase after the draw step and available land drop unless acting earlier has a concrete tactical benefit. State that benefit when deviating.",
     ],
   };
 }
