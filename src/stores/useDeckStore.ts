@@ -260,20 +260,79 @@ function dropInlinePlaymat<T extends object>(deck: T): T {
 // False until hydration succeeds, so a failed migration can't persist over the
 // stored decks — writes are dropped and the on-disk data survives untouched.
 let deckPersistReady = false;
+const WORKBENCH_DECK_BACKUP_URL = "/workbench-data/decks";
+
+function mirrorDeckStorageToDisk(value: string): void {
+  if (!import.meta.env.DEV) return;
+  void fetch(WORKBENCH_DECK_BACKUP_URL, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: value,
+  }).catch(() => {
+    // Browser storage remains the primary copy. Disk backup failures should
+    // never block deck edits or saving.
+  });
+}
+
+function clearDeckStorageDiskBackup(): void {
+  if (!import.meta.env.DEV) return;
+  void fetch(WORKBENCH_DECK_BACKUP_URL, { method: "DELETE" }).catch(() => {
+    // Best-effort cleanup only.
+  });
+}
+
+async function restoreSavedDecksFromDisk(): Promise<void> {
+  if (!import.meta.env.DEV) return;
+  if (useDeckStore.getState().savedDecks.length > 0) return;
+
+  try {
+    const response = await fetch(WORKBENCH_DECK_BACKUP_URL, { method: "GET" });
+    if (!response.ok || response.status === 204) return;
+    const raw = await response.text();
+    if (!raw.trim()) return;
+
+    const parsed = JSON.parse(raw) as {
+      state?: {
+        savedDecks?: SavedDeck[];
+      };
+    };
+    const savedDecks = (parsed.state?.savedDecks ?? []).map((saved) => ({
+      ...saved,
+      deck: dropInlinePlaymat(migrateDeck(saved.deck)),
+    }));
+    if (savedDecks.length === 0) return;
+    if (useDeckStore.getState().savedDecks.length > 0) return;
+
+    useDeckStore.setState({ savedDecks });
+    toast.success(
+      `Restored ${savedDecks.length} saved deck${savedDecks.length === 1 ? "" : "s"} from your Workbench backup.`,
+      { id: "workbench-deck-backup-restored" },
+    );
+  } catch {
+    // A corrupt or unavailable disk backup must not prevent normal browser
+    // storage hydration.
+  }
+}
+
 const deckStorage = createJSONStorage(() => ({
   getItem: (name) => localStorage.getItem(name),
   setItem: (name, value) => {
     if (!deckPersistReady) return;
     try {
       localStorage.setItem(name, value);
+      mirrorDeckStorageToDisk(value);
     } catch {
+      mirrorDeckStorageToDisk(value);
       toast.error(
         `Seems like you reached the limit of your browser storage \u2014 contact us on Discord for more info.`,
         { id: "deck-storage-full" },
       );
     }
   },
-  removeItem: (name) => localStorage.removeItem(name),
+  removeItem: (name) => {
+    localStorage.removeItem(name);
+    clearDeckStorageDiskBackup();
+  },
 }));
 interface DeckState {
   currentDeck: EditorDeck;
@@ -1213,7 +1272,10 @@ export const useDeckStore = create<DeckState>()(
             deckPersistReady = true;
             // Deferred: sync hydration fires this callback while the store is
             // still being created, before `useDeckStore` is assigned.
-            queueMicrotask(() => void completeDeckMigrations(useDeckStore.getState()));
+            queueMicrotask(() => {
+              void completeDeckMigrations(useDeckStore.getState());
+              void restoreSavedDecksFromDisk();
+            });
           }
         },
       },
