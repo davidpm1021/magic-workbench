@@ -30,6 +30,8 @@ export interface WorkbenchAuditEntry {
   yieldUntil?: WorkbenchYieldUntil;
   outcomeDelta?: string[] | null;
   outcomeRecordedAt?: number | null;
+  outcomeScope?: "prompt" | "transaction" | null;
+  manaPlan?: string[];
 }
 
 export interface WorkbenchRecommendation {
@@ -49,6 +51,7 @@ export interface WorkbenchRecommendation {
   yieldUntil?: WorkbenchYieldUntil;
   materialStateFingerprint?: string;
   auditId?: string;
+  manaPlan?: string[];
 }
 
 export type WorkbenchStatusKind = "idle" | "thinking" | "ready" | "paused" | "error";
