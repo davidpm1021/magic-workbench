@@ -529,22 +529,23 @@ export function useWorkbenchController(paused = false): void {
       return;
     }
     if (currentPrompt.input.type === "payManaCost") {
-      if (currentPrompt.input.canConfirmFromPool) return;
+      const payManaPrompt = currentPrompt;
+      if (payManaPrompt.input.canConfirmFromPool) return;
       const cachedManaPlan = pendingManaPlanRef.current;
       if (
         cachedManaPlan &&
         preflightState.gameView &&
         cachedManaPlan.gameId === preflightState.gameView.gameId &&
-        cachedManaPlan.cardId === currentPrompt.input.cardId &&
+        cachedManaPlan.cardId === payManaPrompt.input.cardId &&
         cachedManaPlan.actionIds.some((actionId) =>
-          currentPrompt.input.actions.some((action) => action.id === actionId),
+          payManaPrompt.input.actions.some((action) => action.id === actionId),
         )
       ) {
         return;
       }
       if (
         preflightState.gameView &&
-        chooseDeterministicManaStep(currentPrompt, preflightState.gameView, preflightState.myPlayerSlot)
+        chooseDeterministicManaStep(payManaPrompt, preflightState.gameView, preflightState.myPlayerSlot)
       ) {
         return;
       }
@@ -729,11 +730,12 @@ export function useWorkbenchController(paused = false): void {
           recommendation.manaPlan &&
           recommendation.manaPlan.length > 1
         ) {
+          const chosenManaActionId = recommendation.output.actionId;
           pendingManaPlanRef.current = {
             gameId: gameView.gameId,
             cardId: currentPrompt.input.cardId,
             actionIds: recommendation.manaPlan
-              .filter((actionId) => actionId !== recommendation.output.actionId),
+              .filter((actionId) => actionId !== chosenManaActionId),
           };
         }
 
