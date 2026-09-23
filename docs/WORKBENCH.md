@@ -79,7 +79,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-workbench-ai.ps1
 The launcher defaults to:
 
 - strategic decisions: `gpt-5.6-sol`
-- routine decisions: `gpt-5.6-luna`
+- routine decisions: `gpt-6-luna`
 - provider base: `https://api.openai.com/v1`
 
 The proxy automatically uses OpenAI's Responses API for `api.openai.com`. Other OpenAI-compatible bases default to Chat Completions. Override `WORKBENCH_AI_API_MODE` with `responses` or `chat` when a provider needs an explicit mode.
@@ -90,16 +90,16 @@ Workbench records token usage returned by the provider for every AI decision. Fo
 
 The default Windows launcher now uses:
 
-- strategic decisions: `gpt-5.6-terra`
+- strategic decisions: `gpt-6-luna`
 - routine decisions: `gpt-5.6-luna`
-- strategic reasoning effort: medium
+- strategic reasoning effort: high
 - routine reasoning effort: low
 - maximum model output: 2,500 tokens strategic, 1,200 routine
 - per-game soft budget: $0.50
 
 The budget is a local guard, not a provider billing limit. Once the recorded game spend reaches the cap, Workbench stops making new AI calls until the cap is raised or disabled. A request already in flight can take the total slightly over the cap.
 
-Use Sol intentionally when comparing decision quality. The UI shows estimated cost and token count for each recent decision so a full-game run can be evaluated before increasing model quality or budget.
+The current experiment routes both routine and strategic play to GPT-6 Luna, using low reasoning for routine prompts and high reasoning for strategic prompts. Use GPT-6 Sol intentionally later when comparing decision quality. The UI shows estimated cost and token count for each recent decision so a full-game run can be evaluated before increasing model quality or budget.
 
 ### Decision routing
 
