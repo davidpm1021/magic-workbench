@@ -17,6 +17,7 @@ vi.mock("pixi.js", () => ({
 
 let useDeckStore: typeof import("./useDeckStore").useDeckStore;
 let setWorkbenchDeckBackupTestEnabled: typeof import("./useDeckStore").setWorkbenchDeckBackupTestEnabled;
+let waitForWorkbenchDeckBackup: typeof import("./useDeckStore").waitForWorkbenchDeckBackup;
 let fetchMock: ReturnType<typeof vi.fn>;
 
 function card(id: string, setCode: string, cardNumber: string, foil = false): DeckCard {
@@ -36,10 +37,12 @@ beforeAll(async () => {
   const deckModule = await import("./useDeckStore");
   useDeckStore = deckModule.useDeckStore;
   setWorkbenchDeckBackupTestEnabled = deckModule.setWorkbenchDeckBackupTestEnabled;
+  waitForWorkbenchDeckBackup = deckModule.waitForWorkbenchDeckBackup;
   setWorkbenchDeckBackupTestEnabled(true);
   // Rehydrate after enabling backup mode so the real reconciliation lifecycle
   // runs under the same conditions as local Workbench.
   await useDeckStore.persist.rehydrate();
+  await waitForWorkbenchDeckBackup();
 });
 
 beforeEach(() => {
@@ -59,6 +62,8 @@ describe("Workbench deck disk backup", () => {
       cards: [],
       sideboard: [],
     });
+
+    await waitForWorkbenchDeckBackup();
 
     await vi.waitFor(() => {
       expect(
@@ -122,6 +127,7 @@ describe("Workbench deck disk backup", () => {
     });
 
     await useDeckStore.persist.rehydrate();
+    await waitForWorkbenchDeckBackup();
 
     await vi.waitFor(() => {
       expect(
