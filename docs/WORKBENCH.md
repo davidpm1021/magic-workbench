@@ -78,7 +78,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-workbench-ai.ps1
 
 The launcher defaults to:
 
-- strategic decisions: `gpt-5.6-sol`
+- strategic decisions: `gpt-6-luna`
 - routine decisions: `gpt-6-luna`
 - provider base: `https://api.openai.com/v1`
 
@@ -91,10 +91,10 @@ Workbench records token usage returned by the provider for every AI decision. Fo
 The default Windows launcher now uses:
 
 - strategic decisions: `gpt-6-luna`
-- routine decisions: `gpt-5.6-luna`
+- routine decisions: `gpt-6-luna`
 - strategic reasoning effort: high
 - routine reasoning effort: low
-- maximum model output: 2,500 tokens strategic, 1,200 routine
+- maximum model output: 20,000 tokens strategic, 4,000 routine
 - per-game soft budget: $0.50
 
 The budget is a local guard, not a provider billing limit. Once the recorded game spend reaches the cap, Workbench stops making new AI calls until the cap is raised or disabled. A request already in flight can take the total slightly over the cap.
@@ -106,7 +106,9 @@ The current experiment routes both routine and strategic play to GPT-6 Luna, usi
 Workbench classifies each supported prompt as either `routine` or `strategic`.
 
 Routine examples:
-- mechanical mana payment
+- deterministic fixed-source mana payment when Workbench can solve it locally
+- low-risk color production
+- most trigger ordering
 - priority where no strategic spell or non-mana activation is offered
 
 Strategic examples:
@@ -114,8 +116,26 @@ Strategic examples:
 - casts and non-mana activations
 - combat
 - targeting
-- card selection, scry, ordering, and modal choices
+- card selection, scry, and modal choices
 
 Deterministic forced prompts are resolved by the existing prompt resolver before the AI controller is allowed to act.
 
 Each AI recommendation records prompt type, route, model, latency, validated output, and reason in the in-session Workbench history.
+
+### Audit-driven controller safeguards
+
+The first completed GPT-6 Luna game exposed several controller problems that looked like model mistakes. Workbench now addresses them directly:
+
+- ordinary mana and undo-mana actions are hidden from the model when meaningful actions exist;
+- empty-stack priority prompts containing only mana management are passed locally instead of asking the model to float mana;
+- straightforward fixed-color mana payment steps are solved deterministically;
+- recent engine log entries and recent Workbench decisions are sent as continuity context;
+- multi-prompt transactions retain their originating action so follow-up confirmations do not reinterpret already-paid costs;
+- modal choices include base and additional cost hints when the protocol exposes them;
+- repeated failed modal-payment transactions stop at a transaction-level guard instead of looping indefinitely;
+- one transient provider overload/429/5xx response is retried automatically before human recovery is required;
+- repeated battlefield card characteristics are deduplicated in the model view to reduce late-game prompt size;
+- manual recovery decisions are included in the audit;
+- game-over state is appended to the audit, and the last completed audit can be exported from the Play home screen.
+
+The audit remains the source of truth for evaluating model quality. A legal action is not assumed to be a good action merely because the engine offered it.
