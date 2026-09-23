@@ -262,29 +262,39 @@ function dropInlinePlaymat<T extends object>(deck: T): T {
 let deckPersistReady = false;
 const WORKBENCH_DECK_BACKUP_URL = "/workbench-data/decks";
 
-function mirrorDeckStorageToDisk(value: string): void {
-  if (!import.meta.env.DEV) return;
-  void fetch(WORKBENCH_DECK_BACKUP_URL, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: value,
-  }).catch(() => {
-    // Browser storage remains the primary copy. Disk backup failures should
-    // never block deck edits or saving.
-  });
+interface WorkbenchDeckBackupPayload {
+  schemaVersion: 1;
+  updatedAt: number;
+  savedDecks: SavedDeck[];
 }
 
-function seedDeckStorageDiskBackupFromBrowser(): void {
-  if (!import.meta.env.DEV) return;
-  const value = localStorage.getItem(STORAGE_KEYS.DECK);
-  if (value) mirrorDeckStorageToDisk(value);
-}
+let deckBackupWriteQueue: Promise<void> = Promise.resolve();
 
-function clearDeckStorageDiskBackup(): void {
+function mirrorSavedDecksToDisk(savedDecks: SavedDeck[]): void {
   if (!import.meta.env.DEV) return;
-  void fetch(WORKBENCH_DECK_BACKUP_URL, { method: "DELETE" }).catch(() => {
-    // Best-effort cleanup only.
-  });
+  const payload: WorkbenchDeckBackupPayload = {
+    schemaVersion: 1,
+    updatedAt: Date.now(),
+    savedDecks,
+  };
+  const body = JSON.stringify(payload);
+
+  deckBackupWriteQueue = deckBackupWriteQueue
+    .catch(() => undefined)
+    .then(async () => {
+      const response = await fetch(WORKBENCH_DECK_BACKUP_URL, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+      if (!response.ok) {
+        throw new Error(`Deck backup returned HTTP ${response.status}.`);
+      }
+    })
+    .catch(() => {
+      // Browser storage remains usable even if the local disk backup cannot
+      // be written. The next savedDecks change will try again.
+    });
 }
 
 async function restoreSavedDecksFromDisk(): Promise<void> {
@@ -298,11 +308,13 @@ async function restoreSavedDecksFromDisk(): Promise<void> {
     if (!raw.trim()) return;
 
     const parsed = JSON.parse(raw) as {
+      savedDecks?: SavedDeck[];
       state?: {
         savedDecks?: SavedDeck[];
       };
     };
-    const savedDecks = (parsed.state?.savedDecks ?? []).map((saved) => ({
+    const backedUp = parsed.savedDecks ?? parsed.state?.savedDecks ?? [];
+    const savedDecks = backedUp.map((saved) => ({
       ...saved,
       deck: dropInlinePlaymat(migrateDeck(saved.deck)),
     }));
@@ -311,7 +323,7 @@ async function restoreSavedDecksFromDisk(): Promise<void> {
 
     useDeckStore.setState({ savedDecks });
     toast.success(
-      `Restored ${savedDecks.length} saved deck${savedDecks.length === 1 ? "" : "s"} from your Workbench backup.`,
+      `Restored ${savedDecks.length} saved deck${savedDecks.length === 1 ? "" : "s"} from your Workbench disk backup.`,
       { id: "workbench-deck-backup-restored" },
     );
   } catch {
@@ -326,20 +338,20 @@ const deckStorage = createJSONStorage(() => ({
     if (!deckPersistReady) return;
     try {
       localStorage.setItem(name, value);
-      mirrorDeckStorageToDisk(value);
     } catch {
-      mirrorDeckStorageToDisk(value);
       toast.error(
-        `Seems like you reached the limit of your browser storage \u2014 contact us on Discord for more info.`,
+        `Seems like you reached the limit of your browser storage — contact us on Discord for more info.`,
         { id: "deck-storage-full" },
       );
     }
   },
   removeItem: (name) => {
+    // Browser persistence can be cleared during migrations or rebuilds. The
+    // independent disk backup must survive that lifecycle.
     localStorage.removeItem(name);
-    clearDeckStorageDiskBackup();
   },
 }));
+
 interface DeckState {
   currentDeck: EditorDeck;
   currentDeckId: string | null;
@@ -1280,8 +1292,9 @@ export const useDeckStore = create<DeckState>()(
             // still being created, before `useDeckStore` is assigned.
             queueMicrotask(() => {
               void completeDeckMigrations(useDeckStore.getState());
-              if (useDeckStore.getState().savedDecks.length > 0) {
-                seedDeckStorageDiskBackupFromBrowser();
+              const savedDecks = useDeckStore.getState().savedDecks;
+              if (savedDecks.length > 0) {
+                mirrorSavedDecksToDisk(savedDecks);
               } else {
                 void restoreSavedDecksFromDisk();
               }
@@ -1293,3 +1306,11 @@ export const useDeckStore = create<DeckState>()(
     { name: "deck", enabled: import.meta.env.DEV },
   ),
 );
+
+// Mirror the actual saved-deck library directly to disk. This does not depend
+// on the localStorage persistence adapter, so browser-origin changes, storage
+// migrations, and repo rebuilds cannot silently skip the backup.
+useDeckStore.subscribe((state, previousState) => {
+  if (!deckPersistReady || state.savedDecks === previousState.savedDecks) return;
+  mirrorSavedDecksToDisk(state.savedDecks);
+});
