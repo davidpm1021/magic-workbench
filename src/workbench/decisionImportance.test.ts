@@ -70,6 +70,28 @@ describe("classifyWorkbenchDecision", () => {
     ).toBe("strategic");
   });
 
+  it("routes color production and trigger ordering as routine", () => {
+    expect(
+      classifyWorkbenchDecision(
+        prompt({
+          type: "chooseColor",
+          validColors: ["White", "Blue"],
+          amount: 1,
+          repeatAllowed: false,
+        }),
+      ).importance,
+    ).toBe("routine");
+
+    expect(
+      classifyWorkbenchDecision(
+        prompt({
+          type: "reorder",
+          items: [],
+        }),
+      ).importance,
+    ).toBe("routine");
+  });
+
   it("treats combat and mulligan decisions as strategic", () => {
     expect(classifyWorkbenchDecision(prompt({ type: "mulligan" })).importance).toBe("strategic");
     expect(classifyWorkbenchDecision(prompt({ type: "chooseAttackers" })).importance).toBe(
