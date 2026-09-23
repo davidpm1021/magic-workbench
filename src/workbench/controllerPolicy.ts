@@ -225,6 +225,15 @@ export interface WorkbenchDecisionContext {
       reason: string | null;
     }>;
   } | null;
+  selectionCostHints: {
+    sourceCard: string | null;
+    baseManaCost: string | null;
+    options: Array<{
+      index: number;
+      label: string | null;
+      additionalCost: string | null;
+    }>;
+  } | null;
   recentFailedPayments: Array<{
     card: string | null;
     reason: string | null;
@@ -248,6 +257,28 @@ export function buildWorkbenchDecisionContext(args: {
     if (action?.type !== "cast") return [];
     return [actionLabel(action) ?? sourceCardName(entry) ?? "cast spell"];
   });
+
+  let selectionCostHints: WorkbenchDecisionContext["selectionCostHints"] = null;
+  if (currentPrompt?.input.type === "chooseFromSelection") {
+    const promptRecord = record(currentPrompt);
+    const sourceCard = record(promptRecord?.sourceCard);
+    const identity = record(sourceCard?.identity);
+    const sourceAbilityText =
+      typeof promptRecord?.sourceAbilityText === "string" ? promptRecord.sourceAbilityText : "";
+    const additionalCosts = sourceAbilityText
+      .split(/\r?\n/)
+      .map((line) => line.match(/^\+\s*((?:\{[^}]+\})+)\s*[—-]/)?.[1] ?? null);
+
+    selectionCostHints = {
+      sourceCard: typeof identity?.name === "string" ? identity.name : null,
+      baseManaCost: typeof sourceCard?.manaCost === "string" ? sourceCard.manaCost : null,
+      options: currentPrompt.input.options.map((option, index) => ({
+        index,
+        label: typeof option.label === "string" ? option.label : null,
+        additionalCost: additionalCosts[index] ?? null,
+      })),
+    };
+  }
 
   let currentTransaction: WorkbenchDecisionContext["currentTransaction"] = null;
   if (currentPrompt && currentPrompt.input.type !== "chooseAction") {
@@ -319,10 +350,12 @@ export function buildWorkbenchDecisionContext(args: {
     spellsActuallyCastThisTurn,
     secondSpellAlreadyCast: spellsActuallyCastThisTurn.length >= 2,
     currentTransaction,
+    selectionCostHints,
     recentFailedPayments,
     guidance: [
       "Treat recent decisions and engine log entries as continuity from this same game, not as hypothetical examples.",
       "When currentTransaction is present, continue the action you already initiated. Tapped/sacrificed/payment state may be the result of costs you intentionally paid.",
+      "If selectionCostHints is present, add the source card's baseManaCost to every selected additionalCost before judging affordability.",
       "If a payment attempt just failed, do not repeat the identical transaction unless resources changed; choose a cheaper mode or a different action.",
       "Workbench normally handles mechanical mana production during payManaCost. Do not float mana during ordinary priority without a concrete reason.",
       "Use spellsActuallyCastThisTurn as the authoritative spell-count continuity for this turn. Do not call a later spell the second spell if two spells are already listed.",
