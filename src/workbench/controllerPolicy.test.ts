@@ -261,15 +261,143 @@ describe("Workbench controller policy", () => {
 
     expect(context.strategicFacts).toEqual({
       isActivePlayer: true,
+      turnsTaken: 1,
+      currentPlayerTurnNumber: 1,
       landsInHand: 2,
       landDropsRemaining: 1,
+      readyAttackers: {
+        count: 0,
+        knownPower: 0,
+        unknownPowerCount: 0,
+      },
       opponents: [
         {
           id: "player-1",
           life: 17,
           visibleUntappedCreatures: 1,
+          visibleUntappedPotentialBlockers: 1,
         },
       ],
+    });
+  });
+
+  it("grounds ready attack power and the player's own turn number", () => {
+    const game = {
+      ...view(),
+      turn: 6,
+      activePlayerId: "player-0",
+      priorityPlayerId: "player-0",
+      players: [
+        {
+          id: "player-0",
+          life: 40,
+          manaPool: {},
+          hand: [],
+          landsPlayedThisTurn: 1,
+          maxLandPlaysPerTurn: 1,
+        },
+        {
+          id: "player-1",
+          life: 12,
+          manaPool: {},
+          hand: [],
+          landsPlayedThisTurn: 0,
+          maxLandPlaysPerTurn: 1,
+        },
+      ],
+      battlefield: [
+        {
+          id: "dragon",
+          controllerId: "player-0",
+          tapped: false,
+          summoningSick: false,
+          types: ["Creature"],
+          power: "7",
+          keywords: ["Flying"],
+        },
+        {
+          id: "haste",
+          controllerId: "player-0",
+          tapped: false,
+          summoningSick: true,
+          types: ["Creature"],
+          power: "3",
+          keywords: ["Haste"],
+        },
+        {
+          id: "sick",
+          controllerId: "player-0",
+          tapped: false,
+          summoningSick: true,
+          types: ["Creature"],
+          power: "5",
+          keywords: [],
+        },
+      ],
+    } as unknown as ClientGameView;
+
+    const context = buildWorkbenchDecisionContext({
+      auditLog: [
+        {
+          id: "t2",
+          gameId: "g",
+          createdAt: 1,
+          source: "deterministic",
+          status: "deterministic",
+          promptId: 1,
+          promptType: "chooseAction",
+          importance: "deterministic",
+          model: null,
+          latencyMs: 0,
+          usage: null,
+          estimatedCostUsd: 0,
+          reason: "turn",
+          output: { type: "pass", exhaustStack: false },
+          error: null,
+          responseStatus: null,
+          incompleteReason: null,
+          rawModelText: null,
+          promptSnapshot: null,
+          visibleGameState: { turn: 2, step: "main1", activePlayerId: "player-0" },
+        },
+        {
+          id: "t4",
+          gameId: "g",
+          createdAt: 2,
+          source: "deterministic",
+          status: "deterministic",
+          promptId: 2,
+          promptType: "chooseAction",
+          importance: "deterministic",
+          model: null,
+          latencyMs: 0,
+          usage: null,
+          estimatedCostUsd: 0,
+          reason: "turn",
+          output: { type: "pass", exhaustStack: false },
+          error: null,
+          responseStatus: null,
+          incompleteReason: null,
+          rawModelText: null,
+          promptSnapshot: null,
+          visibleGameState: { turn: 4, step: "main1", activePlayerId: "player-0" },
+        },
+      ],
+      gameView: game,
+      gameLog: [],
+      currentPrompt: {
+        promptId: 88,
+        decidingPlayerId: "player-0",
+        input: { type: "chooseAttackers", attackers: [] },
+      } as unknown as Prompt,
+    });
+
+    expect(context.strategicFacts.turnsTaken).toBe(3);
+    expect(context.strategicFacts.currentPlayerTurnNumber).toBe(3);
+    expect(context.strategicFacts.readyAttackers).toEqual({
+      count: 2,
+      knownPower: 10,
+      unknownPowerCount: 0,
     });
   });
 
