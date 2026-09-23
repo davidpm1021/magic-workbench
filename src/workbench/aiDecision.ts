@@ -542,13 +542,14 @@ function promptOutputSchema(prompt: Prompt): WorkbenchJsonSchema {
       });
 
     case "chooseColor": {
+      const { validColors, repeatAllowed, amount } = prompt.input;
       const properties = Object.fromEntries(
-        prompt.input.validColors.map((color) => [
+        validColors.map((color) => [
           color,
           {
             type: "integer",
             minimum: 0,
-            maximum: prompt.input.repeatAllowed ? prompt.input.amount : 1,
+            maximum: repeatAllowed ? amount : 1,
           },
         ]),
       ) as Record<string, WorkbenchJsonSchema>;
