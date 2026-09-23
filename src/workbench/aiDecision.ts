@@ -69,6 +69,7 @@ interface ModelDecision {
   output: unknown;
   reason?: unknown;
   yieldUntil?: unknown;
+  manaPlan?: unknown;
 }
 
 const AI_PROMPT_TYPES = new Set([
@@ -101,8 +102,9 @@ export async function requestWorkbenchDecision(
   const startedAt = performance.now();
   const createdAt = Date.now();
   const classification = classifyWorkbenchDecision(prompt);
-  const compactView = compactWorkbenchGameView(gameView);
   const modelPrompt = promptForWorkbenchModel(prompt);
+  const compactView = compactWorkbenchGameView(gameView, modelPrompt);
+  const auditView = compactWorkbenchGameView(gameView);
   const model = request.model.trim();
   const promptId = Number(prompt.promptId ?? 0);
   const auditId = `ai-${createdAt}-${promptId}-${Math.random().toString(36).slice(2, 8)}`;
@@ -139,8 +141,9 @@ export async function requestWorkbenchDecision(
             "Do not take an action merely because the engine exposes it. Preserve mana until there is a concrete use. " +
             "Before using counterspells or removal on your own cards, require a specific visible strategic benefit and state it in the reason. " +
             "Never invent cards, hidden information, targets, action IDs, or other choices. Return JSON only with the " +
-            "shape {\\\"output\\\": <prompt response>, \\\"reason\\\": \\\"brief strategic reason\\\", \\\"yieldUntil\\\": \\\"none|material_state_change\\\"}. " +
-            "Use yieldUntil=material_state_change only when output is a pass and the same exposed strategic options should remain declined until visible cards, resources, stack, combat assignments, or other material state changes; a phase/step change alone should not require reconsideration. Use none otherwise. " +
+            "shape {\\\"output\\\": <prompt response>, \\\"reason\\\": \\\"brief strategic reason\\\", \\\"yieldUntil\\\": \\\"none|material_state_change\\\", \\\"manaPlan\\\": []}. " +
+            "Use yieldUntil=material_state_change only when output is a pass and the same exposed strategic options should remain declined until relevant visible resources, stack, targets, or source state changes; a phase/step change alone should not require reconsideration. Use none otherwise. " +
+            "For payManaCost, prompt.input.manaCost is the rules engine's authoritative REMAINING cost. Never recalculate discounts or increases yourself. Return manaPlan as the full preferred ordered list of currently offered payment action IDs needed to satisfy that remaining cost, with output.actionId first. Workbench may execute later plan steps locally. For every non-payManaCost prompt, return manaPlan as an empty array. " +
             "The prompt-specific outputRules describe ONLY the value inside the top-level output field. " +
             "Never return that inner prompt response as the top-level JSON object. " +
             "The reason should be 1-3 concise sentences naming the decisive visible game factors, " +
@@ -206,6 +209,7 @@ export async function requestWorkbenchDecision(
       output.type === "pass" && parsed.yieldUntil === "material_state_change"
         ? "material_state_change"
         : "none";
+    const manaPlan = normalizeManaPlan(prompt, output, parsed.manaPlan);
     const materialStateFingerprint = buildMaterialDecisionFingerprint(prompt, gameView);
     const latencyMs = Math.max(0, Math.round(performance.now() - startedAt));
 
@@ -226,6 +230,7 @@ export async function requestWorkbenchDecision(
       yieldUntil,
       materialStateFingerprint,
       auditId,
+      manaPlan,
     };
 
     request.onAuditEntry?.({
@@ -248,10 +253,12 @@ export async function requestWorkbenchDecision(
       incompleteReason,
       rawModelText,
       promptSnapshot: prompt,
-      visibleGameState: compactView,
+      visibleGameState: auditView,
       yieldUntil,
       outcomeDelta: null,
       outcomeRecordedAt: null,
+      outcomeScope: null,
+      manaPlan,
     });
 
     return recommendation;
@@ -279,7 +286,7 @@ export async function requestWorkbenchDecision(
       incompleteReason,
       rawModelText: rawModelText || null,
       promptSnapshot: prompt,
-      visibleGameState: compactView,
+      visibleGameState: auditView,
     });
     throw error;
   }
@@ -351,8 +358,10 @@ function responseRules(prompt: Prompt): string[] {
             "Do not activate another mana source when canConfirmFromPool is true.",
           ]
         : [
-            'The mana pool does NOT yet satisfy the cost. Set the top-level output field to {"type":"act","actionId":"<one id from prompt.input.actions>"} to take one incremental payment step, or {"type":"cancel"} if payment should be abandoned.',
-            'Do NOT return {"type":"pay"} while canConfirmFromPool is false. The engine will re-prompt and create a loop.',
+            'The mana pool does NOT yet satisfy the cost. Set the top-level output field to {"type":"act","actionId":"<one id from prompt.input.actions>"} to take the first incremental payment step, or {"type":"cancel"} if payment should be abandoned.',
+            "prompt.input.manaCost is the authoritative remaining cost after all engine-applied reducers/increases; do not recalculate it from card text.",
+            "Also return top-level manaPlan as an ordered list of currently offered payment action IDs for the whole remaining payment. Put output.actionId first. Preserve strategically useful colors/lands when equivalent alternatives exist.",
+            'Do NOT return {"type":"pay"} while canConfirmFromPool is false. The engine will re-prompt until the pool satisfies the cost.',
           ];
     case "mulligan":
       return ['Set the top-level output field to {"type":"mulliganDecision","keep":true|false}.'];
@@ -442,12 +451,21 @@ function stringEnum(values: string[]): WorkbenchJsonSchema {
 }
 
 function decisionEnvelopeSchema(prompt: Prompt): WorkbenchJsonSchema {
+  const manaActionIds =
+    prompt.input.type === "payManaCost"
+      ? prompt.input.actions.map((action) => action.id)
+      : [];
   return objectSchema({
     output: promptOutputSchema(prompt),
     reason: { type: "string" },
     yieldUntil: {
       type: "string",
       enum: ["none", "material_state_change"],
+    },
+    manaPlan: {
+      type: "array",
+      items: stringEnum(manaActionIds),
+      ...(prompt.input.type === "payManaCost" ? {} : { maxItems: 0 }),
     },
   });
 }
@@ -963,6 +981,26 @@ function validatePromptOutput(prompt: Prompt, value: unknown): PromptOutput["out
   }
 }
 
+function normalizeManaPlan(
+  prompt: Prompt,
+  output: PromptOutput["output"],
+  rawPlan: unknown,
+): string[] {
+  if (prompt.input.type !== "payManaCost" || !Array.isArray(rawPlan)) return [];
+  const legalIds = new Set(prompt.input.actions.map((action) => action.id));
+  const ordered = unique(
+    rawPlan.filter(
+      (item): item is string => typeof item === "string" && legalIds.has(item),
+    ),
+  );
+
+  if (output.type !== "act") return [];
+  return [
+    output.actionId,
+    ...ordered.filter((actionId) => actionId !== output.actionId),
+  ];
+}
+
 function describeOutput(output: PromptOutput["output"]): string {
   switch (output.type) {
     case "act":
@@ -1045,6 +1083,7 @@ function parseJsonDecision(content: string): ModelDecision {
       reason:
         "Model returned a prompt response without the required output wrapper; Workbench normalized it after legality validation.",
       yieldUntil: "none",
+      manaPlan: [],
     };
   }
   throw new Error("AI response is missing the output object.");
