@@ -263,7 +263,9 @@ let deckPersistReady = false;
 let deckDiskBackupReady = false;
 const WORKBENCH_DECK_BACKUP_URL = "/workbench-data/decks";
 const WORKBENCH_DECK_BACKUP_ENABLED =
-  import.meta.env.DEV || import.meta.env.MODE === "test";
+  import.meta.env.DEV ||
+  import.meta.env.MODE === "test" ||
+  (typeof process !== "undefined" && process.env.NODE_ENV === "test");
 
 interface WorkbenchDeckBackupPayload {
   schemaVersion: 1;
