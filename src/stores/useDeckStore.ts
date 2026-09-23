@@ -262,16 +262,19 @@ function dropInlinePlaymat<T extends object>(deck: T): T {
 let deckPersistReady = false;
 let deckDiskBackupReady = false;
 const WORKBENCH_DECK_BACKUP_URL = "/workbench-data/decks";
-const WORKBENCH_DECK_BACKUP_ENABLED =
-  import.meta.env.DEV ||
-  import.meta.env.MODE === "test" ||
-  (
-    globalThis as typeof globalThis & {
-      __WORKBENCH_TEST_DECK_BACKUP__?: boolean;
-    }
-  ).__WORKBENCH_TEST_DECK_BACKUP__ === true ||
-  (typeof window !== "undefined" &&
-    ["localhost", "127.0.0.1"].includes(window.location.hostname));
+function workbenchDeckBackupEnabled(): boolean {
+  return (
+    import.meta.env.DEV ||
+    import.meta.env.MODE === "test" ||
+    (
+      globalThis as typeof globalThis & {
+        __WORKBENCH_TEST_DECK_BACKUP__?: boolean;
+      }
+    ).__WORKBENCH_TEST_DECK_BACKUP__ === true ||
+    (typeof window !== "undefined" &&
+      ["localhost", "127.0.0.1"].includes(window.location.hostname))
+  );
+}
 
 interface WorkbenchDeckBackupPayload {
   schemaVersion: 1;
@@ -282,7 +285,7 @@ interface WorkbenchDeckBackupPayload {
 let deckBackupWriteQueue: Promise<void> = Promise.resolve();
 
 function mirrorSavedDecksToDisk(savedDecks: SavedDeck[]): void {
-  if (!WORKBENCH_DECK_BACKUP_ENABLED) return;
+  if (!workbenchDeckBackupEnabled()) return;
   const payload: WorkbenchDeckBackupPayload = {
     schemaVersion: 1,
     updatedAt: Date.now(),
@@ -309,7 +312,7 @@ function mirrorSavedDecksToDisk(savedDecks: SavedDeck[]): void {
 }
 
 async function reconcileSavedDecksWithDisk(): Promise<void> {
-  if (!WORKBENCH_DECK_BACKUP_ENABLED) {
+  if (!workbenchDeckBackupEnabled()) {
     deckDiskBackupReady = true;
     return;
   }
