@@ -361,4 +361,102 @@ describe("Workbench AI decision boundary", () => {
     vi.unstubAllGlobals();
   });
 
+
+  it("normalizes MTG color shorthand to the engine's legal color names", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    output: { type: "colorDecision", chosenColors: { U: 1 } },
+                    reason: "Use blue mana.",
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    const prompt = {
+      promptId: "99",
+      input: {
+        type: "chooseColor",
+        presentation: { title: "Choose a color", targets: [] },
+        validColors: ["White", "Blue", "Black"],
+        amount: 1,
+        repeatAllowed: false,
+      },
+    } as unknown as Prompt;
+
+    const result = await requestWorkbenchDecision({
+      baseUrl: "/workbench-ai",
+      model: "test-model",
+      strategyPrompt: "Play well.",
+      gameView,
+      prompt,
+      myPlayerSlot: "player-0",
+    });
+
+    expect(result.output).toEqual({
+      type: "colorDecision",
+      chosenColors: { Blue: 1 },
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("still rejects a color outside the engine's legal list", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    output: { type: "colorDecision", chosenColors: { R: 1 } },
+                    reason: "Use red mana.",
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    const prompt = {
+      promptId: "100",
+      input: {
+        type: "chooseColor",
+        presentation: { title: "Choose a color", targets: [] },
+        validColors: ["White", "Blue", "Black"],
+        amount: 1,
+        repeatAllowed: false,
+      },
+    } as unknown as Prompt;
+
+    await expect(
+      requestWorkbenchDecision({
+        baseUrl: "/workbench-ai",
+        model: "test-model",
+        strategyPrompt: "Play well.",
+        gameView,
+        prompt,
+        myPlayerSlot: "player-0",
+      }),
+    ).rejects.toThrow("Legal colors: White, Blue, Black");
+
+    vi.unstubAllGlobals();
+  });
+
 });
