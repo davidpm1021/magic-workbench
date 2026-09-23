@@ -4,12 +4,14 @@ import type { ClientGameView } from "@/stores/gameStore.types";
 import {
   buildMaterialDecisionFingerprint,
   chooseActionHasOnlyManaManagement,
+  chooseCachedManaPlanStep,
   chooseDeterministicManaPlan,
   chooseDeterministicManaStep,
   isManaManagementAction,
   promptForWorkbenchModel,
   buildWorkbenchDecisionContext,
   countRepeatedSamePromptDecision,
+  shouldCompleteWorkbenchTransaction,
   summarizeWorkbenchStateDelta,
 } from "./controllerPolicy";
 
@@ -201,6 +203,90 @@ describe("Workbench controller policy", () => {
     } as unknown as Prompt;
 
     expect(chooseDeterministicManaStep(prompt, view(), "player-0")).toBeNull();
+  });
+
+  it("continues a cached mana plan only while its next action remains engine-legal", () => {
+    const prompt = {
+      promptId: 4,
+      input: {
+        type: "payManaCost",
+        manaCost: "{1}{U}",
+        canConfirmFromPool: false,
+        actions: [
+          {
+            type: "activateManaAbility",
+            id: "tap:island:0:U",
+            cardId: "island",
+            producedMana: [{ color: "U", amount: 1 }],
+          },
+          {
+            type: "activateManaAbility",
+            id: "tap:swamp:0:B",
+            cardId: "swamp",
+            producedMana: [{ color: "B", amount: 1 }],
+          },
+        ],
+      },
+    } as unknown as Prompt;
+
+    expect(
+      chooseCachedManaPlanStep(prompt, [
+        "tap:island:0:U",
+        "tap:swamp:0:B",
+      ]),
+    ).toEqual({
+      output: { type: "act", actionId: "tap:island:0:U" },
+      preferredColor: "U",
+      remainingActionIds: ["tap:swamp:0:B"],
+    });
+
+    expect(
+      chooseCachedManaPlanStep(prompt, ["tap:missing:0:U"]),
+    ).toBeNull();
+  });
+
+  it("keeps transaction outcomes open until the prompt advanced and the stack cleared", () => {
+    const chooseAction = {
+      promptId: 9,
+      input: { type: "chooseAction", actions: [] },
+    } as unknown as Prompt;
+    const payMana = {
+      promptId: 8,
+      input: {
+        type: "payManaCost",
+        manaCost: "{1}",
+        canConfirmFromPool: false,
+        actions: [],
+      },
+    } as unknown as Prompt;
+
+    expect(
+      shouldCompleteWorkbenchTransaction({
+        gameOver: false,
+        promptAdvanced: true,
+        currentPrompt: payMana,
+        stackSize: 0,
+        isWaitingForResponse: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldCompleteWorkbenchTransaction({
+        gameOver: false,
+        promptAdvanced: true,
+        currentPrompt: chooseAction,
+        stackSize: 1,
+        isWaitingForResponse: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldCompleteWorkbenchTransaction({
+        gameOver: false,
+        promptAdvanced: true,
+        currentPrompt: chooseAction,
+        stackSize: 0,
+        isWaitingForResponse: false,
+      }),
+    ).toBe(true);
   });
 
   it("only treats repeats of the same engine prompt as a loop", () => {
