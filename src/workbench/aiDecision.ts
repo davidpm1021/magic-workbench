@@ -1,6 +1,9 @@
 import type { Prompt, PromptOutput } from "@/protocol";
 import type { ClientGameView } from "@/stores/gameStore.types";
-import type { WorkbenchRecommendation } from "@/stores/useWorkbenchStore";
+import type {
+  WorkbenchAuditEntry,
+  WorkbenchRecommendation,
+} from "@/stores/useWorkbenchStore";
 import { classifyWorkbenchDecision } from "./decisionImportance";
 import { compactWorkbenchGameView } from "./compactGameView";
 import {
@@ -17,6 +20,7 @@ export interface WorkbenchAiRequest {
   prompt: Prompt;
   myPlayerSlot: string | null;
   signal?: AbortSignal;
+  onAuditEntry?: (entry: WorkbenchAuditEntry) => void;
 }
 
 type ChatContent =
@@ -48,6 +52,11 @@ interface ChatCompletionResponse {
     };
   };
   workbenchUsage?: WorkbenchTokenUsage;
+  workbenchMeta?: {
+    responseStatus?: string;
+    incompleteReason?: string;
+    responseId?: string;
+  };
 }
 
 interface ModelDecision {
@@ -83,85 +92,158 @@ export async function requestWorkbenchDecision(
 ): Promise<WorkbenchRecommendation> {
   const { prompt, gameView } = request;
   const startedAt = performance.now();
+  const createdAt = Date.now();
   const classification = classifyWorkbenchDecision(prompt);
+  const compactView = compactWorkbenchGameView(gameView);
+  const model = request.model.trim();
+  const promptId = Number(prompt.promptId ?? 0);
+  const auditId = `ai-${createdAt}-${promptId}-${Math.random().toString(36).slice(2, 8)}`;
+
   if (!isWorkbenchAiPrompt(prompt)) {
     throw new Error(`Thinking AI does not support ${prompt.input.type}.`);
   }
-  if (!request.model.trim()) throw new Error("Choose an AI model first.");
+  if (!model) throw new Error("Choose an AI model first.");
 
-  const endpoint = chatCompletionsEndpoint(request.baseUrl);
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(request.apiKey?.trim()
-        ? { Authorization: `Bearer ${request.apiKey.trim()}` }
-        : {}),
-    },
-    body: JSON.stringify({
-      model: request.model.trim(),
-      ...(request.baseUrl.trim().startsWith("/workbench-ai")
-        ? { workbenchImportance: classification.importance }
-        : {}),
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are piloting a Magic: The Gathering deck inside a deterministic rules engine. " +
-            "Use only the visible game state and the current engine prompt. Never invent cards, " +
-            "hidden information, targets, action IDs, or other choices. Return JSON only with the " +
-            "shape {\"output\": <prompt response>, \"reason\": \"brief strategic reason\"}. " +
-            "The output must satisfy the exact response rules supplied by the user message.",
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            strategy: request.strategyPrompt,
-            seat: request.myPlayerSlot,
-            responseRules: responseRules(prompt),
-            prompt,
-            visibleGameState: compactWorkbenchGameView(gameView),
-          }),
-        },
-      ],
-    }),
-    signal: request.signal,
-  });
+  let usage: WorkbenchTokenUsage | null = null;
+  let estimatedCostUsd: number | null = null;
+  let rawModelText = "";
+  let responseStatus: string | null = null;
+  let incompleteReason: string | null = null;
 
-  const payload = (await response.json().catch(() => ({}))) as ChatCompletionResponse;
-  if (!response.ok) {
-    throw new Error(
-      payload.error?.message ?? `AI endpoint returned HTTP ${response.status}.`,
-    );
+  try {
+    const endpoint = chatCompletionsEndpoint(request.baseUrl);
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(request.apiKey?.trim()
+          ? { Authorization: `Bearer ${request.apiKey.trim()}` }
+          : {}),
+      },
+      body: JSON.stringify({
+        model,
+        ...(request.baseUrl.trim().startsWith("/workbench-ai")
+          ? { workbenchImportance: classification.importance }
+          : {}),
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are piloting a Magic: The Gathering deck inside a deterministic rules engine. " +
+              "Use only the visible game state and the current engine prompt. Never invent cards, " +
+              "hidden information, targets, action IDs, or other choices. Return JSON only with the " +
+              "shape {\\\"output\\\": <prompt response>, \\\"reason\\\": \\\"brief strategic reason\\\"}. " +
+              "The reason should be 1-3 concise sentences naming the decisive visible game factors, " +
+              "without exposing private chain-of-thought. The output must satisfy the exact response " +
+              "rules supplied by the user message.",
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              strategy: request.strategyPrompt,
+              seat: request.myPlayerSlot,
+              responseRules: responseRules(prompt),
+              prompt,
+              visibleGameState: compactView,
+            }),
+          },
+        ],
+      }),
+      signal: request.signal,
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as ChatCompletionResponse;
+    usage = extractTokenUsage(payload);
+    estimatedCostUsd = estimateOpenAiCostUsd(model, usage);
+    responseStatus = payload.workbenchMeta?.responseStatus ?? null;
+    incompleteReason = payload.workbenchMeta?.incompleteReason ?? null;
+
+    if (!response.ok) {
+      throw new Error(
+        payload.error?.message ?? `AI endpoint returned HTTP ${response.status}.`,
+      );
+    }
+
+    const content = chatText(payload.choices?.[0]?.message?.content);
+    rawModelText = content;
+    if (!content) throw new Error("AI response did not contain a message.");
+
+    const parsed = parseJsonDecision(content);
+    const output = validatePromptOutput(prompt, parsed.output);
+    const reason =
+      typeof parsed.reason === "string" && parsed.reason.trim()
+        ? parsed.reason.trim()
+        : "Model selected a validated legal response.";
+    const latencyMs = Math.max(0, Math.round(performance.now() - startedAt));
+
+    const recommendation: WorkbenchRecommendation = {
+      promptId,
+      output,
+      label: describeOutput(output),
+      reason,
+      model,
+      promptType: prompt.input.type,
+      importance: classification.importance,
+      latencyMs,
+      gameId: gameView.gameId,
+      usage,
+      estimatedCostUsd,
+      promptFingerprint: JSON.stringify(prompt.input),
+      createdAt,
+    };
+
+    request.onAuditEntry?.({
+      id: auditId,
+      gameId: gameView.gameId,
+      createdAt,
+      source: "ai",
+      status: "success",
+      promptId,
+      promptType: prompt.input.type,
+      importance: classification.importance,
+      model,
+      latencyMs,
+      usage,
+      estimatedCostUsd,
+      reason,
+      output,
+      error: null,
+      responseStatus,
+      incompleteReason,
+      rawModelText,
+      promptSnapshot: prompt,
+      visibleGameState: compactView,
+    });
+
+    return recommendation;
+  } catch (error: unknown) {
+    if (request.signal?.aborted) throw error;
+
+    const message = error instanceof Error ? error.message : String(error);
+    request.onAuditEntry?.({
+      id: auditId,
+      gameId: gameView.gameId,
+      createdAt,
+      source: "ai",
+      status: "error",
+      promptId,
+      promptType: prompt.input.type,
+      importance: classification.importance,
+      model,
+      latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+      usage,
+      estimatedCostUsd,
+      reason: null,
+      output: null,
+      error: message,
+      responseStatus,
+      incompleteReason,
+      rawModelText: rawModelText || null,
+      promptSnapshot: prompt,
+      visibleGameState: compactView,
+    });
+    throw error;
   }
-
-  const content = chatText(payload.choices?.[0]?.message?.content);
-  if (!content) throw new Error("AI response did not contain a message.");
-
-  const parsed = parseJsonDecision(content);
-  const output = validatePromptOutput(prompt, parsed.output);
-  const usage = extractTokenUsage(payload);
-  const estimatedCostUsd = estimateOpenAiCostUsd(request.model.trim(), usage);
-  const reason =
-    typeof parsed.reason === "string" && parsed.reason.trim()
-      ? parsed.reason.trim()
-      : "Model selected a validated legal response.";
-
-  return {
-    promptId: Number(prompt.promptId ?? 0),
-    output,
-    label: describeOutput(output),
-    reason,
-    model: request.model.trim(),
-    promptType: prompt.input.type,
-    importance: classification.importance,
-    latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
-    gameId: gameView.gameId,
-    usage,
-    estimatedCostUsd,
-    promptFingerprint: JSON.stringify(prompt.input),
-    createdAt: Date.now(),
-  };
 }
 
 function extractTokenUsage(payload: ChatCompletionResponse): WorkbenchTokenUsage | null {
