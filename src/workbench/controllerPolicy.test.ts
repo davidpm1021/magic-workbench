@@ -308,6 +308,7 @@ describe("Workbench controller policy", () => {
       combatAssignments: [],
       unblockedAttackers: [],
       commanderThreats: [],
+      ownCommanders: [],
       fightOutcomes: [],
     });
   });
