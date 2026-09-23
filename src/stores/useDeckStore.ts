@@ -1327,19 +1327,27 @@ export const useDeckStore = create<DeckState>()(
           }
           return merged;
         },
-        onRehydrateStorage: () => (_state, error) => {
-          if (error) {
-            useDeckStore.setState({ migrationError: true });
-          } else {
-            deckPersistReady = true;
-            // Deferred: sync hydration fires this callback while the store is
-            // still being created, before `useDeckStore` is assigned.
-            queueMicrotask(() => {
-              void reconcileSavedDecksWithDisk().finally(() => {
-                void completeDeckMigrations(useDeckStore.getState());
+        onRehydrateStorage: () => {
+          // Every hydration pass must reconcile disk before savedDecks changes
+          // are allowed to mirror back. This protects the independent backup
+          // from an empty/stale browser snapshot during reloads or migrations.
+          deckPersistReady = false;
+          deckDiskBackupReady = false;
+
+          return (_state, error) => {
+            if (error) {
+              useDeckStore.setState({ migrationError: true });
+            } else {
+              deckPersistReady = true;
+              // Deferred: sync hydration fires this callback while the store is
+              // still being created, before `useDeckStore` is assigned.
+              queueMicrotask(() => {
+                void reconcileSavedDecksWithDisk().finally(() => {
+                  void completeDeckMigrations(useDeckStore.getState());
+                });
               });
-            });
-          }
+            }
+          };
         },
       },
     ),
