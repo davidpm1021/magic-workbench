@@ -7,6 +7,10 @@ import type {
 import { classifyWorkbenchDecision } from "./decisionImportance";
 import { compactWorkbenchGameView } from "./compactGameView";
 import {
+  promptForWorkbenchModel,
+  type WorkbenchDecisionContext,
+} from "./controllerPolicy";
+import {
   estimateOpenAiCostUsd,
   type WorkbenchTokenUsage,
 } from "./pricing";
@@ -19,6 +23,7 @@ export interface WorkbenchAiRequest {
   gameView: ClientGameView;
   prompt: Prompt;
   myPlayerSlot: string | null;
+  decisionContext?: WorkbenchDecisionContext;
   signal?: AbortSignal;
   onAuditEntry?: (entry: WorkbenchAuditEntry) => void;
 }
@@ -95,6 +100,7 @@ export async function requestWorkbenchDecision(
   const createdAt = Date.now();
   const classification = classifyWorkbenchDecision(prompt);
   const compactView = compactWorkbenchGameView(gameView);
+  const modelPrompt = promptForWorkbenchModel(prompt);
   const model = request.model.trim();
   const promptId = Number(prompt.promptId ?? 0);
   const auditId = `ai-${createdAt}-${promptId}-${Math.random().toString(36).slice(2, 8)}`;
@@ -112,7 +118,38 @@ export async function requestWorkbenchDecision(
 
   try {
     const endpoint = chatCompletionsEndpoint(request.baseUrl);
-    const response = await fetch(endpoint, {
+    const requestBody = JSON.stringify({
+      model,
+      ...(request.baseUrl.trim().startsWith("/workbench-ai")
+        ? { workbenchImportance: classification.importance }
+        : {}),
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are piloting a Magic: The Gathering deck inside a deterministic rules engine. " +
+            "Use only the visible game state, recent engine history, decision continuity, and the current engine prompt. " +
+            "Recent decisions are actions you actually chose in this same game; preserve their intent across follow-up prompts. " +
+            "Do not repeat a transaction that just failed unless visible resources changed. " +
+            "Never invent cards, hidden information, targets, action IDs, or other choices. Return JSON only with the " +
+            "shape {\\\"output\\\": <prompt response>, \\\"reason\\\": \\\"brief strategic reason\\\"}. " +
+            "The reason should be 1-3 concise sentences naming the decisive visible game factors, " +
+            "without exposing private chain-of-thought. The output must satisfy the exact response rules supplied by the user message.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            strategy: request.strategyPrompt,
+            seat: request.myPlayerSlot,
+            responseRules: responseRules(modelPrompt),
+            prompt: modelPrompt,
+            decisionContext: request.decisionContext ?? null,
+            visibleGameState: compactView,
+          }),
+        },
+      ],
+    });
+    const requestInit: RequestInit = {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -120,37 +157,14 @@ export async function requestWorkbenchDecision(
           ? { Authorization: `Bearer ${request.apiKey.trim()}` }
           : {}),
       },
-      body: JSON.stringify({
-        model,
-        ...(request.baseUrl.trim().startsWith("/workbench-ai")
-          ? { workbenchImportance: classification.importance }
-          : {}),
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are piloting a Magic: The Gathering deck inside a deterministic rules engine. " +
-              "Use only the visible game state and the current engine prompt. Never invent cards, " +
-              "hidden information, targets, action IDs, or other choices. Return JSON only with the " +
-              "shape {\\\"output\\\": <prompt response>, \\\"reason\\\": \\\"brief strategic reason\\\"}. " +
-              "The reason should be 1-3 concise sentences naming the decisive visible game factors, " +
-              "without exposing private chain-of-thought. The output must satisfy the exact response " +
-              "rules supplied by the user message.",
-          },
-          {
-            role: "user",
-            content: JSON.stringify({
-              strategy: request.strategyPrompt,
-              seat: request.myPlayerSlot,
-              responseRules: responseRules(prompt),
-              prompt,
-              visibleGameState: compactView,
-            }),
-          },
-        ],
-      }),
+      body: requestBody,
       signal: request.signal,
-    });
+    };
+    let response = await fetch(endpoint, requestInit);
+    if ([429, 500, 502, 503, 504].includes(response.status) && !request.signal?.aborted) {
+      await new Promise((resolve) => setTimeout(resolve, 750));
+      response = await fetch(endpoint, requestInit);
+    }
 
     const payload = (await response.json().catch(() => ({}))) as ChatCompletionResponse;
     usage = extractTokenUsage(payload);
