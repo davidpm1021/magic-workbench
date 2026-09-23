@@ -265,7 +265,11 @@ const WORKBENCH_DECK_BACKUP_URL = "/workbench-data/decks";
 const WORKBENCH_DECK_BACKUP_ENABLED =
   import.meta.env.DEV ||
   import.meta.env.MODE === "test" ||
-  (typeof process !== "undefined" && process.env.VITEST === "true") ||
+  (
+    globalThis as typeof globalThis & {
+      __WORKBENCH_TEST_DECK_BACKUP__?: boolean;
+    }
+  ).__WORKBENCH_TEST_DECK_BACKUP__ === true ||
   (typeof window !== "undefined" &&
     ["localhost", "127.0.0.1"].includes(window.location.hostname));
 
