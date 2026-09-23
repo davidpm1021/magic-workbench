@@ -216,6 +216,15 @@ export interface WorkbenchDecisionContext {
   castActionsChosenThisTurn: string[];
   spellsActuallyCastThisTurn: string[];
   secondSpellAlreadyCast: boolean;
+  currentTransaction: {
+    initiatedAction: string | null;
+    sourceCard: string | null;
+    steps: Array<{
+      promptType: string;
+      output: unknown;
+      reason: string | null;
+    }>;
+  } | null;
   recentFailedPayments: Array<{
     card: string | null;
     reason: string | null;
@@ -227,8 +236,9 @@ export function buildWorkbenchDecisionContext(args: {
   auditLog: WorkbenchAuditEntry[];
   gameView: ClientGameView;
   gameLog: GameLogEntry[];
+  currentPrompt?: Prompt;
 }): WorkbenchDecisionContext {
-  const { auditLog, gameView, gameLog } = args;
+  const { auditLog, gameView, gameLog, currentPrompt } = args;
   const sameGame = auditLog.filter((entry) => entry.gameId === gameView.gameId);
   const recent = sameGame.slice(-12);
   const currentTurnEntries = sameGame.filter((entry) => auditTurn(entry) === gameView.turn);
@@ -238,6 +248,31 @@ export function buildWorkbenchDecisionContext(args: {
     if (action?.type !== "cast") return [];
     return [actionLabel(action) ?? sourceCardName(entry) ?? "cast spell"];
   });
+
+  let currentTransaction: WorkbenchDecisionContext["currentTransaction"] = null;
+  if (currentPrompt && currentPrompt.input.type !== "chooseAction") {
+    const transactionStart = [...currentTurnEntries]
+      .reverse()
+      .find((entry) => {
+        if (entry.promptType !== "chooseAction") return false;
+        const action = selectedAction(entry);
+        return !!action && !isManaManagementAction(action);
+      });
+    if (transactionStart) {
+      const startIndex = sameGame.findIndex((entry) => entry.id === transactionStart.id);
+      const transactionEntries =
+        startIndex >= 0 ? sameGame.slice(startIndex).slice(-10) : [transactionStart];
+      currentTransaction = {
+        initiatedAction: actionLabel(selectedAction(transactionStart)),
+        sourceCard: sourceCardName(transactionStart),
+        steps: transactionEntries.map((entry) => ({
+          promptType: entry.promptType,
+          output: entry.output,
+          reason: entry.reason,
+        })),
+      };
+    }
+  }
 
   const recentFailedPayments = currentTurnEntries
     .filter((entry) => {
@@ -283,10 +318,11 @@ export function buildWorkbenchDecisionContext(args: {
     castActionsChosenThisTurn,
     spellsActuallyCastThisTurn,
     secondSpellAlreadyCast: spellsActuallyCastThisTurn.length >= 2,
+    currentTransaction,
     recentFailedPayments,
     guidance: [
       "Treat recent decisions and engine log entries as continuity from this same game, not as hypothetical examples.",
-      "Do not contradict an action you just initiated merely because paying its costs changed the visible state.",
+      "When currentTransaction is present, continue the action you already initiated. Tapped/sacrificed/payment state may be the result of costs you intentionally paid.",
       "If a payment attempt just failed, do not repeat the identical transaction unless resources changed; choose a cheaper mode or a different action.",
       "Workbench normally handles mechanical mana production during payManaCost. Do not float mana during ordinary priority without a concrete reason.",
       "Use spellsActuallyCastThisTurn as the authoritative spell-count continuity for this turn. Do not call a later spell the second spell if two spells are already listed.",
