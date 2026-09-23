@@ -281,7 +281,18 @@ export function buildWorkbenchDecisionContext(args: {
   }
 
   let currentTransaction: WorkbenchDecisionContext["currentTransaction"] = null;
-  if (currentPrompt && currentPrompt.input.type !== "chooseAction") {
+  const transactionFollowUps = new Set([
+    "payManaCost",
+    "chooseBoolean",
+    "chooseFromSelection",
+    "chooseBoardTargets",
+    "chooseCards",
+    "chooseColor",
+    "chooseNumber",
+    "scry",
+    "reorder",
+  ]);
+  if (currentPrompt && transactionFollowUps.has(currentPrompt.input.type)) {
     const transactionStart = [...currentTurnEntries]
       .reverse()
       .find((entry) => {
