@@ -105,6 +105,33 @@ describe("Workbench controller policy", () => {
     });
   });
 
+  it("leaves source selection to the model when multiple permanents can pay the same color", () => {
+    const prompt = {
+      promptId: 22,
+      input: {
+        type: "payManaCost",
+        manaCost: "{U}",
+        canConfirmFromPool: false,
+        actions: [
+          {
+            type: "activateManaAbility",
+            id: "tap-island",
+            cardId: "island",
+            producedMana: [{ color: "U", amount: 1 }],
+          },
+          {
+            type: "activateManaAbility",
+            id: "tap-islet",
+            cardId: "islet",
+            producedMana: [{ color: "U", amount: 1 }],
+          },
+        ],
+      },
+    } as unknown as Prompt;
+
+    expect(chooseDeterministicManaStep(prompt, view(), "player-0")).toBeNull();
+  });
+
   it("uses a flexible source deterministically when exactly one color is still required", () => {
     const prompt = {
       promptId: 3,
@@ -278,6 +305,10 @@ describe("Workbench controller policy", () => {
           visibleUntappedPotentialBlockers: 1,
         },
       ],
+      combatAssignments: [],
+      unblockedAttackers: [],
+      commanderThreats: [],
+      fightOutcomes: [],
     });
   });
 
@@ -399,6 +430,199 @@ describe("Workbench controller policy", () => {
       knownPower: 10,
       unknownPowerCount: 0,
     });
+  });
+
+  it("compacts large chooseCards candidates for the model", () => {
+    const prompt = {
+      promptId: 120,
+      sourceCard: { id: "tutor", identity: { name: "Solve the Equation" } },
+      input: {
+        type: "chooseCards",
+        presentation: { title: "Search", targets: [] },
+        cards: [
+          {
+            id: "candidate",
+            identity: { name: "Temur Battle Rage", setCode: "CMM", cardNumber: "264" },
+            manaCost: "{1}{R}",
+            cmc: 2,
+            types: ["Instant"],
+            subtypes: [],
+            text: "Target creature gains double strike until end of turn.",
+            keywords: [],
+            counters: {},
+            choices: [],
+            attachmentIds: [],
+            isFaceDown: false,
+            isTransformed: false,
+          },
+        ],
+        min: 1,
+        max: 1,
+      },
+    } as unknown as Prompt;
+
+    const compact = promptForWorkbenchModel(prompt) as unknown as {
+      input: { cards: Array<Record<string, unknown>> };
+    };
+    expect(compact.input.cards[0]).toEqual(
+      expect.objectContaining({
+        id: "candidate",
+        manaCost: "{1}{R}",
+        text: "Target creature gains double strike until end of turn.",
+      }),
+    );
+    expect(compact.input.cards[0]).not.toHaveProperty("choices");
+    expect(compact.input.cards[0]).not.toHaveProperty("attachmentIds");
+  });
+
+  it("computes fight, combat, and commander-damage facts from visible state", () => {
+    const game = {
+      ...view(),
+      turn: 8,
+      activePlayerId: "player-0",
+      priorityPlayerId: "player-0",
+      players: [
+        {
+          id: "player-0",
+          life: 38,
+          manaPool: {},
+          hand: [
+            {
+              id: "denial",
+              identity: { name: "Decisive Denial" },
+              types: ["Instant"],
+              text: "Choose one — Target creature you control fights target creature you don't control.",
+            },
+          ],
+          graveyard: [],
+          exile: [],
+          commandZone: [],
+          library: [],
+          commanderCasts: { haldan: 1, pako: 1 },
+          landsPlayedThisTurn: 1,
+          maxLandPlaysPerTurn: 1,
+        },
+        {
+          id: "player-1",
+          life: 30,
+          manaPool: {},
+          hand: [],
+          graveyard: [],
+          exile: [],
+          commandZone: [],
+          library: [],
+          commanderDamage: { pako: 15 },
+          landsPlayedThisTurn: 0,
+          maxLandPlaysPerTurn: 1,
+        },
+      ],
+      battlefield: [
+        {
+          id: "haldan",
+          identity: { name: "Haldan, Avid Arcanist" },
+          controllerId: "player-0",
+          types: ["Creature"],
+          power: "1",
+          toughness: "4",
+          damage: 0,
+          tapped: false,
+          summoningSick: false,
+          keywords: [],
+        },
+        {
+          id: "pako",
+          identity: { name: "Pako, Arcane Retriever" },
+          controllerId: "player-0",
+          types: ["Creature"],
+          power: "5",
+          toughness: "5",
+          damage: 0,
+          tapped: false,
+          isAttacking: true,
+          summoningSick: false,
+          keywords: ["Haste"],
+        },
+        {
+          id: "archmage",
+          identity: { name: "Archmage Emeritus" },
+          controllerId: "player-1",
+          types: ["Creature"],
+          power: "2",
+          toughness: "2",
+          damage: 0,
+          tapped: false,
+          summoningSick: false,
+          keywords: [],
+        },
+        {
+          id: "wall",
+          identity: { name: "Wall of Omens" },
+          controllerId: "player-1",
+          types: ["Creature"],
+          power: "0",
+          toughness: "4",
+          damage: 0,
+          tapped: false,
+          summoningSick: false,
+          keywords: ["Defender"],
+        },
+      ],
+      combatAssignments: [{ blockerId: "wall", attackerId: "haldan" }],
+    } as unknown as ClientGameView;
+
+    const context = buildWorkbenchDecisionContext({
+      auditLog: [],
+      gameView: game,
+      gameLog: [],
+      currentPrompt: {
+        promptId: 121,
+        decidingPlayerId: "player-0",
+        input: {
+          type: "chooseAction",
+          actions: [
+            {
+              id: "cast-denial",
+              type: "cast",
+              cardId: "denial",
+              label: "Cast Decisive Denial",
+              mode: { type: "normal" },
+            },
+          ],
+        },
+      } as unknown as Prompt,
+    });
+
+    expect(context.strategicFacts.combatAssignments).toEqual([
+      {
+        attackerId: "haldan",
+        attackerName: "Haldan, Avid Arcanist",
+        blockerId: "wall",
+        blockerName: "Wall of Omens",
+      },
+    ]);
+    expect(context.strategicFacts.unblockedAttackers).toEqual([
+      { id: "pako", name: "Pako, Arcane Retriever", power: 5 },
+    ]);
+    expect(context.strategicFacts.commanderThreats).toContainEqual(
+      expect.objectContaining({
+        opponentId: "player-1",
+        commanderId: "pako",
+        damageDealt: 15,
+        damageNeeded: 6,
+        currentPower: 5,
+        lethalIfUnblockedNow: false,
+      }),
+    );
+    expect(context.strategicFacts.fightOutcomes).toContainEqual(
+      expect.objectContaining({
+        sourceId: "haldan",
+        targetId: "archmage",
+        damageToTarget: 1,
+        damageToSource: 2,
+        targetLethalByToughness: false,
+        sourceLethalByToughness: false,
+      }),
+    );
   });
 
   it("derives actual spells cast this turn from engine log continuity", () => {
