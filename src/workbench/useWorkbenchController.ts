@@ -4,6 +4,11 @@ import { usePromptPreferencesStore } from "@/stores/usePromptPreferencesStore";
 import { resolvePrompt } from "@/components/prompts/internal/promptHandlers";
 import { classifyWorkbenchDecision } from "./decisionImportance";
 import { compactWorkbenchGameView } from "./compactGameView";
+import {
+  buildWorkbenchDecisionContext,
+  chooseActionHasOnlyManaManagement,
+  chooseDeterministicManaStep,
+} from "./controllerPolicy";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import {
   isWorkbenchAiPrompt,
@@ -106,6 +111,54 @@ export function useWorkbenchController(paused = false): void {
 
   useEffect(() => {
     if (paused || controllerMode !== "thinking-ai" || isWaitingForResponse) return;
+    if (!currentPrompt || currentPrompt.input.type !== "chooseAction") return;
+    if (recovery?.mode === "manual" && Number(currentPrompt.promptId ?? 0) === recovery.promptId) return;
+    if (!chooseActionHasOnlyManaManagement(currentPrompt)) return;
+
+    const gameView = useGameStore.getState().gameView;
+    if (!gameView || gameView.stack.length > 0) return;
+
+    addAuditEntry({
+      id: `det-${Date.now()}-${currentPrompt.promptId ?? 0}`,
+      gameId: gameView.gameId,
+      createdAt: Date.now(),
+      source: "deterministic",
+      status: "deterministic",
+      promptId: Number(currentPrompt.promptId ?? 0),
+      promptType: currentPrompt.input.type,
+      importance: "deterministic",
+      model: null,
+      latencyMs: 0,
+      usage: null,
+      estimatedCostUsd: 0,
+      reason:
+        "Only ordinary mana-management actions were exposed during an empty-stack priority window; Workbench preserved mana and passed instead of asking the model to float it.",
+      output: { type: "pass", exhaustStack: false },
+      error: null,
+      responseStatus: null,
+      incompleteReason: null,
+      rawModelText: null,
+      promptSnapshot: currentPrompt,
+      visibleGameState: compactWorkbenchGameView(gameView),
+    });
+    setStatus({
+      kind: "idle",
+      message: "Skipped routine mana-floating priority. No AI call needed.",
+    });
+    void respond({ type: "pass", exhaustStack: false });
+  }, [
+    paused,
+    controllerMode,
+    currentPrompt,
+    isWaitingForResponse,
+    respond,
+    setStatus,
+    addAuditEntry,
+    recovery,
+  ]);
+
+  useEffect(() => {
+    if (paused || controllerMode !== "thinking-ai" || isWaitingForResponse) return;
     if (!currentPrompt) return;
     if (recovery?.mode === "manual" && Number(currentPrompt.promptId ?? 0) === recovery.promptId) return;
     if (currentPrompt.input.type !== "revealCards" && currentPrompt.input.type !== "diceRolled") {
@@ -161,38 +214,51 @@ export function useWorkbenchController(paused = false): void {
     if (paused || controllerMode !== "thinking-ai" || isWaitingForResponse) return;
     if (recovery?.mode === "manual" && Number(currentPrompt?.promptId ?? 0) === recovery.promptId) return;
     if (currentPrompt?.input.type !== "payManaCost") return;
-    if (!currentPrompt.input.canConfirmFromPool) return;
 
-    const gameView = useGameStore.getState().gameView;
-    if (gameView) {
-      addAuditEntry({
-        id: `det-${Date.now()}-${currentPrompt.promptId ?? 0}`,
-        gameId: gameView.gameId,
-        createdAt: Date.now(),
-        source: "deterministic",
-        status: "deterministic",
-        promptId: Number(currentPrompt.promptId ?? 0),
-        promptType: currentPrompt.input.type,
-        importance: "deterministic",
-        model: null,
-        latencyMs: 0,
-        usage: null,
-        estimatedCostUsd: 0,
-        reason: "The engine reported the mana pool already satisfied the cost.",
-        output: { type: "pay", auto: false },
-        error: null,
-        responseStatus: null,
-        incompleteReason: null,
-        rawModelText: null,
-        promptSnapshot: currentPrompt,
-        visibleGameState: compactWorkbenchGameView(gameView),
-      });
-    }
+    const state = useGameStore.getState();
+    const gameView = state.gameView;
+    if (!gameView) return;
+
+    const output = currentPrompt.input.canConfirmFromPool
+      ? ({ type: "pay", auto: false } as const)
+      : chooseDeterministicManaStep(currentPrompt, gameView, state.myPlayerSlot);
+    if (!output) return;
+
+    const reason =
+      output.type === "pay"
+        ? "The engine reported the mana pool already satisfied the cost."
+        : "A fixed mana source unambiguously satisfied the next simple mana requirement.";
+
+    addAuditEntry({
+      id: `det-${Date.now()}-${currentPrompt.promptId ?? 0}`,
+      gameId: gameView.gameId,
+      createdAt: Date.now(),
+      source: "deterministic",
+      status: "deterministic",
+      promptId: Number(currentPrompt.promptId ?? 0),
+      promptType: currentPrompt.input.type,
+      importance: "deterministic",
+      model: null,
+      latencyMs: 0,
+      usage: null,
+      estimatedCostUsd: 0,
+      reason,
+      output,
+      error: null,
+      responseStatus: null,
+      incompleteReason: null,
+      rawModelText: null,
+      promptSnapshot: currentPrompt,
+      visibleGameState: compactWorkbenchGameView(gameView),
+    });
     setStatus({
       kind: "idle",
-      message: "Confirmed mana payment deterministically because the pool satisfies the cost.",
+      message:
+        output.type === "pay"
+          ? "Confirmed mana payment deterministically."
+          : "Paid the next fixed mana step deterministically. No AI call needed.",
     });
-    void respond({ type: "pay", auto: false });
+    void respond(output);
   }, [
     paused,
     controllerMode,
@@ -210,7 +276,23 @@ export function useWorkbenchController(paused = false): void {
     const currentPromptId = Number(currentPrompt.promptId ?? 0);
     if (recovery && recovery.promptId === currentPromptId) return;
     if (autoYieldTrivial && currentPrompt.input.type === "chooseAction" && currentPrompt.input.actions.length === 0) return;
-    if (currentPrompt.input.type === "payManaCost" && currentPrompt.input.canConfirmFromPool) return;
+    const preflightState = useGameStore.getState();
+    if (
+      currentPrompt.input.type === "chooseAction" &&
+      chooseActionHasOnlyManaManagement(currentPrompt) &&
+      (preflightState.gameView?.stack.length ?? 0) === 0
+    ) {
+      return;
+    }
+    if (currentPrompt.input.type === "payManaCost") {
+      if (currentPrompt.input.canConfirmFromPool) return;
+      if (
+        preflightState.gameView &&
+        chooseDeterministicManaStep(currentPrompt, preflightState.gameView, preflightState.myPlayerSlot)
+      ) {
+        return;
+      }
+    }
     if (currentPrompt.input.type === "revealCards" || currentPrompt.input.type === "diceRolled") return;
 
     const deterministic = resolvePrompt(currentPrompt, { prefs: { show: showOverrides } });
@@ -276,6 +358,11 @@ export function useWorkbenchController(paused = false): void {
       gameView,
       prompt: currentPrompt,
       myPlayerSlot: state.myPlayerSlot,
+      decisionContext: buildWorkbenchDecisionContext({
+        auditLog: useWorkbenchStore.getState().auditLog,
+        gameView,
+        gameLog: state.gameLog,
+      }),
       signal: controller.signal,
       onAuditEntry: addAuditEntry,
     })
