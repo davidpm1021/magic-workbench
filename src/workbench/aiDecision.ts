@@ -121,7 +121,10 @@ export async function requestWorkbenchDecision(
     const requestBody = JSON.stringify({
       model,
       ...(request.baseUrl.trim().startsWith("/workbench-ai")
-        ? { workbenchImportance: classification.importance }
+        ? {
+            workbenchImportance: classification.importance,
+            workbenchResponseSchema: decisionEnvelopeSchema(modelPrompt),
+          }
         : {}),
       messages: [
         {
@@ -135,15 +138,17 @@ export async function requestWorkbenchDecision(
             "Before using counterspells or removal on your own cards, require a specific visible strategic benefit and state it in the reason. " +
             "Never invent cards, hidden information, targets, action IDs, or other choices. Return JSON only with the " +
             "shape {\\\"output\\\": <prompt response>, \\\"reason\\\": \\\"brief strategic reason\\\"}. " +
+            "The prompt-specific outputRules describe ONLY the value inside the top-level output field. " +
+            "Never return that inner prompt response as the top-level JSON object. " +
             "The reason should be 1-3 concise sentences naming the decisive visible game factors, " +
-            "without exposing private chain-of-thought. The output must satisfy the exact response rules supplied by the user message.",
+            "without exposing private chain-of-thought. The output must satisfy the exact outputRules supplied by the user message.",
         },
         {
           role: "user",
           content: JSON.stringify({
             strategy: request.strategyPrompt,
             seat: request.myPlayerSlot,
-            responseRules: responseRules(modelPrompt),
+            outputRules: responseRules(modelPrompt),
             prompt: modelPrompt,
             decisionContext: request.decisionContext ?? null,
             visibleGameState: compactView,
@@ -322,52 +327,52 @@ function responseRules(prompt: Prompt): string[] {
   switch (prompt.input.type) {
     case "chooseAction":
       return [
-        'Return {"type":"act","actionId":"<one id from prompt.input.actions>"} or {"type":"pass","exhaustStack":false}.',
+        'Set the top-level output field to {"type":"act","actionId":"<one id from prompt.input.actions>"} or {"type":"pass","exhaustStack":false}.',
         "Do not use restoreSnapshot.",
       ];
     case "payManaCost":
       return prompt.input.canConfirmFromPool
         ? [
-            'The mana pool already satisfies the cost. Return {"type":"pay","auto":false} to confirm payment.',
+            'The mana pool already satisfies the cost. Set the top-level output field to {"type":"pay","auto":false} to confirm payment.',
             "Do not activate another mana source when canConfirmFromPool is true.",
           ]
         : [
-            'The mana pool does NOT yet satisfy the cost. Return {"type":"act","actionId":"<one id from prompt.input.actions>"} to take one incremental payment step, or {"type":"cancel"} if payment should be abandoned.',
+            'The mana pool does NOT yet satisfy the cost. Set the top-level output field to {"type":"act","actionId":"<one id from prompt.input.actions>"} to take one incremental payment step, or {"type":"cancel"} if payment should be abandoned.',
             'Do NOT return {"type":"pay"} while canConfirmFromPool is false. The engine will re-prompt and create a loop.',
           ];
     case "mulligan":
-      return ['Return {"type":"mulliganDecision","keep":true|false}.'];
+      return ['Set the top-level output field to {"type":"mulliganDecision","keep":true|false}.'];
     case "mulliganPutBack":
       return [
-        'Return {"type":"mulliganPutBackDecision","cardIds":[...]} with exactly prompt.input.count unique IDs from prompt.input.handCardIds.',
+        'Set the top-level output field to {"type":"mulliganPutBackDecision","cardIds":[...]} with exactly prompt.input.count unique IDs from prompt.input.handCardIds.',
       ];
     case "chooseAttackers":
       return [
-        'Return {"type":"declareAttackers","assignments":[{"attackerId":"...","targetId":"..."}]}.',
+        'Set the top-level output field to {"type":"declareAttackers","assignments":[{"attackerId":"...","targetId":"..."}]}.',
         "Each attacker can appear at most once. Each targetId must be valid for that attacker.",
         "Include every mustAttack attacker that has at least one valid target.",
       ];
     case "chooseBlockers":
       return [
-        'Return {"type":"declareBlockers","assignments":[{"blockerId":"...","attackerId":"..."}]}.',
+        'Set the top-level output field to {"type":"declareBlockers","assignments":[{"blockerId":"...","attackerId":"..."}]}.',
         "Each blocker can appear at most once and must be in that attacker's validBlockerIds.",
         "Respect minBlockers, maxBlockers, and mustBeBlocked.",
       ];
     case "chooseBoardTargets":
       return [
-        'Return {"type":"boardTargets","chosen":[<zero or one exact object from prompt.input.candidates>]} or {"type":"cancel"} if cancellable.',
+        'Set the top-level output field to {"type":"boardTargets","chosen":[<zero or one exact object from prompt.input.candidates>]} or {"type":"cancel"} if cancellable.',
         "Choose one target at a time. Use [] only when the current chosenTargets already satisfies minTargets.",
       ];
     case "chooseBoolean":
-      return ['Return {"type":"decision","value":true|false}.'];
+      return ['Set the top-level output field to {"type":"decision","value":true|false}.'];
     case "chooseFromSelection":
       return [
-        'Return {"type":"selectionDecision","chosenIndices":[...]} using zero-based indices into prompt.input.options.',
+        'Set the top-level output field to {"type":"selectionDecision","chosenIndices":[...]} using zero-based indices into prompt.input.options.',
         "The sum of option weights must be between minTotal and maxTotal. Repeat an index only when that option canRepeat.",
       ];
     case "chooseCards":
       return [
-        'Return {"type":"chooseCardsDecision","chosenCardIds":[...]} using unique IDs from prompt.input.cards.',
+        'Set the top-level output field to {"type":"chooseCardsDecision","chosenCardIds":[...]} using unique IDs from prompt.input.cards.',
         "Choose between prompt.input.min and prompt.input.max cards.",
       ];
     case "chooseColor":
@@ -378,28 +383,271 @@ function responseRules(prompt: Prompt): string[] {
       ];
     case "chooseNumber":
       return [
-        'Return {"type":"numberDecision","chosenNumber":N} where N is an integer between min and max, or null only when declining is strategically intended.',
+        'Set the top-level output field to {"type":"numberDecision","chosenNumber":N} where N is an integer between min and max, or null only when declining is strategically intended.',
       ];
     case "scry":
       return [
-        'Return {"type":"scryDecision","zoneCardIds":[[...], [...]]}.',
+        'Set the top-level output field to {"type":"scryDecision","zoneCardIds":[[...], [...]]}.',
         "zoneCardIds has one array per prompt.input.zones entry, in the same order. Every prompt.input.cards ID must appear exactly once.",
       ];
     case "reorder":
       return [
-        'Return {"type":"reorderDecision","orderedIds":[...]} as a permutation of every prompt.input.items[].id.',
+        'Set the top-level output field to {"type":"reorderDecision","orderedIds":[...]} as a permutation of every prompt.input.items[].id.',
       ];
     case "chooseDamageAssignmentOrder":
       return [
-        'Return {"type":"damageAssignmentOrderDecision","orderedBlockerIds":[...]} as a permutation of every blockerId.',
+        'Set the top-level output field to {"type":"damageAssignmentOrderDecision","orderedBlockerIds":[...]} as a permutation of every blockerId.',
       ];
     case "chooseCombatDamageAssignment":
       return [
-        'Return {"type":"combatDamageAssignmentDecision","assignments":[{"assigneeId":"...","damage":N}]}.',
+        'Set the top-level output field to {"type":"combatDamageAssignmentDecision","assignments":[{"assigneeId":"...","damage":N}]}.',
         "Assignee IDs may be blockerIds and defenderId when present. Damage values must be nonnegative integers totaling totalDamage.",
       ];
     default:
-      return ["Return the exact response object required by the current prompt."];
+      return ["Set the top-level output field to the exact response object required by the current prompt."];
+  }
+}
+
+
+type WorkbenchJsonSchema = Record<string, unknown>;
+
+function objectSchema(
+  properties: Record<string, WorkbenchJsonSchema>,
+  required: string[] = Object.keys(properties),
+): WorkbenchJsonSchema {
+  return {
+    type: "object",
+    properties,
+    required,
+    additionalProperties: false,
+  };
+}
+
+function stringEnum(values: string[]): WorkbenchJsonSchema {
+  return values.length > 0 ? { type: "string", enum: values } : { type: "string" };
+}
+
+function literalSchema(value: unknown): WorkbenchJsonSchema {
+  if (value === null) return { type: "null" };
+  if (typeof value === "string") return { type: "string", enum: [value] };
+  if (typeof value === "number") return Number.isInteger(value)
+    ? { type: "integer", enum: [value] }
+    : { type: "number", enum: [value] };
+  if (typeof value === "boolean") return { type: "boolean", enum: [value] };
+  if (Array.isArray(value)) {
+    return {
+      type: "array",
+      prefixItems: value.map(literalSchema),
+      minItems: value.length,
+      maxItems: value.length,
+    };
+  }
+  if (isRecord(value)) {
+    const properties = Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, literalSchema(child)]),
+    );
+    return objectSchema(properties);
+  }
+  return {};
+}
+
+function decisionEnvelopeSchema(prompt: Prompt): WorkbenchJsonSchema {
+  return objectSchema({
+    output: promptOutputSchema(prompt),
+    reason: { type: "string" },
+  });
+}
+
+function promptOutputSchema(prompt: Prompt): WorkbenchJsonSchema {
+  const typed = (type: string, properties: Record<string, WorkbenchJsonSchema> = {}) =>
+    objectSchema({ type: { type: "string", enum: [type] }, ...properties });
+
+  switch (prompt.input.type) {
+    case "chooseAction":
+      return {
+        anyOf: [
+          typed("act", { actionId: stringEnum(prompt.input.actions.map((action) => action.id)) }),
+          typed("pass", { exhaustStack: { type: "boolean" } }),
+        ],
+      };
+
+    case "payManaCost": {
+      const choices: WorkbenchJsonSchema[] = prompt.input.canConfirmFromPool
+        ? [typed("pay", { auto: { type: "boolean" } })]
+        : [
+            typed("act", { actionId: stringEnum(prompt.input.actions.map((action) => action.id)) }),
+            typed("cancel"),
+          ];
+      return { anyOf: choices };
+    }
+
+    case "mulligan":
+      return typed("mulliganDecision", { keep: { type: "boolean" } });
+
+    case "mulliganPutBack":
+      return typed("mulliganPutBackDecision", {
+        cardIds: {
+          type: "array",
+          items: stringEnum(prompt.input.handCardIds),
+          minItems: prompt.input.count,
+          maxItems: prompt.input.count,
+        },
+      });
+
+    case "chooseAttackers": {
+      const attackerIds = prompt.input.attackers.map((item) => item.attackerId);
+      const targetIds = [...new Set(prompt.input.attackers.flatMap((item) => item.validTargetIds))];
+      return typed("declareAttackers", {
+        assignments: {
+          type: "array",
+          items: objectSchema({
+            attackerId: stringEnum(attackerIds),
+            targetId: stringEnum(targetIds),
+          }),
+        },
+      });
+    }
+
+    case "chooseBlockers": {
+      const attackerIds = prompt.input.attackers.map((item) => item.attackerId);
+      const blockerIds = [...new Set(prompt.input.attackers.flatMap((item) => item.validBlockerIds))];
+      return typed("declareBlockers", {
+        assignments: {
+          type: "array",
+          items: objectSchema({
+            blockerId: stringEnum(blockerIds),
+            attackerId: stringEnum(attackerIds),
+          }),
+        },
+      });
+    }
+
+    case "chooseBoardTargets":
+      return {
+        anyOf: [
+          typed("boardTargets", {
+            chosen: {
+              type: "array",
+              items:
+                prompt.input.candidates.length > 0
+                  ? { anyOf: prompt.input.candidates.map(literalSchema) }
+                  : {},
+              minItems: 0,
+              maxItems: 1,
+            },
+          }),
+          typed("cancel"),
+        ],
+      };
+
+    case "chooseBoolean":
+      return typed("decision", { value: { type: "boolean" } });
+
+    case "chooseFromSelection":
+      return typed("selectionDecision", {
+        chosenIndices: {
+          type: "array",
+          items: {
+            type: "integer",
+            minimum: 0,
+            maximum: Math.max(0, prompt.input.options.length - 1),
+          },
+        },
+      });
+
+    case "chooseCards":
+      return typed("chooseCardsDecision", {
+        chosenCardIds: {
+          type: "array",
+          items: stringEnum(prompt.input.cards.map((card) => card.id)),
+          minItems: prompt.input.min,
+          maxItems: prompt.input.max,
+        },
+      });
+
+    case "chooseColor": {
+      const properties = Object.fromEntries(
+        prompt.input.validColors.map((color) => [
+          color,
+          {
+            type: "integer",
+            minimum: 0,
+            maximum: prompt.input.repeatAllowed ? prompt.input.amount : 1,
+          },
+        ]),
+      ) as Record<string, WorkbenchJsonSchema>;
+      return typed("colorDecision", {
+        chosenColors: objectSchema(properties),
+      });
+    }
+
+    case "chooseNumber":
+      return typed("numberDecision", {
+        chosenNumber: {
+          anyOf: [
+            {
+              type: "integer",
+              minimum: prompt.input.min,
+              maximum: prompt.input.max,
+            },
+            { type: "null" },
+          ],
+        },
+      });
+
+    case "scry":
+      return typed("scryDecision", {
+        zoneCardIds: {
+          type: "array",
+          items: {
+            type: "array",
+            items: stringEnum(prompt.input.cards.map((card) => card.id)),
+          },
+          minItems: prompt.input.zones.length,
+          maxItems: prompt.input.zones.length,
+        },
+      });
+
+    case "reorder":
+      return typed("reorderDecision", {
+        orderedIds: {
+          type: "array",
+          items: stringEnum(prompt.input.items.map((item) => item.id)),
+          minItems: prompt.input.items.length,
+          maxItems: prompt.input.items.length,
+        },
+      });
+
+    case "chooseDamageAssignmentOrder":
+      return typed("damageAssignmentOrderDecision", {
+        orderedBlockerIds: {
+          type: "array",
+          items: stringEnum(prompt.input.blockerIds),
+          minItems: prompt.input.blockerIds.length,
+          maxItems: prompt.input.blockerIds.length,
+        },
+      });
+
+    case "chooseCombatDamageAssignment": {
+      const assigneeIds = [
+        ...prompt.input.blockerIds,
+        ...(prompt.input.defenderId ? [prompt.input.defenderId] : []),
+      ];
+      return typed("combatDamageAssignmentDecision", {
+        assignments: {
+          type: "array",
+          items: objectSchema({
+            assigneeId: stringEnum(assigneeIds),
+            damage: { type: "integer", minimum: 0, maximum: prompt.input.totalDamage },
+          }),
+        },
+      });
+    }
+
+    default:
+      return objectSchema({
+        type: { type: "string" },
+      });
   }
 }
 
@@ -790,10 +1038,20 @@ function parseJsonDecision(content: string): ModelDecision {
   } catch {
     throw new Error("AI returned malformed JSON.");
   }
-  if (!isRecord(parsed) || !("output" in parsed)) {
-    throw new Error("AI response is missing the output object.");
+  if (!isRecord(parsed)) {
+    throw new Error("AI response was not a JSON object.");
   }
-  return parsed as unknown as ModelDecision;
+  if ("output" in parsed) {
+    return parsed as unknown as ModelDecision;
+  }
+  if (typeof parsed.type === "string") {
+    return {
+      output: parsed,
+      reason:
+        "Model returned a legal prompt response without the required output wrapper; Workbench normalized it.",
+    };
+  }
+  throw new Error("AI response is missing the output object.");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
