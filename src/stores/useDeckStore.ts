@@ -285,6 +285,12 @@ interface WorkbenchDeckBackupPayload {
 
 let deckBackupWriteQueue: Promise<void> = Promise.resolve();
 let pendingDeckBackup: SavedDeck[] | null = null;
+let deckReconcilePromise: Promise<void> = Promise.resolve();
+
+export async function waitForWorkbenchDeckBackup(): Promise<void> {
+  await deckReconcilePromise;
+  await deckBackupWriteQueue.catch(() => undefined);
+}
 
 function flushPendingDeckBackup(): void {
   if (!deckDiskBackupReady || !pendingDeckBackup) return;
@@ -1381,7 +1387,7 @@ function finishDeckHydration(): void {
   deckPersistReady = true;
 
   queueMicrotask(() => {
-    void reconcileSavedDecksWithDisk().finally(() => {
+    deckReconcilePromise = reconcileSavedDecksWithDisk().finally(() => {
       void completeDeckMigrations(useDeckStore.getState());
     });
   });
