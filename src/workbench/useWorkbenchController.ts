@@ -345,6 +345,32 @@ export function useWorkbenchController(paused = false): void {
       return;
     }
 
+    const decisionContext = buildWorkbenchDecisionContext({
+      auditLog: useWorkbenchStore.getState().auditLog,
+      gameView,
+      gameLog: state.gameLog,
+      currentPrompt,
+    });
+    const modeSource = decisionContext.selectionCostHints?.sourceCard;
+    if (
+      currentPrompt.input.type === "chooseFromSelection" &&
+      modeSource &&
+      decisionContext.recentFailedPayments.filter((failure) => failure.card === modeSource).length >= 2
+    ) {
+      inFlightPromptRef.current = null;
+      const message =
+        `Transaction loop guard: mana payment for ${modeSource} already failed twice this turn. ` +
+        "Choose a cheaper mode manually or retry AI after resources change.";
+      setRecovery({
+        promptId,
+        promptType: currentPrompt.input.type,
+        error: message,
+        mode: "error",
+      });
+      setStatus({ kind: "error", message });
+      return;
+    }
+
     setStatus({
       kind: "thinking",
       message: `${selectedModel} is handling a ${classification.importance} decision...`,
@@ -358,12 +384,7 @@ export function useWorkbenchController(paused = false): void {
       gameView,
       prompt: currentPrompt,
       myPlayerSlot: state.myPlayerSlot,
-      decisionContext: buildWorkbenchDecisionContext({
-        auditLog: useWorkbenchStore.getState().auditLog,
-        gameView,
-        gameLog: state.gameLog,
-        currentPrompt,
-      }),
+      decisionContext,
       signal: controller.signal,
       onAuditEntry: addAuditEntry,
     })
