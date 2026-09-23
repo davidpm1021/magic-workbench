@@ -420,6 +420,26 @@ export interface WorkbenchDecisionContext {
     }>;
   };
   resolvingAbilityText: string | null;
+  sourceFacts: {
+    id: string | null;
+    name: string | null;
+    zone: string | null;
+    controllerId: string | null;
+    ownerId: string | null;
+    permanentBattlefieldAbilitiesActiveByDefault: boolean;
+    explicitlyMentionsOtherZone: boolean;
+  } | null;
+  actionSourceFacts: Array<{
+    actionId: string;
+    actionType: string | null;
+    cardId: string;
+    name: string;
+    zone: string | null;
+    controllerId: string | null;
+    ownerId: string | null;
+    permanentBattlefieldAbilitiesActiveByDefault: boolean;
+    explicitlyMentionsOtherZone: boolean;
+  }>;
   recentEngineLog: Array<Pick<GameLogEntry, "message" | "entryType" | "playerId" | "cardId">>;
   recentDecisions: Array<{
     turn: number | null;
@@ -493,6 +513,34 @@ function numericStat(value: unknown): number | null {
   return Number.isFinite(number) ? number : null;
 }
 
+function visibleCardZone(gameView: ClientGameView, cardId: string): string | null {
+  if ((gameView.stack ?? []).some((item) => item.sourceId === cardId)) return "stack";
+  const card = allVisibleCards(gameView).find((candidate) => candidate.id === cardId);
+  if (card?.zoneId) return card.zoneId;
+  if ((gameView.battlefield ?? []).some((candidate) => candidate.id === cardId)) return "battlefield";
+  return null;
+}
+
+function explicitOtherZoneAbility(text: string | null | undefined): boolean {
+  return /\b(command zone|graveyard|exile|exiled|hand|library)\b/i.test(text ?? "");
+}
+
+function permanentAbilitiesActiveByDefault(zone: string | null): boolean {
+  return zone === "battlefield";
+}
+
+function actionDependencyText(prompt: Prompt): string {
+  if (prompt.input.type !== "chooseAction") return "";
+  return prompt.input.actions
+    .map((action) => {
+      const value = action as unknown as AnyRecord;
+      return [value.label, value.description, value.cost]
+        .filter((part): part is string => typeof part === "string")
+        .join(" ");
+    })
+    .join(" ");
+}
+
 function actionCardHasFight(prompt: Prompt, gameView: ClientGameView): boolean {
   if (prompt.input.type !== "chooseAction") return false;
   const byId = new Map(allVisibleCards(gameView).map((card) => [card.id, card]));
@@ -531,55 +579,78 @@ export function buildMaterialDecisionFingerprint(
   gameView: ClientGameView,
 ): string {
   const modelPrompt = promptForWorkbenchModel(prompt);
-  const promptInput = modelPrompt.input as unknown as AnyRecord;
-  let strategicPrompt: unknown = promptInput;
-  if (modelPrompt.input.type === "chooseAction") {
-    strategicPrompt = {
-      type: "chooseAction",
-      actions: modelPrompt.input.actions.map((action) => {
-        const value = action as unknown as AnyRecord;
-        return {
-          type: value.type,
-          cardId: value.cardId,
-          abilityIndex: value.abilityIndex,
-          label: value.label,
-          description: value.description,
-          mode: value.mode,
-        };
-      }),
-    };
-  }
+  const decidingPlayerId =
+    prompt.decidingPlayerId ?? gameView.priorityPlayerId ?? gameView.activePlayerId ?? null;
+  const decidingPlayer = gameView.players.find((player) => player.id === decidingPlayerId);
+  const text = actionDependencyText(modelPrompt);
+  const byId = new Map(allVisibleCards(gameView).map((card) => [card.id, card]));
+
+  const strategicActions =
+    modelPrompt.input.type === "chooseAction"
+      ? modelPrompt.input.actions.map((action) => {
+          const value = action as unknown as AnyRecord;
+          const cardId = typeof value.cardId === "string" ? value.cardId : null;
+          const card = cardId ? byId.get(cardId) : null;
+          return {
+            type: value.type,
+            cardId,
+            abilityIndex: value.abilityIndex,
+            label: value.label,
+            description: value.description,
+            cost: value.cost,
+            mode: value.mode,
+            sourceState: card
+              ? materialCardState(card as unknown as AnyRecord)
+              : cardId
+                ? { id: cardId, zone: visibleCardZone(gameView, cardId) }
+                : null,
+          };
+        })
+      : modelPrompt.input;
+
+  const needsBattlefield =
+    /\b(target|creature|permanent|destroy|exile|fight|damage|aura|attack|block|counter|tap|untap)\b/i.test(text);
+  const needsGraveyards =
+    /\b(graveyard|flashback|escape|delve|reanimate|return|exile|copy)\b/i.test(text);
+  const needsHands = /\b(hand|discard|draw)\b/i.test(text);
+  const needsLife = /\b(life|damage|lose|gain)\b/i.test(text);
 
   return JSON.stringify({
     turn: gameView.turn,
     activePlayerId: gameView.activePlayerId,
     priorityPlayerId: gameView.priorityPlayerId,
-    players: gameView.players.map((player) => ({
-      id: player.id,
-      life: player.life,
-      handCount: player.handCount,
-      libraryCount: player.libraryCount,
-      manaPool: player.manaPool,
-      counters: player.counters,
-      commanderDamage: player.commanderDamage,
-      commanderCasts: player.commanderCasts,
-      landsPlayedThisTurn: player.landsPlayedThisTurn,
-      cardsDrawnThisTurn: player.cardsDrawnThisTurn,
-      hand: (player.hand ?? []).map((card) => card.id),
-      graveyard: (player.graveyard ?? []).map((card) => card.id),
-      exile: (player.exile ?? []).map((card) => materialCardState(card as unknown as AnyRecord)),
-      commandZone: (player.commandZone ?? []).map((card) => materialCardState(card as unknown as AnyRecord)),
-    })),
-    battlefield: (gameView.battlefield ?? []).map((card) => materialCardState(card as unknown as AnyRecord)),
+    decidingPlayer: decidingPlayer
+      ? {
+          id: decidingPlayer.id,
+          life: decidingPlayer.life,
+          manaPool: decidingPlayer.manaPool,
+          hand: needsHands ? (decidingPlayer.hand ?? []).map((card) => card.id) : undefined,
+        }
+      : null,
+    opponentLife: needsLife
+      ? gameView.players
+          .filter((player) => player.id !== decidingPlayerId)
+          .map((player) => ({ id: player.id, life: player.life }))
+      : undefined,
+    battlefield: needsBattlefield
+      ? (gameView.battlefield ?? []).map((card) => materialCardState(card as unknown as AnyRecord))
+      : undefined,
+    graveyards: needsGraveyards
+      ? gameView.players.map((player) => ({
+          id: player.id,
+          cards: (player.graveyard ?? []).map((card) => card.id),
+        }))
+      : undefined,
     stack: (gameView.stack ?? []).map((item) => ({
       id: item.id,
       sourceId: item.sourceId,
       controllerId: item.controllerId,
+      ownerId: item.ownerId,
       name: item.identity.name,
       targets: item.targets,
     })),
-    combatAssignments: gameView.combatAssignments,
-    prompt: strategicPrompt,
+    combatAssignments: needsBattlefield ? gameView.combatAssignments : undefined,
+    actions: strategicActions,
   });
 }
 
@@ -859,6 +930,60 @@ export function buildWorkbenchDecisionContext(args: {
       ? promptRecord.sourceAbilityText.trim()
       : null;
 
+  const sourceCardRecord = record(promptRecord?.sourceCard);
+  const sourceIdentity = record(sourceCardRecord?.identity);
+  const sourceCardId =
+    typeof sourceCardRecord?.id === "string" ? sourceCardRecord.id : null;
+  const sourceVisibleCard = sourceCardId ? visibleById.get(sourceCardId) : null;
+  const sourceZone = sourceCardId ? visibleCardZone(gameView, sourceCardId) : null;
+  const sourceText =
+    typeof sourceCardRecord?.text === "string"
+      ? sourceCardRecord.text
+      : sourceVisibleCard?.text ?? null;
+  const sourceFacts: WorkbenchDecisionContext["sourceFacts"] = sourceCardId
+    ? {
+        id: sourceCardId,
+        name:
+          typeof sourceIdentity?.name === "string"
+            ? sourceIdentity.name
+            : sourceVisibleCard?.identity.name ?? null,
+        zone: sourceZone,
+        controllerId:
+          typeof sourceCardRecord?.controllerId === "string"
+            ? sourceCardRecord.controllerId
+            : sourceVisibleCard?.controllerId ?? null,
+        ownerId:
+          typeof sourceCardRecord?.ownerId === "string"
+            ? sourceCardRecord.ownerId
+            : sourceVisibleCard?.ownerId ?? null,
+        permanentBattlefieldAbilitiesActiveByDefault:
+          permanentAbilitiesActiveByDefault(sourceZone),
+        explicitlyMentionsOtherZone: explicitOtherZoneAbility(sourceText),
+      }
+    : null;
+
+  const actionSourceFacts: WorkbenchDecisionContext["actionSourceFacts"] =
+    currentPrompt?.input.type === "chooseAction"
+      ? currentPrompt.input.actions.flatMap((action) => {
+          const value = action as unknown as AnyRecord;
+          if (typeof value.id !== "string" || typeof value.cardId !== "string") return [];
+          const card = visibleById.get(value.cardId);
+          const zone = visibleCardZone(gameView, value.cardId);
+          return [{
+            actionId: value.id,
+            actionType: typeof value.type === "string" ? value.type : null,
+            cardId: value.cardId,
+            name: card?.identity.name ?? value.cardId,
+            zone,
+            controllerId: card?.controllerId ?? null,
+            ownerId: card?.ownerId ?? null,
+            permanentBattlefieldAbilitiesActiveByDefault:
+              permanentAbilitiesActiveByDefault(zone),
+            explicitlyMentionsOtherZone: explicitOtherZoneAbility(card?.text),
+          }];
+        })
+      : [];
+
   const strategicFacts: WorkbenchDecisionContext["strategicFacts"] = {
     isActivePlayer,
     turnsTaken: playerTurnIds.size,
@@ -903,6 +1028,8 @@ export function buildWorkbenchDecisionContext(args: {
     manaAvailability: estimateManaAvailability(gameView, currentPrompt?.decidingPlayerId),
     strategicFacts,
     resolvingAbilityText,
+    sourceFacts,
+    actionSourceFacts,
     recentEngineLog: gameLog.slice(-24).map((entry) => ({
       message: entry.message,
       entryType: entry.entryType,
@@ -936,6 +1063,9 @@ export function buildWorkbenchDecisionContext(args: {
       "Workbench normally handles mechanical mana production during payManaCost. Do not float mana during ordinary priority without a concrete reason.",
       "Use spellsActuallyCastThisTurn as the authoritative spell-count continuity for this turn. Do not call a later spell the second spell if two spells are already listed.",
       "When resolvingAbilityText is present, it is the authoritative ability currently resolving. Do not substitute a different ability printed on the same card.",
+      "Use sourceFacts and actionSourceFacts as authoritative ownership/control/zone facts. Never infer a card's owner from its controller.",
+      "For permanent cards, printed static and triggered battlefield abilities are active by default only while the permanent is on the battlefield. A permanent in hand, command zone, graveyard, exile, or on the stack does not get its normal battlefield abilities unless its exact text explicitly says that ability functions from that zone.",
+      "Casting a permanent does not let that permanent's battlefield trigger see the event of itself being cast. For example, a permanent entering as the second spell cannot trigger a 'whenever you cast your second spell' ability printed on itself unless it was already on the battlefield before that spell was cast.",
       "Use fightOutcomes for baseline fight damage arithmetic. Do not claim a creature is removed when targetLethalByToughness is false unless a visible keyword or effect changes that result.",
       "Use combatAssignments and unblockedAttackers instead of inferring blocks from which creatures are untapped.",
       "Use commanderThreats for commander-damage arithmetic and actively check for deterministic lethal before choosing slower value lines.",
