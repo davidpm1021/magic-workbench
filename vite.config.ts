@@ -88,7 +88,7 @@ function workbenchAiProxy(): Plugin {
                 },
                 text: { format: { type: "json_object" } },
                 max_output_tokens:
-                  requestBody.workbenchImportance === "routine" ? 3_000 : 8_000,
+                  requestBody.workbenchImportance === "routine" ? 4_000 : 20_000,
               }),
             });
 
