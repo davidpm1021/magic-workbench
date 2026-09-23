@@ -260,6 +260,56 @@ export function chooseDeterministicManaStep(
   return chooseDeterministicManaPlan(prompt, gameView, playerId)?.output ?? null;
 }
 
+export interface CachedManaPlanStep {
+  output: { type: "act"; actionId: string };
+  preferredColor: string | null;
+  remainingActionIds: string[];
+}
+
+export function chooseCachedManaPlanStep(
+  prompt: Prompt,
+  actionIds: string[],
+): CachedManaPlanStep | null {
+  if (prompt.input.type !== "payManaCost" || actionIds.length === 0) return null;
+  const nextActionId = actionIds[0];
+  const action = prompt.input.actions.find((candidate) => candidate.id === nextActionId);
+  if (!action) return null;
+
+  const raw = action as unknown as {
+    producedMana?: Array<{ color?: string; amount?: number }>;
+  };
+  const produced = raw.producedMana ?? [];
+  const actionIdColor = nextActionId.match(/:([WUBRGC])$/)?.[1] ?? null;
+  const preferredColor =
+    produced.length === 1 && typeof produced[0]?.color === "string"
+      ? produced[0].color
+      : actionIdColor;
+
+  return {
+    output: { type: "act", actionId: nextActionId },
+    preferredColor,
+    remainingActionIds: actionIds.slice(1),
+  };
+}
+
+export function shouldCompleteWorkbenchTransaction(args: {
+  gameOver: boolean;
+  promptAdvanced: boolean;
+  currentPrompt: Prompt | null;
+  stackSize: number;
+  isWaitingForResponse: boolean;
+}): boolean {
+  return (
+    args.gameOver ||
+    (
+      args.promptAdvanced &&
+      args.currentPrompt?.input.type === "chooseAction" &&
+      args.stackSize === 0 &&
+      !args.isWaitingForResponse
+    )
+  );
+}
+
 function estimateManaAvailability(
   gameView: ClientGameView,
   decidingPlayerId?: string,
