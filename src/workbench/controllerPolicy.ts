@@ -511,7 +511,7 @@ export function buildWorkbenchDecisionContext(args: {
   const strategicFacts: WorkbenchDecisionContext["strategicFacts"] = {
     isActivePlayer: decidingPlayer?.id === gameView.activePlayerId,
     landsInHand:
-      decidingPlayer?.hand.filter((card) => card.types.includes("Land")).length ?? 0,
+      (decidingPlayer?.hand ?? []).filter((card) => card.types.includes("Land")).length,
     landDropsRemaining: Math.max(
       0,
       (decidingPlayer?.maxLandPlaysPerTurn ?? 0) - (decidingPlayer?.landsPlayedThisTurn ?? 0),
