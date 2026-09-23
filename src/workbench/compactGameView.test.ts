@@ -73,4 +73,48 @@ describe("compactWorkbenchGameView", () => {
     expect(hand[0]?.name).toBe("Sol Ring");
     expect(hand[0]?.text).toBe("{T}: Add {C}{C}.");
   });
+
+  it("deduplicates repeated battlefield characteristics while keeping individual IDs and state", () => {
+    const token = (id: string, tapped: boolean) => ({
+      id,
+      identity: { name: "Monk Token" },
+      zoneId: "battlefield",
+      controllerId: "player-0",
+      ownerId: "player-0",
+      manaCost: "",
+      cmc: 0,
+      types: ["Creature"],
+      subtypes: ["Monk"],
+      power: "1",
+      toughness: "1",
+      text: "Prowess",
+      tapped,
+      isAttacking: false,
+      summoningSick: false,
+      keywords: ["Prowess"],
+      counters: {},
+      damage: 0,
+      choices: [],
+      attachmentIds: [],
+    });
+
+    const view = {
+      gameId: "game-2",
+      turn: 10,
+      step: "main1",
+      players: [],
+      battlefield: [token("token-1", false), token("token-2", true)],
+      stack: [],
+      combatAssignments: [],
+    } as unknown as ClientGameView;
+
+    const compact = compactWorkbenchGameView(view);
+    const battlefield = compact.battlefield as Array<Record<string, unknown>>;
+    expect(battlefield[0]?.text).toBe("Prowess");
+    expect(battlefield[1]?.sameCharacteristicsAs).toBe("token-1");
+    expect(battlefield[1]?.text).toBeUndefined();
+    expect(battlefield[1]?.id).toBe("token-2");
+    expect(battlefield[1]?.tapped).toBe(true);
+  });
+
 });
