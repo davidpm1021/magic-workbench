@@ -9,6 +9,41 @@ $repo = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $repo
 
 $envFile = Join-Path $repo ".env.local"
+
+function Set-EnvFileValue {
+  param(
+    [string]$Name,
+    [string]$Value
+  )
+
+  $lines = @()
+  if (Test-Path $envFile) {
+    $lines = @(Get-Content $envFile)
+  }
+
+  $updated = $false
+  $nextLines = @(
+    foreach ($existingLine in $lines) {
+      if ($existingLine -match ("^\s*" + [Regex]::Escape($Name) + "\s*=")) {
+        "$Name=$Value"
+        $updated = $true
+      } else {
+        $existingLine
+      }
+    }
+  )
+
+  if (-not $updated) {
+    $nextLines += "$Name=$Value"
+  }
+
+  [System.IO.File]::WriteAllLines(
+    $envFile,
+    [string[]]$nextLines,
+    [System.Text.UTF8Encoding]::new($false)
+  )
+}
+
 if (Test-Path $envFile) {
   Get-Content $envFile | ForEach-Object {
     $line = $_.Trim()
@@ -66,6 +101,7 @@ if ($env:WORKBENCH_AI_BASE_URL) {
 }
 
 $plainKey = $env:WORKBENCH_AI_API_KEY
+$apiKeyLoadedFromFile = [bool]$plainKey
 $secureKey = $null
 $bstr = [IntPtr]::Zero
 try {
@@ -76,6 +112,8 @@ try {
     if ($secureKey.Length -gt 0) {
       $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
       $plainKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+      Set-EnvFileValue -Name "WORKBENCH_AI_API_KEY" -Value $plainKey
+      Write-Host "Saved API key to the Git-ignored .env.local file for future launches." -ForegroundColor DarkGray
     }
   }
 
@@ -96,10 +134,12 @@ try {
   } else {
     Write-Host "Fast model: main model fallback"
   }
-  if (Test-Path $envFile) {
+  if ($apiKeyLoadedFromFile) {
     Write-Host "API key was loaded from the Git-ignored .env.local file into this PowerShell process." -ForegroundColor DarkGray
+  } elseif ($plainKey) {
+    Write-Host "API key was saved to the Git-ignored .env.local file and loaded into this PowerShell process." -ForegroundColor DarkGray
   } else {
-    Write-Host "API key is held only in this PowerShell process." -ForegroundColor DarkGray
+    Write-Host "No provider API key is configured." -ForegroundColor DarkGray
   }
   Write-Host ""
 
