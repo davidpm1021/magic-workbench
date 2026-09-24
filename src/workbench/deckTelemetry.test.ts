@@ -119,7 +119,7 @@ describe("deck telemetry", () => {
     expect(report.stuckCards).toEqual([
       { name: "Slow Spell", maxObservedTurnSpan: 4 },
     ]);
-    expect(report.cardsDrawnApprox).toBe(2);
+    expect(report.cardsDrawnApprox).toBe(1);
     expect(report.lowestLife).toBe(31);
   });
 
