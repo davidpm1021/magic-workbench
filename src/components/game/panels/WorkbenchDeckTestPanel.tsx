@@ -144,8 +144,8 @@ export function WorkbenchDeckTestPanel() {
               </span>
             </div>
             <div className="rounded-md border border-border/50 bg-background/60 p-2">
-              <span className="block text-muted-foreground">Avg game turn</span>
-              <span className="font-semibold">{summary.averageGameTurn.toFixed(1)}</span>
+              <span className="block text-muted-foreground">Avg turns played</span>
+              <span className="font-semibold">{summary.averagePlayerTurns.toFixed(1)}</span>
             </div>
             <div className="rounded-md border border-border/50 bg-background/60 p-2">
               <span className="block text-muted-foreground">First nonland permanent</span>
@@ -160,6 +160,14 @@ export function WorkbenchDeckTestPanel() {
               <span className="font-semibold">
                 {(summary.noNonlandPermanentByTurn4Rate * 100).toFixed(0)}%
               </span>
+            </div>
+            <div className="rounded-md border border-border/50 bg-background/60 p-2">
+              <span className="block text-muted-foreground">Opening lands</span>
+              <span className="font-semibold">{summary.averageOpeningLands.toFixed(1)}</span>
+            </div>
+            <div className="rounded-md border border-border/50 bg-background/60 p-2">
+              <span className="block text-muted-foreground">Land-drop rate</span>
+              <span className="font-semibold">{(summary.landDropRate * 100).toFixed(0)}%</span>
             </div>
             <div className="rounded-md border border-border/50 bg-background/60 p-2">
               <span className="block text-muted-foreground">Avg max lands</span>
