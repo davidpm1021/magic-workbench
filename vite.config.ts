@@ -452,6 +452,17 @@ export default defineConfig({
       "/scryfall-symbols": {
         target: "https://svgs.scryfall.io",
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq) => {
+            proxyReq.setHeader(
+              "User-Agent",
+              "MagicWorkbench/0.1 (+https://github.com/davidpm1021/magic-workbench)",
+            );
+            proxyReq.setHeader("Accept", "image/svg+xml,image/*;q=0.9,*/*;q=0.8");
+            proxyReq.removeHeader("origin");
+            proxyReq.removeHeader("referer");
+          });
+        },
         rewrite: (p) => p.replace(/^\/scryfall-symbols/, "/card-symbols"),
       },
     },
