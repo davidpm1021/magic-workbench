@@ -140,6 +140,8 @@ export async function requestWorkbenchDecision(
             "Do not repeat a transaction that just failed unless visible resources changed. " +
             "Do not take an action merely because the engine exposes it. Preserve mana until there is a concrete use. " +
             "Before using counterspells or removal on your own cards, require a specific visible strategic benefit and state it in the reason. " +
+            "A card's static abilities apply only from zones where its text or the rules explicitly allow them to function. Never apply a commander's battlefield static abilities while that commander is still in the command zone. " +
+            "For mulligan decisions, explicitly evaluate land count, colors currently producible from the hand, commander color requirements, early spell colors, and fixing actually present in hand. A missing commander color is not an automatic mulligan, but never treat hoped-for future draws as existing color access. " +
             "Never invent cards, hidden information, targets, action IDs, or other choices. Return JSON only with the " +
             "shape {\\\"output\\\": <prompt response>, \\\"reason\\\": \\\"brief strategic reason\\\", \\\"yieldUntil\\\": \\\"none|material_state_change\\\", \\\"manaPlan\\\": []}. " +
             "Use yieldUntil=material_state_change only when output is a pass and the same exposed strategic options should remain declined until relevant visible resources, stack, targets, or source state changes; a phase/step change alone should not require reconsideration. Use none otherwise. " +
