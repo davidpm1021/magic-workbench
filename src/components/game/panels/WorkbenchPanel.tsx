@@ -1,5 +1,17 @@
 import { useMemo, useState } from "react";
-import { Bot, Brain, Download, FastForward, Play, RefreshCw, Sparkles, UserRound } from "lucide-react";
+import {
+  BarChart3,
+  Bot,
+  Brain,
+  Download,
+  FastForward,
+  Play,
+  RefreshCw,
+  Sparkles,
+  Square,
+  Trash2,
+  UserRound,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGameStore } from "@/stores/useGameStore";
 import {
@@ -14,6 +26,10 @@ import { classifyWorkbenchDecision } from "@/workbench/decisionImportance";
 import { formatUsd } from "@/workbench/pricing";
 import { buildWorkbenchDecisionContext } from "@/workbench/controllerPolicy";
 import { downloadWorkbenchAudit } from "@/workbench/auditExport";
+import {
+  downloadWorkbenchDeckTest,
+  summarizeWorkbenchDeckTest,
+} from "@/workbench/deckTelemetry";
 
 const CONTROLLER_OPTIONS: Array<{
   value: WorkbenchControllerMode;
@@ -58,6 +74,7 @@ export function WorkbenchPanel() {
   const auditLog = useWorkbenchStore((state) => state.auditLog);
   const recovery = useWorkbenchStore((state) => state.recovery);
   const status = useWorkbenchStore((state) => state.status);
+  const deckTestSession = useWorkbenchStore((state) => state.deckTestSession);
   const setControllerMode = useWorkbenchStore((state) => state.setControllerMode);
   const setAiBaseUrl = useWorkbenchStore((state) => state.setAiBaseUrl);
   const setAiModel = useWorkbenchStore((state) => state.setAiModel);
@@ -74,8 +91,12 @@ export function WorkbenchPanel() {
     (state) => state.resolveRecoveryManually,
   );
   const setStatus = useWorkbenchStore((state) => state.setStatus);
+  const startDeckTest = useWorkbenchStore((state) => state.startDeckTest);
+  const stopDeckTest = useWorkbenchStore((state) => state.stopDeckTest);
+  const clearDeckTest = useWorkbenchStore((state) => state.clearDeckTest);
 
   const [showConfig, setShowConfig] = useState(false);
+  const [deckTestTargetGames, setDeckTestTargetGames] = useState(10);
   const promptSupported = isWorkbenchAiPrompt(currentPrompt);
   const currentPromptId = Number(currentPrompt?.promptId ?? 0);
   const recommendationIsCurrent =
@@ -104,6 +125,11 @@ export function WorkbenchPanel() {
   const paidDecisionCount = currentGameAudit.filter((item) => item.source === "ai").length;
   const auditErrorCount = currentGameAudit.filter((item) => item.status === "error").length;
   const budgetReached = gameBudgetUsd > 0 && currentGameSpend >= gameBudgetUsd;
+  const deckTestSummary = useMemo(
+    () => summarizeWorkbenchDeckTest(deckTestSession.reports),
+    [deckTestSession.reports],
+  );
+  const deckTestRunning = deckTestSession.status === "running";
 
   const actionCount = useMemo(() => {
     if (!currentPrompt) return 0;
@@ -192,6 +218,27 @@ export function WorkbenchPanel() {
     });
   };
 
+  const beginDeckTest = () => {
+    if (!gameView) return;
+    const targetGames = Math.max(1, Math.min(1000, Math.round(deckTestTargetGames)));
+    setDeckTestTargetGames(targetGames);
+    startDeckTest(targetGames);
+    setControllerMode("thinking-ai");
+    setStatus({
+      kind: "paused",
+      message: `Deck test armed for ${targetGames} game(s). The current game is game 1 and Thinking AI will run the seat.`,
+    });
+  };
+
+  const exportDeckTest = () => {
+    if (deckTestSession.reports.length === 0) return;
+    downloadWorkbenchDeckTest({
+      reports: deckTestSession.reports,
+      targetGames: deckTestSession.targetGames,
+      startedAt: deckTestSession.startedAt,
+    });
+  };
+
   return (
     <div className="min-h-0 flex-1 space-y-3 text-xs">
       <section className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2">
@@ -228,6 +275,180 @@ export function WorkbenchPanel() {
             Soft cap {gameBudgetUsd > 0 ? formatUsd(gameBudgetUsd) : "off"} • {paidDecisionCount} paid call(s)
           </div>
         </div>
+      </section>
+
+      <section className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-primary" />
+          <div>
+            <p className="font-semibold">Deck test lab</p>
+            <p className="text-[10px] text-muted-foreground">
+              Repeat this exact Forge matchup and collect structured game telemetry.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-[1fr_auto] gap-2">
+          <label className="block space-y-1">
+            <span className="text-[10px] text-muted-foreground">Games</span>
+            <input
+              type="number"
+              min="1"
+              max="1000"
+              step="1"
+              className="w-full rounded-md border border-border bg-background px-2 py-1.5"
+              value={deckTestTargetGames}
+              disabled={deckTestRunning}
+              onChange={(event) =>
+                setDeckTestTargetGames(
+                  Math.max(1, Math.min(1000, Number(event.target.value) || 1)),
+                )
+              }
+            />
+          </label>
+          {deckTestRunning ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="self-end h-8 px-3 text-[11px]"
+              onClick={stopDeckTest}
+            >
+              <Square className="mr-1.5 h-3.5 w-3.5" />
+              Stop
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="primary"
+              className="self-end h-8 px-3 text-[11px]"
+              disabled={!gameView}
+              onClick={beginDeckTest}
+            >
+              <Play className="mr-1.5 h-3.5 w-3.5" />
+              Start batch
+            </Button>
+          )}
+        </div>
+
+        <div className="rounded-md border border-border/50 bg-background/60 p-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-medium">
+              {deckTestSession.status === "running"
+                ? "Running"
+                : deckTestSession.status === "completed"
+                  ? "Completed"
+                  : deckTestSession.status === "error"
+                    ? "Stopped on error"
+                    : deckTestSession.status === "stopped"
+                      ? "Stopped"
+                      : "Ready"}
+            </span>
+            <span>
+              {deckTestSession.reports.length}/{deckTestSession.targetGames}
+            </span>
+          </div>
+          {deckTestSession.error ? (
+            <p className="mt-1 text-[10px] text-destructive">{deckTestSession.error}</p>
+          ) : (
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              The current game counts as game 1. Between games Workbench ends the session,
+              relaunches the same decks in Forge, and resumes Thinking AI automatically.
+            </p>
+          )}
+        </div>
+
+        {deckTestSession.reports.length > 0 ? (
+          <>
+            <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+              <div className="rounded-md border border-border/50 bg-background/60 p-2">
+                <span className="block text-muted-foreground">Wins</span>
+                <span className="font-semibold">
+                  {deckTestSummary.wins}/{deckTestSummary.games} (
+                  {(deckTestSummary.winRate * 100).toFixed(0)}%)
+                </span>
+              </div>
+              <div className="rounded-md border border-border/50 bg-background/60 p-2">
+                <span className="block text-muted-foreground">Avg game turn</span>
+                <span className="font-semibold">
+                  {deckTestSummary.averageGameTurn.toFixed(1)}
+                </span>
+              </div>
+              <div className="rounded-md border border-border/50 bg-background/60 p-2">
+                <span className="block text-muted-foreground">First nonland permanent</span>
+                <span className="font-semibold">
+                  {deckTestSummary.averageFirstNonlandPermanentTurn == null
+                    ? "none"
+                    : `turn ${deckTestSummary.averageFirstNonlandPermanentTurn.toFixed(1)}`}
+                </span>
+              </div>
+              <div className="rounded-md border border-border/50 bg-background/60 p-2">
+                <span className="block text-muted-foreground">No board by turn 4</span>
+                <span className="font-semibold">
+                  {(deckTestSummary.noNonlandPermanentByTurn4Rate * 100).toFixed(0)}%
+                </span>
+              </div>
+              <div className="rounded-md border border-border/50 bg-background/60 p-2">
+                <span className="block text-muted-foreground">Avg max lands</span>
+                <span className="font-semibold">
+                  {deckTestSummary.averageMaxLandsOnBattlefield.toFixed(1)}
+                </span>
+              </div>
+              <div className="rounded-md border border-border/50 bg-background/60 p-2">
+                <span className="block text-muted-foreground">AI cost</span>
+                <span className="font-semibold">
+                  {formatUsd(deckTestSummary.totalEstimatedCostUsd)}
+                </span>
+              </div>
+            </div>
+
+            {Object.keys(deckTestSummary.stuckCardGames).length > 0 ? (
+              <div className="rounded-md border border-border/50 bg-background/60 p-2">
+                <p className="font-medium">Cards repeatedly stuck in hand</p>
+                <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground">
+                  {Object.entries(deckTestSummary.stuckCardGames)
+                    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+                    .slice(0, 5)
+                    .map(([name, games]) => (
+                      <div key={name} className="flex justify-between gap-2">
+                        <span className="truncate">{name}</span>
+                        <span>
+                          {games}/{deckTestSummary.games}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 px-2 text-[11px]"
+                onClick={exportDeckTest}
+              >
+                <Download className="mr-1.5 h-3.5 w-3.5" />
+                Export test
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 px-2 text-[11px]"
+                disabled={deckTestRunning}
+                onClick={clearDeckTest}
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                Clear
+              </Button>
+            </div>
+          </>
+        ) : null}
+
+        <p className="text-[10px] leading-relaxed text-muted-foreground">
+          v1 metrics are observational. "Turn" is the engine's global turn counter and cards drawn
+          are approximated from newly observed card identities. The raw export preserves every
+          per-game measurement for later weakness analysis.
+        </p>
       </section>
 
       <section className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2">
