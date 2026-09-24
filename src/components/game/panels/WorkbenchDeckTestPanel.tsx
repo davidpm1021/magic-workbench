@@ -1,12 +1,14 @@
 import { useMemo, useState } from "react";
 import { BarChart3, Download, Play, Square, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { WorkbenchDiagnosticsPanel } from "@/components/game/panels/WorkbenchDiagnosticsPanel";
 import { useGameStore } from "@/stores/useGameStore";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import {
   downloadWorkbenchDeckTest,
   summarizeWorkbenchDeckTest,
 } from "@/workbench/deckTelemetry";
+import { analyzeWorkbenchDeckTest } from "@/workbench/deckDiagnostics";
 import { formatUsd } from "@/workbench/pricing";
 
 export function WorkbenchDeckTestPanel() {
@@ -22,6 +24,10 @@ export function WorkbenchDeckTestPanel() {
   const summary = useMemo(
     () => summarizeWorkbenchDeckTest(deckTestSession.reports),
     [deckTestSession.reports],
+  );
+  const diagnostics = useMemo(
+    () => analyzeWorkbenchDeckTest(deckTestSession.reports, summary),
+    [deckTestSession.reports, summary],
   );
   const running = deckTestSession.status === "running";
 
@@ -52,6 +58,7 @@ export function WorkbenchDeckTestPanel() {
       reports: deckTestSession.reports,
       targetGames: deckTestSession.targetGames,
       startedAt: deckTestSession.startedAt,
+      diagnostics,
     });
   };
 
@@ -183,6 +190,8 @@ export function WorkbenchDeckTestPanel() {
             </div>
           </div>
 
+          <WorkbenchDiagnosticsPanel diagnostics={diagnostics} />
+
           {Object.keys(summary.stuckCardGames).length > 0 ? (
             <div className="rounded-md border border-border/50 bg-background/60 p-2">
               <p className="font-medium">Cards repeatedly stuck in hand</p>
@@ -227,9 +236,9 @@ export function WorkbenchDeckTestPanel() {
       ) : null}
 
       <p className="text-[10px] leading-relaxed text-muted-foreground">
-        v1 development metrics use your deck's own turns. The raw export also preserves Forge's
-        global engine turn. Opening hand and cards drawn are observational, based on the cards the
-        client actually sees, and the export keeps every per-game measurement for later weakness analysis.
+        Diagnostics use your deck's own turns and observed game state. Opening hand, cards drawn,
+        color access, and stuck-card measurements are observational, and the export keeps the raw
+        per-game evidence alongside each diagnostic finding.
       </p>
     </section>
   );
