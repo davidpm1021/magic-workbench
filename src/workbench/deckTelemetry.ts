@@ -4,6 +4,9 @@ export interface WorkbenchTelemetryCard {
   id: string;
   name: string;
   types: string[];
+  manaCost?: string;
+  text?: string;
+  keywords?: string[];
 }
 
 export interface WorkbenchTelemetrySnapshot {
@@ -69,6 +72,20 @@ export interface WorkbenchGameTelemetry {
   paidAiCalls: number;
   errors: number;
   estimatedCostUsd: number;
+  commanderName?: string | null;
+  commanderColors?: string[];
+  commanderColorsAvailableByTurn5?: string[];
+  missingCommanderColorsByTurn5?: string[];
+  openingManaColors?: string[];
+  keptOpeningHand?: boolean | null;
+  manualRecoveries?: number;
+  pilotRuleAssumptionRisks?: Array<{
+    promptId: number;
+    promptType: string;
+    commanderName: string;
+    keyword: string;
+    reason: string;
+  }>;
 }
 
 export interface WorkbenchDeckTestSummary {
@@ -123,6 +140,11 @@ function readCard(value: unknown): WorkbenchTelemetryCard | null {
     id,
     name,
     types: asArray(card.types).filter((item): item is string => typeof item === "string"),
+    manaCost: asString(card.manaCost) || undefined,
+    text: asString(card.text) || undefined,
+    keywords: asArray(card.keywords).filter(
+      (item): item is string => typeof item === "string",
+    ),
   };
 }
 
@@ -130,6 +152,77 @@ function readCards(value: unknown): WorkbenchTelemetryCard[] {
   return asArray(value)
     .map(readCard)
     .filter((card): card is WorkbenchTelemetryCard => card !== null);
+}
+
+const MANA_COLORS = ["W", "U", "B", "R", "G"] as const;
+
+function manaColorsFromCost(cost: string | undefined): string[] {
+  if (!cost) return [];
+  return MANA_COLORS.filter((color) => cost.includes(color));
+}
+
+function manaColorsFromText(text: string | undefined): string[] {
+  if (!text) return [];
+  if (/add (?:one )?mana of any color/i.test(text)) return [...MANA_COLORS];
+  const colors = new Set<string>();
+  for (const line of text.split(/[.\n]/)) {
+    if (!/\badd\b/i.test(line)) continue;
+    for (const color of MANA_COLORS) {
+      if (line.includes(`{${color}}`)) colors.add(color);
+    }
+  }
+  return [...colors];
+}
+
+function manaColorsFromCards(cards: WorkbenchTelemetryCard[]): string[] {
+  const colors = new Set<string>();
+  for (const card of cards) {
+    for (const color of manaColorsFromText(card.text)) colors.add(color);
+  }
+  return [...colors];
+}
+
+function playerFromAuditView(entry: WorkbenchAuditEntry): Record<string, unknown> | null {
+  const view = asRecord(entry.visibleGameState);
+  const promptSnapshot = asRecord(entry.promptSnapshot);
+  const decidingPlayerId = asString(promptSnapshot?.decidingPlayerId);
+  const players = asArray(view?.players)
+    .map(asRecord)
+    .filter((player): player is Record<string, unknown> => player !== null);
+  return players.find((player) => asString(player.id) === decidingPlayerId) ?? null;
+}
+
+function findPilotRuleAssumptionRisks(
+  entries: WorkbenchAuditEntry[],
+): NonNullable<WorkbenchGameTelemetry["pilotRuleAssumptionRisks"]> {
+  const risks: NonNullable<WorkbenchGameTelemetry["pilotRuleAssumptionRisks"]> = [];
+  for (const entry of entries) {
+    if (
+      entry.source !== "ai" ||
+      !entry.reason ||
+      (entry.promptType !== "chooseAttackers" && entry.promptType !== "chooseBlockers")
+    ) {
+      continue;
+    }
+    const player = playerFromAuditView(entry);
+    const commandZone = readCards(player?.commandZone);
+    const battlefield = readCards(asRecord(entry.visibleGameState)?.battlefield);
+    for (const commander of commandZone) {
+      if (battlefield.some((card) => card.id === commander.id)) continue;
+      const keyword = (commander.keywords ?? []).find((candidate) =>
+        entry.reason!.toLowerCase().includes(candidate.toLowerCase()),
+      );
+      if (!keyword) continue;
+      risks.push({
+        promptId: entry.promptId,
+        promptType: entry.promptType,
+        commanderName: commander.name,
+        keyword,
+        reason: entry.reason,
+      });
+    }
+  }
+  return risks;
 }
 
 export function captureWorkbenchTelemetrySnapshot(args: {
@@ -243,6 +336,9 @@ export function buildWorkbenchGameTelemetry(args: {
   let maxLandsOnBattlefield = 0;
   let commanderCasts = 0;
   let lowestLife: number | null = null;
+  const commander = opening?.commandZone[0] ?? first?.commandZone[0] ?? last?.commandZone[0] ?? null;
+  const commanderColors = manaColorsFromCost(commander?.manaCost);
+  const commanderColorsAvailableByTurn5 = new Set<string>();
 
   for (const snapshot of snapshots) {
     const playerIsActive = snapshot.activePlayerId === playerId;
@@ -264,6 +360,12 @@ export function buildWorkbenchGameTelemetry(args: {
       snapshot.battlefield.some((card) => !card.types.includes("Land"))
     ) {
       firstNonlandPermanentTurn = playerTurns;
+    }
+
+    if (playerTurns <= 5) {
+      for (const color of manaColorsFromCards(snapshot.battlefield)) {
+        commanderColorsAvailableByTurn5.add(color);
+      }
     }
 
     if (playerIsActive && playerTurns > 0) {
@@ -317,15 +419,29 @@ export function buildWorkbenchGameTelemetry(args: {
   const landDropRate =
     eligibleLandDropTurns.length === 0 ? 0 : landDropsMade / eligibleLandDropTurns.length;
 
-  const mulliganPrompts = args.auditEntries.filter((entry) =>
+  const mulliganEntries = args.auditEntries.filter((entry) =>
     entry.promptType.toLowerCase().includes("mulligan"),
-  ).length;
+  );
+  const mulliganPrompts = mulliganEntries.length;
+  const openingMulligan = mulliganEntries.find((entry) => entry.promptType === "mulligan");
+  const openingMulliganOutput = asRecord(openingMulligan?.output);
+  const keptOpeningHand =
+    typeof openingMulliganOutput?.keep === "boolean" ? openingMulliganOutput.keep : null;
   const paidAiCalls = args.auditEntries.filter((entry) => entry.source === "ai").length;
   const errors = args.auditEntries.filter((entry) => entry.status === "error").length;
   const estimatedCostUsd = args.auditEntries.reduce(
     (sum, entry) => sum + (entry.estimatedCostUsd ?? 0),
     0,
   );
+  const availableCommanderColors = [...commanderColorsAvailableByTurn5];
+  const missingCommanderColorsByTurn5 = commanderColors.filter(
+    (color) => !commanderColorsAvailableByTurn5.has(color),
+  );
+  const openingManaColors = manaColorsFromCards(opening?.hand ?? []);
+  const manualRecoveries = args.auditEntries.filter(
+    (entry) => entry.source === "human" || entry.status === "manual",
+  ).length;
+  const pilotRuleAssumptionRisks = findPilotRuleAssumptionRisks(args.auditEntries);
 
   return {
     schemaVersion: 1,
@@ -367,6 +483,14 @@ export function buildWorkbenchGameTelemetry(args: {
     paidAiCalls,
     errors,
     estimatedCostUsd,
+    commanderName: commander?.name ?? null,
+    commanderColors,
+    commanderColorsAvailableByTurn5: availableCommanderColors,
+    missingCommanderColorsByTurn5,
+    openingManaColors,
+    keptOpeningHand,
+    manualRecoveries,
+    pilotRuleAssumptionRisks,
   };
 }
 
