@@ -550,14 +550,16 @@ export function downloadWorkbenchDeckTest(args: {
   reports: WorkbenchGameTelemetry[];
   targetGames: number;
   startedAt: number | null;
+  diagnostics?: unknown;
 }): void {
   const summary = summarizeWorkbenchDeckTest(args.reports);
   const payload = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     exportedAt: new Date().toISOString(),
     targetGames: args.targetGames,
     startedAt: args.startedAt ? new Date(args.startedAt).toISOString() : null,
     summary,
+    diagnostics: args.diagnostics ?? null,
     games: args.reports,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
