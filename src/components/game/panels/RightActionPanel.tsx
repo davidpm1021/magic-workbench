@@ -9,6 +9,7 @@ import { TAB_BUTTON_BASE, TAB_ACTIVE, TAB_INACTIVE } from "../game.styles";
 import { ActionLog } from "./ActionLog";
 import { SnapshotsPanel } from "./SnapshotsPanel";
 import { GameDevPanel } from "@/components/dev/GameDevPanel";
+import { WorkbenchErrorBoundary } from "./WorkbenchErrorBoundary";
 import { WorkbenchPanel } from "./WorkbenchPanel";
 export function RightActionPanel({
   collapsed,
@@ -124,7 +125,9 @@ export function RightActionPanel({
         </div>
 
         {activeTab === "workbench" ? (
-          <WorkbenchPanel />
+          <WorkbenchErrorBoundary>
+            <WorkbenchPanel />
+          </WorkbenchErrorBoundary>
         ) : activeTab === "log" ? (
           <ActionLog
             gameLog={gameLog}
