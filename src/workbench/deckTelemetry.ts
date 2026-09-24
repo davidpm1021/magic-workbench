@@ -110,7 +110,7 @@ function sumNumbers(value: unknown): number {
   if (Array.isArray(value)) return value.reduce((sum, item) => sum + sumNumbers(item), 0);
   const record = asRecord(value);
   if (!record) return 0;
-  return Object.values(record).reduce((sum, item) => sum + sumNumbers(item), 0);
+  return Object.values(record).reduce<number>((sum, item) => sum + sumNumbers(item), 0);
 }
 
 function readCard(value: unknown): WorkbenchTelemetryCard | null {
