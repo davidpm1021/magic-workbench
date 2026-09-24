@@ -7,8 +7,17 @@ import {
   tokenIdentityKey,
 } from "@/stores/useScryfallStore";
 
+const NON_DECK_LAYOUTS = new Set(["token", "double_faced_token", "emblem", "art_series"]);
+
 function normalizeTokenName(name: string): string {
   return name.toLowerCase().replace(/\s+token$/i, "");
+}
+
+export function isNonDeckCard(card: Pick<DeckCard, "layout" | "identity">): boolean {
+  return (
+    (typeof card.layout === "string" && NON_DECK_LAYOUTS.has(card.layout)) ||
+    card.identity.tokenScript != null
+  );
 }
 
 export function asDeckCard(deck: Deck | undefined, gameCard: CardDto): DeckCard {
