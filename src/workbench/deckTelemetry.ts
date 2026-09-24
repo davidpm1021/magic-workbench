@@ -21,6 +21,7 @@ export interface WorkbenchTelemetrySnapshot {
     handCount: number;
     libraryCount: number;
     landsPlayedThisTurn: number;
+    maxLandPlaysPerTurn: number;
     commanderCasts: number;
     manaPoolTotal: number;
   };
@@ -45,12 +46,17 @@ export interface WorkbenchGameTelemetry {
   completedAt: number;
   winnerId: string | null;
   won: boolean;
-  turn: number;
+  engineTurn: number;
+  playerTurns: number;
   snapshots: number;
   openingHandSize: number;
+  openingLands: number;
   lowestLife: number | null;
   endingLife: number | null;
   maxLandsOnBattlefield: number;
+  landDropsMade: number;
+  missedLandDropTurns: number[];
+  landDropRate: number;
   firstNonlandPermanentTurn: number | null;
   firstCommanderCastTurn: number | null;
   commanderCasts: number;
@@ -69,10 +75,12 @@ export interface WorkbenchDeckTestSummary {
   games: number;
   wins: number;
   winRate: number;
-  averageGameTurn: number;
+  averagePlayerTurns: number;
+  averageOpeningLands: number;
   averageFirstNonlandPermanentTurn: number | null;
   noNonlandPermanentByTurn4Rate: number;
   averageMaxLandsOnBattlefield: number;
+  landDropRate: number;
   averageCardsDrawnApprox: number;
   averagePaidAiCalls: number;
   totalEstimatedCostUsd: number;
@@ -119,7 +127,9 @@ function readCard(value: unknown): WorkbenchTelemetryCard | null {
 }
 
 function readCards(value: unknown): WorkbenchTelemetryCard[] {
-  return asArray(value).map(readCard).filter((card): card is WorkbenchTelemetryCard => card !== null);
+  return asArray(value)
+    .map(readCard)
+    .filter((card): card is WorkbenchTelemetryCard => card !== null);
 }
 
 export function captureWorkbenchTelemetrySnapshot(args: {
@@ -130,7 +140,9 @@ export function captureWorkbenchTelemetrySnapshot(args: {
 }): WorkbenchTelemetrySnapshot | null {
   const view = asRecord(args.compactGameView);
   if (!view) return null;
-  const players = asArray(view.players).map(asRecord).filter((player): player is Record<string, unknown> => player !== null);
+  const players = asArray(view.players)
+    .map(asRecord)
+    .filter((player): player is Record<string, unknown> => player !== null);
   const selected =
     players.find((player) => asString(player.id) === args.playerId) ??
     players[0] ??
@@ -138,10 +150,11 @@ export function captureWorkbenchTelemetrySnapshot(args: {
   if (!selected) return null;
 
   const playerId = asString(selected.id);
+  const battlefieldValues = asArray(view.battlefield).map(asRecord);
   const battlefield = readCards(view.battlefield).filter((card) => {
-    const source = asArray(view.battlefield)
-      .map(asRecord)
-      .find((candidate) => candidate && asString(candidate.id) === card.id);
+    const source = battlefieldValues.find(
+      (candidate) => candidate && asString(candidate.id) === card.id,
+    );
     return !source || asString(source.controllerId) === playerId;
   });
   const stack = asArray(view.stack)
@@ -166,6 +179,7 @@ export function captureWorkbenchTelemetrySnapshot(args: {
       handCount: asNumber(selected.handCount, readCards(selected.hand).length),
       libraryCount: asNumber(selected.libraryCount),
       landsPlayedThisTurn: asNumber(selected.landsPlayedThisTurn),
+      maxLandPlaysPerTurn: asNumber(selected.maxLandPlaysPerTurn, 1),
       commanderCasts: sumNumbers(selected.commanderCasts),
       manaPoolTotal: sumNumbers(selected.manaPool),
     },
@@ -195,6 +209,7 @@ export function telemetrySnapshotFingerprint(snapshot: WorkbenchTelemetrySnapsho
     stack: snapshot.stack.map((item) => item.id),
     commanderCasts: snapshot.player.commanderCasts,
     landsPlayedThisTurn: snapshot.player.landsPlayedThisTurn,
+    maxLandPlaysPerTurn: snapshot.player.maxLandPlaysPerTurn,
     manaPoolTotal: snapshot.player.manaPoolTotal,
   });
 }
@@ -206,16 +221,23 @@ export function buildWorkbenchGameTelemetry(args: {
   snapshots: WorkbenchTelemetrySnapshot[];
   auditEntries: WorkbenchAuditEntry[];
 }): WorkbenchGameTelemetry {
-  const snapshots = args.snapshots.filter((snapshot) => snapshot.gameId === args.gameId);
+  const snapshots = args.snapshots
+    .filter((snapshot) => snapshot.gameId === args.gameId)
+    .sort((left, right) => left.capturedAt - right.capturedAt);
   const first = snapshots[0] ?? null;
   const last = snapshots.at(-1) ?? null;
+  const opening = snapshots.find((snapshot) => snapshot.hand.length > 0) ?? first;
+  const playerId = first?.player.id ?? last?.player.id ?? null;
 
   const handSeen = new Map<string, { name: string; firstTurn: number; lastTurn: number }>();
-  const openingHandIds = new Set(first?.hand.map((card) => card.id) ?? []);
+  const openingHandIds = new Set(opening?.hand.map((card) => card.id) ?? []);
   const uniqueHandIds = new Set<string>();
   const uniqueSeenIds = new Set<string>();
   const stackIds = new Set<string>();
   const cardsCast: Record<string, number> = {};
+  const landDropsByTurn = new Map<number, { played: number; allowed: number }>();
+  let playerTurns = 0;
+  let playerWasActive = false;
   let firstNonlandPermanentTurn: number | null = null;
   let firstCommanderCastTurn: number | null = null;
   let maxLandsOnBattlefield = 0;
@@ -223,10 +245,15 @@ export function buildWorkbenchGameTelemetry(args: {
   let lowestLife: number | null = null;
 
   for (const snapshot of snapshots) {
-    lowestLife = lowestLife == null ? snapshot.player.life : Math.min(lowestLife, snapshot.player.life);
+    const playerIsActive = snapshot.activePlayerId === playerId;
+    if (playerIsActive && !playerWasActive) playerTurns += 1;
+    playerWasActive = playerIsActive;
+
+    lowestLife =
+      lowestLife == null ? snapshot.player.life : Math.min(lowestLife, snapshot.player.life);
     commanderCasts = Math.max(commanderCasts, snapshot.player.commanderCasts);
     if (snapshot.player.commanderCasts > 0 && firstCommanderCastTurn == null) {
-      firstCommanderCastTurn = snapshot.turn;
+      firstCommanderCastTurn = playerTurns;
     }
 
     const landCount = snapshot.battlefield.filter((card) => card.types.includes("Land")).length;
@@ -236,7 +263,15 @@ export function buildWorkbenchGameTelemetry(args: {
       firstNonlandPermanentTurn == null &&
       snapshot.battlefield.some((card) => !card.types.includes("Land"))
     ) {
-      firstNonlandPermanentTurn = snapshot.turn;
+      firstNonlandPermanentTurn = playerTurns;
+    }
+
+    if (playerIsActive && playerTurns > 0) {
+      const previous = landDropsByTurn.get(playerTurns) ?? { played: 0, allowed: 0 };
+      landDropsByTurn.set(playerTurns, {
+        played: Math.max(previous.played, snapshot.player.landsPlayedThisTurn),
+        allowed: Math.max(previous.allowed, snapshot.player.maxLandPlaysPerTurn),
+      });
     }
 
     for (const card of [
@@ -253,8 +288,8 @@ export function buildWorkbenchGameTelemetry(args: {
       const existing = handSeen.get(card.id);
       handSeen.set(card.id, {
         name: card.name,
-        firstTurn: existing?.firstTurn ?? snapshot.turn,
-        lastTurn: Math.max(existing?.lastTurn ?? snapshot.turn, snapshot.turn),
+        firstTurn: existing?.firstTurn ?? playerTurns,
+        lastTurn: Math.max(existing?.lastTurn ?? playerTurns, playerTurns),
       });
     }
 
@@ -272,6 +307,16 @@ export function buildWorkbenchGameTelemetry(args: {
     stuckByName.set(value.name, Math.max(stuckByName.get(value.name) ?? 0, span));
   }
 
+  const eligibleLandDropTurns = [...landDropsByTurn.entries()]
+    .filter(([, value]) => value.allowed > 0)
+    .sort(([left], [right]) => left - right);
+  const missedLandDropTurns = eligibleLandDropTurns
+    .filter(([, value]) => value.played === 0)
+    .map(([turn]) => turn);
+  const landDropsMade = eligibleLandDropTurns.filter(([, value]) => value.played > 0).length;
+  const landDropRate =
+    eligibleLandDropTurns.length === 0 ? 0 : landDropsMade / eligibleLandDropTurns.length;
+
   const mulliganPrompts = args.auditEntries.filter((entry) =>
     entry.promptType.toLowerCase().includes("mulligan"),
   ).length;
@@ -286,26 +331,38 @@ export function buildWorkbenchGameTelemetry(args: {
     schemaVersion: 1,
     gameId: args.gameId,
     deckName: first?.deckName ?? last?.deckName ?? null,
-    playerId: first?.player.id ?? last?.player.id ?? null,
+    playerId,
     completedAt: Date.now(),
     winnerId: args.winnerId,
-    won: args.winnerId != null && args.winnerId === (first?.player.id ?? last?.player.id),
-    turn: args.turn,
+    won: args.winnerId != null && args.winnerId === playerId,
+    engineTurn: args.turn,
+    playerTurns,
     snapshots: snapshots.length,
-    openingHandSize: first?.hand.length ?? 0,
+    openingHandSize: opening?.hand.length ?? 0,
+    openingLands: opening?.hand.filter((card) => card.types.includes("Land")).length ?? 0,
     lowestLife,
     endingLife: last?.player.life ?? null,
     maxLandsOnBattlefield,
+    landDropsMade,
+    missedLandDropTurns,
+    landDropRate,
     firstNonlandPermanentTurn,
     firstCommanderCastTurn,
     commanderCasts,
     uniqueCardsSeen: uniqueSeenIds.size,
-    cardsDrawnApprox: Math.max(0, [...uniqueHandIds].filter((id) => !openingHandIds.has(id)).length),
+    cardsDrawnApprox: Math.max(
+      0,
+      [...uniqueHandIds].filter((id) => !openingHandIds.has(id)).length,
+    ),
     castEvents: stackIds.size,
     cardsCast,
     stuckCards: [...stuckByName.entries()]
       .map(([name, maxObservedTurnSpan]) => ({ name, maxObservedTurnSpan }))
-      .sort((a, b) => b.maxObservedTurnSpan - a.maxObservedTurnSpan || a.name.localeCompare(b.name)),
+      .sort(
+        (left, right) =>
+          right.maxObservedTurnSpan - left.maxObservedTurnSpan ||
+          left.name.localeCompare(right.name),
+      ),
     mulliganPrompts,
     paidAiCalls,
     errors,
@@ -329,13 +386,19 @@ export function summarizeWorkbenchDeckTest(
   const firstPermanentTurns = reports
     .map((report) => report.firstNonlandPermanentTurn)
     .filter((turn): turn is number => turn != null);
+  const eligibleLandDropTurns = reports.reduce(
+    (sum, report) => sum + report.landDropsMade + report.missedLandDropTurns.length,
+    0,
+  );
+  const landDropsMade = reports.reduce((sum, report) => sum + report.landDropsMade, 0);
 
   return {
     games: reports.length,
     wins: reports.filter((report) => report.won).length,
     winRate:
       reports.length === 0 ? 0 : reports.filter((report) => report.won).length / reports.length,
-    averageGameTurn: average(reports.map((report) => report.turn)),
+    averagePlayerTurns: average(reports.map((report) => report.playerTurns)),
+    averageOpeningLands: average(reports.map((report) => report.openingLands)),
     averageFirstNonlandPermanentTurn:
       firstPermanentTurns.length === 0 ? null : average(firstPermanentTurns),
     noNonlandPermanentByTurn4Rate:
@@ -348,6 +411,7 @@ export function summarizeWorkbenchDeckTest(
     averageMaxLandsOnBattlefield: average(
       reports.map((report) => report.maxLandsOnBattlefield),
     ),
+    landDropRate: eligibleLandDropTurns === 0 ? 0 : landDropsMade / eligibleLandDropTurns,
     averageCardsDrawnApprox: average(reports.map((report) => report.cardsDrawnApprox)),
     averagePaidAiCalls: average(reports.map((report) => report.paidAiCalls)),
     totalEstimatedCostUsd: reports.reduce(
