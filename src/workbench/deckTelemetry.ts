@@ -212,6 +212,7 @@ export function buildWorkbenchGameTelemetry(args: {
 
   const handSeen = new Map<string, { name: string; firstTurn: number; lastTurn: number }>();
   const openingHandIds = new Set(first?.hand.map((card) => card.id) ?? []);
+  const uniqueHandIds = new Set<string>();
   const uniqueSeenIds = new Set<string>();
   const stackIds = new Set<string>();
   const cardsCast: Record<string, number> = {};
@@ -248,6 +249,7 @@ export function buildWorkbenchGameTelemetry(args: {
     }
 
     for (const card of snapshot.hand) {
+      uniqueHandIds.add(card.id);
       const existing = handSeen.get(card.id);
       handSeen.set(card.id, {
         name: card.name,
@@ -298,7 +300,7 @@ export function buildWorkbenchGameTelemetry(args: {
     firstCommanderCastTurn,
     commanderCasts,
     uniqueCardsSeen: uniqueSeenIds.size,
-    cardsDrawnApprox: Math.max(0, [...uniqueSeenIds].filter((id) => !openingHandIds.has(id)).length),
+    cardsDrawnApprox: Math.max(0, [...uniqueHandIds].filter((id) => !openingHandIds.has(id)).length),
     castEvents: stackIds.size,
     cardsCast,
     stuckCards: [...stuckByName.entries()]
