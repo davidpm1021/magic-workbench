@@ -18,7 +18,7 @@ import {
   copyLimitFromText,
 } from "@/lib/formats";
 import { chooseImageUrisForCard, tokenIdentityKey } from "@/stores/useScryfallStore";
-import { collectProducedTokenKeys } from "@/lib/decks";
+import { collectProducedTokenKeys, isNonDeckCard } from "@/lib/decks";
 import { resolveDeckName } from "@/lib/deckName";
 import { mergeDeckImportIntoDeck } from "@/lib/deckImport";
 /** Migrate legacy "constructed" format id to "standard". */
@@ -73,15 +73,26 @@ function isSchemeCard(card: DeckCard): boolean {
 function isPlaneCard(card: DeckCard): boolean {
   return card.types?.some((type) => type.toLowerCase() === "plane") ?? false;
 }
+
+const pendingNonDeckCleanupNames = new Set<string>();
+
+function keepDeckCards(cards: DeckCard[] | undefined): DeckCard[] {
+  return (cards ?? []).filter((card) => {
+    if (!isNonDeckCard(card)) return true;
+    pendingNonDeckCleanupNames.add(card.identity.name);
+    return false;
+  });
+}
+
 function normalizeDeck(deck: EditorDeck): EditorDeck {
-  const main = [...(deck.cards ?? [])];
-  const sideboard = [...(deck.sideboard ?? [])];
-  const attractions = [...(deck.attractions ?? [])];
-  const contraptions = [...(deck.contraptions ?? [])];
-  const schemes = [...(deck.schemes ?? [])];
-  const planes = [...(deck.planes ?? [])];
-  // Migrate legacy single-commander to commanders array
-  const commanders = [...(deck.commanders ?? [])];
+  const main = keepDeckCards(deck.cards);
+  const sideboard = keepDeckCards(deck.sideboard);
+  const attractions = keepDeckCards(deck.attractions);
+  const contraptions = keepDeckCards(deck.contraptions);
+  const schemes = keepDeckCards(deck.schemes);
+  const planes = keepDeckCards(deck.planes);
+  const maybeboard = keepDeckCards(deck.maybeboard);
+  const commanders = keepDeckCards(deck.commanders);
   const legacy = (
     deck as {
       commander?: DeckCard;
@@ -118,7 +129,9 @@ function normalizeDeck(deck: EditorDeck): EditorDeck {
     contraptions,
     schemes,
     planes,
+    maybeboard: maybeboard.length > 0 ? maybeboard : undefined,
     commanders: commanders.length > 0 ? commanders : undefined,
+    companion: deck.companion && !isNonDeckCard(deck.companion) ? deck.companion : undefined,
     editor: normalizeEditorMetadata(deck),
   };
   delete (
@@ -370,7 +383,7 @@ async function reconcileSavedDecksWithDisk(): Promise<void> {
     };
     const diskDecks = (parsed.savedDecks ?? parsed.state?.savedDecks ?? []).map((saved) => ({
       ...saved,
-      deck: dropInlinePlaymat(migrateDeck(saved.deck)),
+      deck: normalizeDeck(dropInlinePlaymat(migrateDeck(saved.deck))),
     }));
 
     const currentLocalDecks = useDeckStore.getState().savedDecks;
@@ -396,6 +409,14 @@ async function reconcileSavedDecksWithDisk(): Promise<void> {
     }
 
     flushPendingDeckBackup();
+
+    if (pendingNonDeckCleanupNames.size > 0) {
+      const names = [...pendingNonDeckCleanupNames].sort();
+      pendingNonDeckCleanupNames.clear();
+      toast.warning(
+        `Removed non-deck token entr${names.length === 1 ? "y" : "ies"} from saved decks: ${names.join(", ")}`,
+      );
+    }
 
     if (restoredCount > 0) {
       toast.success(
@@ -1327,11 +1348,13 @@ export const useDeckStore = create<DeckState>()(
         storage: deckStorage,
         partialize: ({ editorSessionId: _editorSessionId, ...state }) => ({
           ...state,
-          savedDecks: state.savedDecks.filter((saved) => !saved.accountDeckId),
+          savedDecks: state.savedDecks
+            .filter((saved) => !saved.accountDeckId)
+            .map((saved) => ({ ...saved, deck: normalizeDeck(saved.deck) })),
         }),
         // Bump on any persisted-deck shape change so `migrate` runs over existing
         // users' decks — a shape change without a bump never migrates.
-        version: 7,
+        version: 8,
         migrate: (persistedState: unknown) => {
           if (!persistedState || typeof persistedState !== "object")
             return persistedState as DeckState;
@@ -1344,13 +1367,17 @@ export const useDeckStore = create<DeckState>()(
             currentDeckId: state.currentDeckId ?? null,
             savedDecks: (state.savedDecks ?? []).map((s) => ({
               ...s,
-              deck: dropInlinePlaymat(migrateDeck(s.deck)),
+              deck: normalizeDeck(dropInlinePlaymat(migrateDeck(s.deck))),
             })),
           };
         },
         merge: (persisted, current) => {
           const p = persisted as Partial<DeckState>;
           const merged = { ...current, ...p } as DeckState;
+          merged.savedDecks = (p.savedDecks ?? []).map((saved) => ({
+            ...saved,
+            deck: normalizeDeck(saved.deck),
+          }));
           merged.isReadOnly = false;
           merged.readOnlySource = null;
           if (p.currentDeck && hasPendingEditorPublication()) {
