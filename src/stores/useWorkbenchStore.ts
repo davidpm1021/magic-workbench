@@ -150,6 +150,64 @@ const defaultFastModel = import.meta.env.VITE_WORKBENCH_AI_FAST_MODEL ?? "";
 const DEFAULT_STRATEGY =
   "Play to maximize your chance of winning while respecting multiplayer threat assessment. Preserve interaction when a larger threat is likely, sequence mana efficiently, and do not assume hidden information.";
 
+const DECK_TEST_STORAGE_KEY = "magic-workbench-deck-test-v1";
+
+function emptyDeckTestSession(): WorkbenchDeckTestSession {
+  return {
+    status: "idle",
+    targetGames: 10,
+    startedAt: null,
+    reports: [],
+    error: null,
+  };
+}
+
+function loadDeckTestSession(): WorkbenchDeckTestSession {
+  if (typeof window === "undefined") return emptyDeckTestSession();
+  try {
+    const raw = window.localStorage.getItem(DECK_TEST_STORAGE_KEY);
+    if (!raw) return emptyDeckTestSession();
+    const parsed = JSON.parse(raw) as Partial<WorkbenchDeckTestSession>;
+    const reports = Array.isArray(parsed.reports) ? parsed.reports : [];
+    const targetGames =
+      typeof parsed.targetGames === "number" && Number.isFinite(parsed.targetGames)
+        ? Math.max(1, Math.min(1000, Math.round(parsed.targetGames)))
+        : 10;
+    return {
+      status:
+        parsed.status === "completed" || parsed.status === "stopped" || parsed.status === "error"
+          ? parsed.status
+          : reports.length > 0
+            ? "stopped"
+            : "idle",
+      targetGames,
+      startedAt: typeof parsed.startedAt === "number" ? parsed.startedAt : null,
+      reports,
+      error: typeof parsed.error === "string" ? parsed.error : null,
+    };
+  } catch {
+    return emptyDeckTestSession();
+  }
+}
+
+function saveDeckTestSession(session: WorkbenchDeckTestSession): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(DECK_TEST_STORAGE_KEY, JSON.stringify(session));
+  } catch {
+    return;
+  }
+}
+
+function clearSavedDeckTestSession(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(DECK_TEST_STORAGE_KEY);
+  } catch {
+    return;
+  }
+}
+
 export const useWorkbenchStore = create<WorkbenchState>()(
   devtools(
     (set) => ({
@@ -169,13 +227,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       lastCompletedGame: null,
       telemetrySnapshots: {},
       gameTelemetry: [],
-      deckTestSession: {
-        status: "idle",
-        targetGames: 10,
-        startedAt: null,
-        reports: [],
-        error: null,
-      },
+      deckTestSession: loadDeckTestSession(),
       status: {
         kind: "idle",
         message: "Manual control. Workbench is observing the game.",
@@ -292,6 +344,16 @@ export const useWorkbenchStore = create<WorkbenchState>()(
             state.deckTestSession.status === "running" &&
             nextReports.length >= state.deckTestSession.targetGames;
 
+          const nextDeckTestSession = shouldAddToDeckTest
+            ? {
+                ...state.deckTestSession,
+                status: deckTestComplete ? ("completed" as const) : ("running" as const),
+                reports: nextReports,
+                error: null,
+              }
+            : state.deckTestSession;
+          if (shouldAddToDeckTest) saveDeckTestSession(nextDeckTestSession);
+
           return {
             lastCompletedGame: {
               gameId,
@@ -310,51 +372,45 @@ export const useWorkbenchStore = create<WorkbenchState>()(
             gameTelemetry: existingReport
               ? state.gameTelemetry
               : [...state.gameTelemetry.slice(-99), report],
-            deckTestSession: shouldAddToDeckTest
-              ? {
-                  ...state.deckTestSession,
-                  status: deckTestComplete ? "completed" : "running",
-                  reports: nextReports,
-                  error: null,
-                }
-              : state.deckTestSession,
+            deckTestSession: nextDeckTestSession,
           };
         }),
       clearCompletedGame: () => set({ lastCompletedGame: null }),
       startDeckTest: (targetGames) =>
-        set({
-          deckTestSession: {
+        set(() => {
+          const deckTestSession: WorkbenchDeckTestSession = {
             status: "running",
             targetGames: Math.max(1, Math.min(1000, Math.round(targetGames))),
             startedAt: Date.now(),
             reports: [],
             error: null,
-          },
+          };
+          saveDeckTestSession(deckTestSession);
+          return { deckTestSession };
         }),
       stopDeckTest: () =>
-        set((state) => ({
-          deckTestSession: {
+        set((state) => {
+          const deckTestSession: WorkbenchDeckTestSession = {
             ...state.deckTestSession,
             status: state.deckTestSession.reports.length > 0 ? "stopped" : "idle",
-          },
-        })),
+          };
+          saveDeckTestSession(deckTestSession);
+          return { deckTestSession };
+        }),
       failDeckTest: (message) =>
-        set((state) => ({
-          deckTestSession: {
+        set((state) => {
+          const deckTestSession: WorkbenchDeckTestSession = {
             ...state.deckTestSession,
             status: "error",
             error: message,
-          },
-        })),
+          };
+          saveDeckTestSession(deckTestSession);
+          return { deckTestSession };
+        }),
       clearDeckTest: () =>
-        set({
-          deckTestSession: {
-            status: "idle",
-            targetGames: 10,
-            startedAt: null,
-            reports: [],
-            error: null,
-          },
+        set(() => {
+          clearSavedDeckTestSession();
+          return { deckTestSession: emptyDeckTestSession() };
         }),
       setStatus: (status) => set({ status }),
       resetSession: () =>
