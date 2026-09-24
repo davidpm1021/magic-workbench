@@ -1,4 +1,4 @@
-import { Texture } from "pixi.js";
+import { ImageSource, Texture } from "pixi.js";
 import { platformFetch } from "@/lib/platformFetch";
 import { manaSymbolUrl, normalizeManaCode } from "@/api/scryfall";
 import { getTheme } from "@/hooks/useTheme";
