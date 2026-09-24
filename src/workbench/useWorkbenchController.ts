@@ -22,6 +22,13 @@ import {
 } from "./aiDecision";
 import { captureWorkbenchTelemetrySnapshot } from "./deckTelemetry";
 
+function failActiveDeckTest(message: string): void {
+  const workbench = useWorkbenchStore.getState();
+  if (workbench.deckTestSession.status === "running") {
+    workbench.failDeckTest(message);
+  }
+}
+
 export function useWorkbenchController(paused = false): void {
   const currentPrompt = useGameStore((state) => state.currentPrompt);
   const liveGameView = useGameStore((state) => state.gameView);
@@ -630,18 +637,17 @@ export function useWorkbenchController(paused = false): void {
     if (deterministic.kind === "auto") return;
 
     if (!isWorkbenchAiPrompt(currentPrompt)) {
-      setStatus({
-        kind: "paused",
-        message: `AI takeover paused for ${currentPrompt.input.type}. Take this decision manually.`,
-      });
+      const message =
+        `AI takeover paused for ${currentPrompt.input.type}. Take this decision manually.`;
+      failActiveDeckTest(message);
+      setStatus({ kind: "paused", message });
       return;
     }
 
     if (!aiBaseUrl.trim() || !aiModel.trim()) {
-      setStatus({
-        kind: "error",
-        message: "AI takeover needs an API base URL and model.",
-      });
+      const message = "AI takeover needs an API base URL and model.";
+      failActiveDeckTest(message);
+      setStatus({ kind: "error", message });
       return;
     }
 
@@ -718,10 +724,11 @@ export function useWorkbenchController(paused = false): void {
       .reduce((sum, item) => sum + (item.estimatedCostUsd ?? 0), 0);
     if (gameBudgetUsd > 0 && gameSpend >= gameBudgetUsd) {
       inFlightPromptRef.current = null;
-      setStatus({
-        kind: "paused",
-        message: `AI budget reached (${gameSpend.toFixed(2)} / ${gameBudgetUsd.toFixed(2)}). Raise the cap or take over manually.`,
-      });
+      const message =
+        `AI budget reached (${gameSpend.toFixed(2)} / ${gameBudgetUsd.toFixed(2)}). ` +
+        "Raise the cap or take over manually.";
+      failActiveDeckTest(message);
+      setStatus({ kind: "paused", message });
       return;
     }
 
@@ -747,6 +754,7 @@ export function useWorkbenchController(paused = false): void {
         error: message,
         mode: "error",
       });
+      failActiveDeckTest(message);
       setStatus({ kind: "error", message });
       return;
     }
@@ -787,12 +795,11 @@ export function useWorkbenchController(paused = false): void {
         setRecommendation(recommendation);
 
         if (recentSame >= 2) {
+          const message =
+            "Loop guard stopped AI takeover after the same decision repeated three times. Review this prompt manually.";
           latestWorkbench.setControllerMode("assisted");
-          setStatus({
-            kind: "paused",
-            message:
-              "Loop guard stopped AI takeover after the same decision repeated three times. Review this prompt manually.",
-          });
+          failActiveDeckTest(message);
+          setStatus({ kind: "paused", message });
           return;
         }
 
@@ -849,6 +856,7 @@ export function useWorkbenchController(paused = false): void {
           error: message,
           mode: "error",
         });
+        failActiveDeckTest(message);
         setStatus({
           kind: "error",
           message: `${message} AI takeover is paused on this decision.`,
