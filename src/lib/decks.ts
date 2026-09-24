@@ -13,9 +13,12 @@ function normalizeTokenName(name: string): string {
   return name.toLowerCase().replace(/\s+token$/i, "");
 }
 
-export function isNonDeckCard(card: Pick<DeckCard, "layout" | "identity">): boolean {
+export function isNonDeckCard(
+  card: Pick<DeckCard, "layout" | "identity" | "types">,
+): boolean {
   return (
     (typeof card.layout === "string" && NON_DECK_LAYOUTS.has(card.layout)) ||
+    card.types?.some((type) => type.toLowerCase() === "token") === true ||
     card.identity.tokenScript != null
   );
 }
