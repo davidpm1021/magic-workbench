@@ -20,6 +20,7 @@ import {
   isWorkbenchAiPrompt,
   requestWorkbenchDecision,
 } from "./aiDecision";
+import { captureWorkbenchTelemetrySnapshot } from "./deckTelemetry";
 
 export function useWorkbenchController(paused = false): void {
   const currentPrompt = useGameStore((state) => state.currentPrompt);
@@ -43,7 +44,11 @@ export function useWorkbenchController(paused = false): void {
   const retryGeneration = useWorkbenchStore((state) => state.retryGeneration);
   const setRecovery = useWorkbenchStore((state) => state.setRecovery);
   const clearRecovery = useWorkbenchStore((state) => state.clearRecovery);
+  const recordTelemetrySnapshot = useWorkbenchStore(
+    (state) => state.recordTelemetrySnapshot,
+  );
   const completeGame = useWorkbenchStore((state) => state.completeGame);
+  const failDeckTest = useWorkbenchStore((state) => state.failDeckTest);
   const setStatus = useWorkbenchStore((state) => state.setStatus);
 
   const inFlightPromptRef = useRef<number | null>(null);
@@ -66,6 +71,23 @@ export function useWorkbenchController(paused = false): void {
     promptId: number;
     beforeState: unknown;
   } | null>(null);
+  const restartingDeckTestGameRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!liveGameView) return;
+    const gameState = useGameStore.getState();
+    const localSlot = gameState.myPlayerSlot;
+    const localDeck =
+      (localSlot ? gameState.gameDecks[localSlot] : undefined) ??
+      gameState.gameDecks["player-0"] ??
+      Object.values(gameState.gameDecks)[0];
+    const snapshot = captureWorkbenchTelemetrySnapshot({
+      compactGameView: compactWorkbenchGameView(liveGameView),
+      playerId: localSlot,
+      deckName: localDeck?.name ?? null,
+    });
+    if (snapshot) recordTelemetrySnapshot(snapshot);
+  }, [liveGameView, recordTelemetrySnapshot]);
 
   useEffect(() => {
     if (!liveGameView) return;
@@ -155,7 +177,58 @@ export function useWorkbenchController(paused = false): void {
       });
     }
     completeGame(liveGameView.gameId, liveGameView.winnerId ?? null, liveGameView.turn);
-  }, [liveGameView, addAuditEntry, completeGame]);
+
+    const deckTest = useWorkbenchStore.getState().deckTestSession;
+    if (deckTest.status !== "running") return;
+    if (restartingDeckTestGameRef.current === liveGameView.gameId) return;
+
+    const gameState = useGameStore.getState();
+    const localSlot = gameState.myPlayerSlot ?? "player-0";
+    const playerDeck =
+      gameState.gameDecks[localSlot] ??
+      gameState.gameDecks["player-0"] ??
+      Object.values(gameState.gameDecks)[0];
+    if (!playerDeck) {
+      failDeckTest("Deck test could not restart because the player deck was unavailable.");
+      return;
+    }
+
+    const opponentDecks = Object.entries(gameState.gameDecks)
+      .filter(([slot]) => slot !== localSlot)
+      .sort(([left], [right]) => left.localeCompare(right, undefined, { numeric: true }))
+      .map(([, deck]) => deck);
+    const formatId = gameState.gameConfig?.formatId;
+    const commanderName = playerDeck.commanders?.[0]?.identity.name;
+    const completed = deckTest.reports.length;
+    restartingDeckTestGameRef.current = liveGameView.gameId;
+    setStatus({
+      kind: "paused",
+      message: `Deck test game ${completed}/${deckTest.targetGames} complete. Starting the next game...`,
+    });
+
+    void (async () => {
+      await useGameStore.getState().endGame();
+      const latestTest = useWorkbenchStore.getState().deckTestSession;
+      if (latestTest.status !== "running") return;
+      const started = await useGameStore
+        .getState()
+        .startGame(playerDeck, formatId, commanderName, opponentDecks, "Forge");
+      if (!started) {
+        failDeckTest("Deck test stopped because the next Forge game could not start.");
+        return;
+      }
+      setStatus({
+        kind: "paused",
+        message: `Deck test game ${latestTest.reports.length + 1}/${latestTest.targetGames} started. Thinking AI is taking over.`,
+      });
+    })()
+      .catch((error: unknown) => {
+        failDeckTest(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        restartingDeckTestGameRef.current = null;
+      });
+  }, [liveGameView, addAuditEntry, completeGame, failDeckTest, setStatus]);
 
   useEffect(() => {
     if (!recovery) return;
