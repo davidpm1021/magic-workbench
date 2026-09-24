@@ -230,6 +230,15 @@ export function WorkbenchPanel() {
     });
   };
 
+  const stopDeckTestNow = () => {
+    stopDeckTest();
+    setControllerMode("manual");
+    setStatus({
+      kind: "idle",
+      message: "Deck test stopped. Manual control restored for the current game.",
+    });
+  };
+
   const exportDeckTest = () => {
     if (deckTestSession.reports.length === 0) return;
     downloadWorkbenchDeckTest({
@@ -311,7 +320,7 @@ export function WorkbenchPanel() {
               size="sm"
               variant="secondary"
               className="self-end h-8 px-3 text-[11px]"
-              onClick={stopDeckTest}
+              onClick={stopDeckTestNow}
             >
               <Square className="mr-1.5 h-3.5 w-3.5" />
               Stop
@@ -321,7 +330,7 @@ export function WorkbenchPanel() {
               size="sm"
               variant="primary"
               className="self-end h-8 px-3 text-[11px]"
-              disabled={!gameView}
+              disabled={!gameView || gameView.gameOver}
               onClick={beginDeckTest}
             >
               <Play className="mr-1.5 h-3.5 w-3.5" />
