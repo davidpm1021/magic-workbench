@@ -2,6 +2,12 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import type { PromptOutput } from "@/protocol";
 import type { WorkbenchTokenUsage } from "@/workbench/pricing";
+import {
+  buildWorkbenchGameTelemetry,
+  telemetrySnapshotFingerprint,
+  type WorkbenchGameTelemetry,
+  type WorkbenchTelemetrySnapshot,
+} from "@/workbench/deckTelemetry";
 
 export type WorkbenchControllerMode = "manual" | "assisted" | "thinking-ai";
 export type WorkbenchYieldUntil = "none" | "material_state_change";
@@ -79,6 +85,16 @@ export interface WorkbenchCompletedGame {
   estimatedCostUsd: number;
 }
 
+export type WorkbenchDeckTestStatus = "idle" | "running" | "completed" | "stopped" | "error";
+
+export interface WorkbenchDeckTestSession {
+  status: WorkbenchDeckTestStatus;
+  targetGames: number;
+  startedAt: number | null;
+  reports: WorkbenchGameTelemetry[];
+  error: string | null;
+}
+
 interface WorkbenchState {
   controllerMode: WorkbenchControllerMode;
   aiBaseUrl: string;
@@ -94,6 +110,9 @@ interface WorkbenchState {
   recovery: WorkbenchRecoveryState | null;
   retryGeneration: number;
   lastCompletedGame: WorkbenchCompletedGame | null;
+  telemetrySnapshots: Record<string, WorkbenchTelemetrySnapshot[]>;
+  gameTelemetry: WorkbenchGameTelemetry[];
+  deckTestSession: WorkbenchDeckTestSession;
   status: WorkbenchStatus;
 
   setControllerMode: (mode: WorkbenchControllerMode) => void;
@@ -113,8 +132,13 @@ interface WorkbenchState {
   retryRecovery: () => void;
   resolveRecoveryManually: () => void;
   clearRecovery: () => void;
+  recordTelemetrySnapshot: (snapshot: WorkbenchTelemetrySnapshot) => void;
   completeGame: (gameId: string, winnerId: string | null, turn: number) => void;
   clearCompletedGame: () => void;
+  startDeckTest: (targetGames: number) => void;
+  stopDeckTest: () => void;
+  failDeckTest: (message: string) => void;
+  clearDeckTest: () => void;
   setStatus: (status: WorkbenchStatus) => void;
   resetSession: () => void;
 }
@@ -143,6 +167,15 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       recovery: null,
       retryGeneration: 0,
       lastCompletedGame: null,
+      telemetrySnapshots: {},
+      gameTelemetry: [],
+      deckTestSession: {
+        status: "idle",
+        targetGames: 10,
+        startedAt: null,
+        reports: [],
+        error: null,
+      },
       status: {
         kind: "idle",
         message: "Manual control. Workbench is observing the game.",
@@ -214,9 +247,51 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           },
         })),
       clearRecovery: () => set({ recovery: null }),
+      recordTelemetrySnapshot: (snapshot) =>
+        set((state) => {
+          const previous = state.telemetrySnapshots[snapshot.gameId] ?? [];
+          const last = previous.at(-1);
+          if (
+            last &&
+            telemetrySnapshotFingerprint(last) === telemetrySnapshotFingerprint(snapshot)
+          ) {
+            return state;
+          }
+          return {
+            telemetrySnapshots: {
+              ...state.telemetrySnapshots,
+              [snapshot.gameId]: [...previous.slice(-1499), snapshot],
+            },
+          };
+        }),
       completeGame: (gameId, winnerId, turn) =>
         set((state) => {
           const entries = state.auditLog.filter((entry) => entry.gameId === gameId);
+          const existingReport = state.gameTelemetry.find((report) => report.gameId === gameId);
+          const report =
+            existingReport ??
+            buildWorkbenchGameTelemetry({
+              gameId,
+              winnerId,
+              turn,
+              snapshots: state.telemetrySnapshots[gameId] ?? [],
+              auditEntries: entries,
+            });
+          const nextSnapshots = { ...state.telemetrySnapshots };
+          delete nextSnapshots[gameId];
+
+          const alreadyInDeckTest = state.deckTestSession.reports.some(
+            (item) => item.gameId === gameId,
+          );
+          const shouldAddToDeckTest =
+            state.deckTestSession.status === "running" && !alreadyInDeckTest;
+          const nextReports = shouldAddToDeckTest
+            ? [...state.deckTestSession.reports, report]
+            : state.deckTestSession.reports;
+          const deckTestComplete =
+            state.deckTestSession.status === "running" &&
+            nextReports.length >= state.deckTestSession.targetGames;
+
           return {
             lastCompletedGame: {
               gameId,
@@ -231,9 +306,56 @@ export const useWorkbenchStore = create<WorkbenchState>()(
                 0,
               ),
             },
+            telemetrySnapshots: nextSnapshots,
+            gameTelemetry: existingReport
+              ? state.gameTelemetry
+              : [...state.gameTelemetry.slice(-99), report],
+            deckTestSession: shouldAddToDeckTest
+              ? {
+                  ...state.deckTestSession,
+                  status: deckTestComplete ? "completed" : "running",
+                  reports: nextReports,
+                  error: null,
+                }
+              : state.deckTestSession,
           };
         }),
       clearCompletedGame: () => set({ lastCompletedGame: null }),
+      startDeckTest: (targetGames) =>
+        set({
+          deckTestSession: {
+            status: "running",
+            targetGames: Math.max(1, Math.min(1000, Math.round(targetGames))),
+            startedAt: Date.now(),
+            reports: [],
+            error: null,
+          },
+        }),
+      stopDeckTest: () =>
+        set((state) => ({
+          deckTestSession: {
+            ...state.deckTestSession,
+            status: state.deckTestSession.reports.length > 0 ? "stopped" : "idle",
+          },
+        })),
+      failDeckTest: (message) =>
+        set((state) => ({
+          deckTestSession: {
+            ...state.deckTestSession,
+            status: "error",
+            error: message,
+          },
+        })),
+      clearDeckTest: () =>
+        set({
+          deckTestSession: {
+            status: "idle",
+            targetGames: 10,
+            startedAt: null,
+            reports: [],
+            error: null,
+          },
+        }),
       setStatus: (status) => set({ status }),
       resetSession: () =>
         set({
