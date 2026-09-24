@@ -219,9 +219,9 @@ export function WorkbenchDeckTestPanel() {
       ) : null}
 
       <p className="text-[10px] leading-relaxed text-muted-foreground">
-        v1 metrics are observational. "Turn" is the engine's global turn counter and cards drawn
-        are approximated from newly observed card identities. The raw export preserves every
-        per-game measurement for later weakness analysis.
+        v1 development metrics use your deck's own turns. The raw export also preserves Forge's
+        global engine turn. Opening hand and cards drawn are observational, based on the cards the
+        client actually sees, and the export keeps every per-game measurement for later weakness analysis.
       </p>
     </section>
   );
