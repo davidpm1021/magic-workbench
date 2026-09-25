@@ -218,7 +218,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       aiApiKey: "",
       strategyPrompt: DEFAULT_STRATEGY,
       autoYieldTrivial: true,
-      gameBudgetUsd: 0.5,
+      gameBudgetUsd: 10,
       recommendation: null,
       history: [],
       auditLog: [],
