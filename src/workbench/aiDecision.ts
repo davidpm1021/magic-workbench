@@ -1,0 +1,1141 @@
+import type { Prompt, PromptOutput } from "@/protocol";
+import type { ClientGameView } from "@/stores/gameStore.types";
+import type {
+  WorkbenchAuditEntry,
+  WorkbenchRecommendation,
+} from "@/stores/useWorkbenchStore";
+import { classifyWorkbenchDecision } from "./decisionImportance";
+import { compactWorkbenchGameView } from "./compactGameView";
+import {
+  buildMaterialDecisionFingerprint,
+  promptForWorkbenchModel,
+  type WorkbenchDecisionContext,
+} from "./controllerPolicy";
+import {
+  estimateOpenAiCostUsd,
+  type WorkbenchTokenUsage,
+} from "./pricing";
+
+export interface WorkbenchAiRequest {
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+  strategyPrompt: string;
+  gameView: ClientGameView;
+  prompt: Prompt;
+  myPlayerSlot: string | null;
+  decisionContext?: WorkbenchDecisionContext;
+  signal?: AbortSignal;
+  onAuditEntry?: (entry: WorkbenchAuditEntry) => void;
+}
+
+type ChatContent =
+  | string
+  | Array<{
+      type?: string;
+      text?: string;
+    }>;
+
+interface ChatCompletionResponse {
+  choices?: Array<{
+    message?: {
+      content?: ChatContent;
+    };
+  }>;
+  error?: {
+    message?: string;
+  };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+      cache_write_tokens?: number;
+    };
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
+  };
+  workbenchUsage?: WorkbenchTokenUsage;
+  workbenchMeta?: {
+    responseStatus?: string;
+    incompleteReason?: string;
+    responseId?: string;
+  };
+}
+
+interface ModelDecision {
+  output: unknown;
+  reason?: unknown;
+  yieldUntil?: unknown;
+  manaPlan?: unknown;
+}
+
+const AI_PROMPT_TYPES = new Set([
+  "mulligan",
+  "mulliganPutBack",
+  "chooseAction",
+  "chooseAttackers",
+  "chooseBlockers",
+  "chooseBoardTargets",
+  "chooseBoolean",
+  "chooseFromSelection",
+  "scry",
+  "chooseColor",
+  "chooseNumber",
+  "chooseDamageAssignmentOrder",
+  "chooseCombatDamageAssignment",
+  "payManaCost",
+  "chooseCards",
+  "reorder",
+]);
+
+export function isWorkbenchAiPrompt(prompt: Prompt | null): boolean {
+  return !!prompt && AI_PROMPT_TYPES.has(prompt.input.type);
+}
+
+export async function requestWorkbenchDecision(
+  request: WorkbenchAiRequest,
+): Promise<WorkbenchRecommendation> {
+  const { prompt, gameView } = request;
+  const startedAt = performance.now();
+  const createdAt = Date.now();
+  const classification = classifyWorkbenchDecision(prompt);
+  const modelPrompt = promptForWorkbenchModel(prompt);
+  const compactView = compactWorkbenchGameView(gameView, modelPrompt);
+  const auditView = compactWorkbenchGameView(gameView);
+  const model = request.model.trim();
+  const promptId = Number(prompt.promptId ?? 0);
+  const auditId = `ai-${createdAt}-${promptId}-${Math.random().toString(36).slice(2, 8)}`;
+
+  if (!isWorkbenchAiPrompt(prompt)) {
+    throw new Error(`Thinking AI does not support ${prompt.input.type}.`);
+  }
+  if (!model) throw new Error("Choose an AI model first.");
+
+  let usage: WorkbenchTokenUsage | null = null;
+  let estimatedCostUsd: number | null = null;
+  let rawModelText = "";
+  let responseStatus: string | null = null;
+  let incompleteReason: string | null = null;
+
+  try {
+    const endpoint = chatCompletionsEndpoint(request.baseUrl);
+    const requestBody = JSON.stringify({
+      model,
+      ...(request.baseUrl.trim().startsWith("/workbench-ai")
+        ? {
+            workbenchImportance: classification.importance,
+            workbenchResponseSchema: decisionEnvelopeSchema(modelPrompt),
+          }
+        : {}),
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are piloting a Magic: The Gathering deck inside a deterministic rules engine. " +
+            "Use only the visible game state, recent engine history, decision continuity, and the current engine prompt. " +
+            "Recent decisions are actions you actually chose in this same game; preserve their intent across follow-up prompts. " +
+            "Do not repeat a transaction that just failed unless visible resources changed. " +
+            "When decisionContext.selectionCostHints.affordableSelections is non-null, any chooseFromSelection output must exactly match one listed chosenIndices combination; the other combinations are not payable with visible mana. " +
+            "Do not take an action merely because the engine exposes it. Preserve mana until there is a concrete use. " +
+            "Before using counterspells or removal on your own cards, require a specific visible strategic benefit and state it in the reason. " +
+            "A card's static abilities apply only from zones where its text or the rules explicitly allow them to function. Never apply a commander's battlefield static abilities while that commander is still in the command zone. " +
+            "For mulligan decisions, explicitly evaluate land count, colors currently producible from the hand, commander color requirements, early spell colors, and fixing actually present in hand. A missing commander color is not an automatic mulligan, but never treat hoped-for future draws as existing color access. " +
+            "Never invent cards, hidden information, targets, action IDs, or other choices. Return JSON only with the " +
+            "shape {\\\"output\\\": <prompt response>, \\\"reason\\\": \\\"brief strategic reason\\\", \\\"yieldUntil\\\": \\\"none|material_state_change\\\", \\\"manaPlan\\\": []}. " +
+            "Use yieldUntil=material_state_change only when output is a pass and the same exposed strategic options should remain declined until relevant visible resources, stack, targets, or source state changes; a phase/step change alone should not require reconsideration. Use none otherwise. " +
+            "For payManaCost, prompt.input.manaCost is the rules engine's authoritative REMAINING cost. Never recalculate discounts or increases yourself. Return manaPlan as the full preferred ordered list of currently offered payment action IDs needed to satisfy that remaining cost, with output.actionId first. Workbench may execute later plan steps locally. For every non-payManaCost prompt, return manaPlan as an empty array. " +
+            "The prompt-specific outputRules describe ONLY the value inside the top-level output field. " +
+            "Never return that inner prompt response as the top-level JSON object. " +
+            "The reason should be 1-3 concise sentences naming the decisive visible game factors, " +
+            "without exposing private chain-of-thought. The output must satisfy the exact outputRules supplied by the user message.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            strategy: request.strategyPrompt,
+            seat: request.myPlayerSlot,
+            outputRules: responseRules(modelPrompt),
+            prompt: modelPrompt,
+            decisionContext: request.decisionContext ?? null,
+            visibleGameState: compactView,
+          }),
+        },
+      ],
+    });
+    const requestInit: RequestInit = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(request.apiKey?.trim()
+          ? { Authorization: `Bearer ${request.apiKey.trim()}` }
+          : {}),
+      },
+      body: requestBody,
+      signal: request.signal,
+    };
+    let response = await fetch(endpoint, requestInit);
+    let payload = (await response.json().catch(() => ({}))) as ChatCompletionResponse;
+    let accumulatedUsage = extractTokenUsage(payload);
+
+    if (shouldRetryWorkbenchResponse(response.status, payload) && !request.signal?.aborted) {
+      await new Promise((resolve) => setTimeout(resolve, 750));
+      response = await fetch(endpoint, requestInit);
+      payload = (await response.json().catch(() => ({}))) as ChatCompletionResponse;
+      accumulatedUsage = mergeTokenUsage(accumulatedUsage, extractTokenUsage(payload));
+    }
+
+    usage = accumulatedUsage;
+    estimatedCostUsd = estimateOpenAiCostUsd(model, usage);
+    responseStatus = payload.workbenchMeta?.responseStatus ?? null;
+    incompleteReason = payload.workbenchMeta?.incompleteReason ?? null;
+
+    if (!response.ok) {
+      throw new Error(
+        payload.error?.message ?? `AI endpoint returned HTTP ${response.status}.`,
+      );
+    }
+
+    const content = chatText(payload.choices?.[0]?.message?.content);
+    rawModelText = content;
+    if (!content) throw new Error("AI response did not contain a message.");
+
+    const parsed = parseJsonDecision(content);
+    const output = validatePromptOutput(prompt, parsed.output);
+    const reason =
+      typeof parsed.reason === "string" && parsed.reason.trim()
+        ? parsed.reason.trim()
+        : "Model selected a validated legal response.";
+    const yieldUntil =
+      output.type === "pass" && parsed.yieldUntil === "material_state_change"
+        ? "material_state_change"
+        : "none";
+    const manaPlan = normalizeManaPlan(prompt, output, parsed.manaPlan);
+    const materialStateFingerprint = buildMaterialDecisionFingerprint(prompt, gameView);
+    const latencyMs = Math.max(0, Math.round(performance.now() - startedAt));
+
+    const recommendation: WorkbenchRecommendation = {
+      promptId,
+      output,
+      label: describeOutput(output),
+      reason,
+      model,
+      promptType: prompt.input.type,
+      importance: classification.importance,
+      latencyMs,
+      gameId: gameView.gameId,
+      usage,
+      estimatedCostUsd,
+      promptFingerprint: JSON.stringify(prompt.input),
+      createdAt,
+      yieldUntil,
+      materialStateFingerprint,
+      auditId,
+      manaPlan,
+    };
+
+    request.onAuditEntry?.({
+      id: auditId,
+      gameId: gameView.gameId,
+      createdAt,
+      source: "ai",
+      status: "success",
+      promptId,
+      promptType: prompt.input.type,
+      importance: classification.importance,
+      model,
+      latencyMs,
+      usage,
+      estimatedCostUsd,
+      reason,
+      output,
+      error: null,
+      responseStatus,
+      incompleteReason,
+      rawModelText,
+      promptSnapshot: prompt,
+      visibleGameState: auditView,
+      yieldUntil,
+      outcomeDelta: null,
+      outcomeRecordedAt: null,
+      outcomeScope: null,
+      manaPlan,
+    });
+
+    return recommendation;
+  } catch (error: unknown) {
+    if (request.signal?.aborted) throw error;
+
+    const message = error instanceof Error ? error.message : String(error);
+    request.onAuditEntry?.({
+      id: auditId,
+      gameId: gameView.gameId,
+      createdAt,
+      source: "ai",
+      status: "error",
+      promptId,
+      promptType: prompt.input.type,
+      importance: classification.importance,
+      model,
+      latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+      usage,
+      estimatedCostUsd,
+      reason: null,
+      output: null,
+      error: message,
+      responseStatus,
+      incompleteReason,
+      rawModelText: rawModelText || null,
+      promptSnapshot: prompt,
+      visibleGameState: auditView,
+    });
+    throw error;
+  }
+}
+
+function shouldRetryWorkbenchResponse(
+  status: number,
+  payload: ChatCompletionResponse,
+): boolean {
+  if ([429, 500, 502, 503, 504].includes(status)) return true;
+  if (status !== 422) return false;
+
+  const message = payload.error?.message?.toLowerCase() ?? "";
+  return (
+    payload.workbenchMeta?.incompleteReason === "max_output_tokens" ||
+    message.includes("returned no output text") ||
+    message.includes("output-token budget")
+  );
+}
+
+function mergeTokenUsage(
+  first: WorkbenchTokenUsage | null,
+  second: WorkbenchTokenUsage | null,
+): WorkbenchTokenUsage | null {
+  if (!first) return second;
+  if (!second) return first;
+
+  return {
+    inputTokens: first.inputTokens + second.inputTokens,
+    cachedInputTokens: first.cachedInputTokens + second.cachedInputTokens,
+    cacheWriteTokens: first.cacheWriteTokens + second.cacheWriteTokens,
+    outputTokens: first.outputTokens + second.outputTokens,
+    reasoningTokens: first.reasoningTokens + second.reasoningTokens,
+    totalTokens: first.totalTokens + second.totalTokens,
+  };
+}
+
+function extractTokenUsage(payload: ChatCompletionResponse): WorkbenchTokenUsage | null {
+  if (payload.workbenchUsage) return payload.workbenchUsage;
+  const usage = payload.usage;
+  if (!usage) return null;
+
+  const inputTokens = Math.max(0, usage.prompt_tokens ?? 0);
+  const outputTokens = Math.max(0, usage.completion_tokens ?? 0);
+  return {
+    inputTokens,
+    cachedInputTokens: Math.max(0, usage.prompt_tokens_details?.cached_tokens ?? 0),
+    cacheWriteTokens: Math.max(0, usage.prompt_tokens_details?.cache_write_tokens ?? 0),
+    outputTokens,
+    reasoningTokens: Math.max(
+      0,
+      usage.completion_tokens_details?.reasoning_tokens ?? 0,
+    ),
+    totalTokens: Math.max(0, usage.total_tokens ?? inputTokens + outputTokens),
+  };
+}
+
+function responseRules(prompt: Prompt): string[] {
+  switch (prompt.input.type) {
+    case "chooseAction":
+      return [
+        'Set the top-level output field to {"type":"act","actionId":"<one id from prompt.input.actions>"} or {"type":"pass","exhaustStack":false}.',
+        "Do not use restoreSnapshot.",
+      ];
+    case "payManaCost":
+      return prompt.input.canConfirmFromPool
+        ? [
+            'The mana pool already satisfies the cost. Set the top-level output field to {"type":"pay","auto":false} to confirm payment.',
+            "Do not activate another mana source when canConfirmFromPool is true.",
+          ]
+        : [
+            'The mana pool does NOT yet satisfy the cost. Set the top-level output field to {"type":"act","actionId":"<one id from prompt.input.actions>"} to take the first incremental payment step, or {"type":"cancel"} if payment should be abandoned.',
+            "prompt.input.manaCost is the authoritative remaining cost after all engine-applied reducers/increases; do not recalculate it from card text.",
+            "Also return top-level manaPlan as an ordered list of currently offered payment action IDs for the whole remaining payment. Put output.actionId first. Preserve strategically useful colors/lands when equivalent alternatives exist.",
+            'Do NOT return {"type":"pay"} while canConfirmFromPool is false. The engine will re-prompt until the pool satisfies the cost.',
+          ];
+    case "mulligan":
+      return ['Set the top-level output field to {"type":"mulliganDecision","keep":true|false}.'];
+    case "mulliganPutBack":
+      return [
+        'Set the top-level output field to {"type":"mulliganPutBackDecision","cardIds":[...]} with exactly prompt.input.count unique IDs from prompt.input.handCardIds.',
+      ];
+    case "chooseAttackers":
+      return [
+        'Set the top-level output field to {"type":"declareAttackers","assignments":[{"attackerId":"...","targetId":"..."}]}.',
+        "Each attacker can appear at most once. Each targetId must be valid for that attacker.",
+        "Include every mustAttack attacker that has at least one valid target.",
+      ];
+    case "chooseBlockers":
+      return [
+        'Set the top-level output field to {"type":"declareBlockers","assignments":[{"blockerId":"...","attackerId":"..."}]}.',
+        "Each blocker can appear at most once and must be in that attacker's validBlockerIds.",
+        "Respect minBlockers, maxBlockers, and mustBeBlocked.",
+      ];
+    case "chooseBoardTargets":
+      return [
+        'Set the top-level output field to {"type":"boardTargets","chosen":[<zero or one exact object from prompt.input.candidates>]} or {"type":"cancel"} if cancellable.',
+        "Choose one target at a time. Use [] only when the current chosenTargets already satisfies minTargets.",
+      ];
+    case "chooseBoolean":
+      return ['Set the top-level output field to {"type":"decision","value":true|false}.'];
+    case "chooseFromSelection":
+      return [
+        'Set the top-level output field to {"type":"selectionDecision","chosenIndices":[...]} using zero-based indices into prompt.input.options.',
+        "The sum of option weights must be between minTotal and maxTotal. Repeat an index only when that option canRepeat.",
+      ];
+    case "chooseCards":
+      return [
+        'Set the top-level output field to {"type":"chooseCardsDecision","chosenCardIds":[...]} using unique IDs from prompt.input.cards.',
+        "Choose between prompt.input.min and prompt.input.max cards.",
+      ];
+    case "chooseColor":
+      return [
+        `Return {"type":"colorDecision","chosenColors":{"<color>":1}} using ONLY these exact color keys: ${JSON.stringify(prompt.input.validColors)}.`,
+        "Copy color strings exactly from validColors. Do not abbreviate, expand, or translate them.",
+        "Counts must be nonnegative integers totaling prompt.input.amount. If repeatAllowed is false, each count is at most 1.",
+      ];
+    case "chooseNumber":
+      return [
+        'Set the top-level output field to {"type":"numberDecision","chosenNumber":N} where N is an integer between min and max, or null only when declining is strategically intended.',
+      ];
+    case "scry":
+      return [
+        'Set the top-level output field to {"type":"scryDecision","zoneCardIds":[[...], [...]]}.',
+        "zoneCardIds has one array per prompt.input.zones entry, in the same order. Every prompt.input.cards ID must appear exactly once.",
+      ];
+    case "reorder":
+      return [
+        'Set the top-level output field to {"type":"reorderDecision","orderedIds":[...]} as a permutation of every prompt.input.items[].id.',
+      ];
+    case "chooseDamageAssignmentOrder":
+      return [
+        'Set the top-level output field to {"type":"damageAssignmentOrderDecision","orderedBlockerIds":[...]} as a permutation of every blockerId.',
+      ];
+    case "chooseCombatDamageAssignment":
+      return [
+        'Set the top-level output field to {"type":"combatDamageAssignmentDecision","assignments":[{"assigneeId":"...","damage":N}]}.',
+        "Assignee IDs may be blockerIds and defenderId when present. Damage values must be nonnegative integers totaling totalDamage.",
+      ];
+    default:
+      return ["Set the top-level output field to the exact response object required by the current prompt."];
+  }
+}
+
+
+type WorkbenchJsonSchema = Record<string, unknown>;
+
+function objectSchema(
+  properties: Record<string, WorkbenchJsonSchema>,
+  required: string[] = Object.keys(properties),
+): WorkbenchJsonSchema {
+  return {
+    type: "object",
+    properties,
+    required,
+    additionalProperties: false,
+  };
+}
+
+function stringEnum(values: string[]): WorkbenchJsonSchema {
+  return values.length > 0 ? { type: "string", enum: values } : { type: "string" };
+}
+
+function decisionEnvelopeSchema(prompt: Prompt): WorkbenchJsonSchema {
+  const manaActionIds =
+    prompt.input.type === "payManaCost"
+      ? prompt.input.actions.map((action) => action.id)
+      : [];
+  return objectSchema({
+    output: promptOutputSchema(prompt),
+    reason: { type: "string" },
+    yieldUntil: {
+      type: "string",
+      enum: ["none", "material_state_change"],
+    },
+    manaPlan: {
+      type: "array",
+      items: stringEnum(manaActionIds),
+      ...(prompt.input.type === "payManaCost" ? {} : { maxItems: 0 }),
+    },
+  });
+}
+
+function promptOutputSchema(prompt: Prompt): WorkbenchJsonSchema {
+  const typed = (type: string, properties: Record<string, WorkbenchJsonSchema> = {}) =>
+    objectSchema({ type: { type: "string", enum: [type] }, ...properties });
+
+  switch (prompt.input.type) {
+    case "chooseAction":
+      return {
+        anyOf: [
+          typed("act", { actionId: stringEnum(prompt.input.actions.map((action) => action.id)) }),
+          typed("pass", { exhaustStack: { type: "boolean" } }),
+        ],
+      };
+
+    case "payManaCost": {
+      const choices: WorkbenchJsonSchema[] = prompt.input.canConfirmFromPool
+        ? [typed("pay", { auto: { type: "boolean" } })]
+        : [
+            typed("act", { actionId: stringEnum(prompt.input.actions.map((action) => action.id)) }),
+            typed("cancel"),
+          ];
+      return { anyOf: choices };
+    }
+
+    case "mulligan":
+      return typed("mulliganDecision", { keep: { type: "boolean" } });
+
+    case "mulliganPutBack":
+      return typed("mulliganPutBackDecision", {
+        cardIds: {
+          type: "array",
+          items: stringEnum(prompt.input.handCardIds),
+          minItems: prompt.input.count,
+          maxItems: prompt.input.count,
+        },
+      });
+
+    case "chooseAttackers": {
+      const attackerIds = prompt.input.attackers.map((item) => item.attackerId);
+      const targetIds = [...new Set(prompt.input.attackers.flatMap((item) => item.validTargetIds))];
+      return typed("declareAttackers", {
+        assignments: {
+          type: "array",
+          items: objectSchema({
+            attackerId: stringEnum(attackerIds),
+            targetId: stringEnum(targetIds),
+          }),
+        },
+      });
+    }
+
+    case "chooseBlockers": {
+      const attackerIds = prompt.input.attackers.map((item) => item.attackerId);
+      const blockerIds = [...new Set(prompt.input.attackers.flatMap((item) => item.validBlockerIds))];
+      return typed("declareBlockers", {
+        assignments: {
+          type: "array",
+          items: objectSchema({
+            blockerId: stringEnum(blockerIds),
+            attackerId: stringEnum(attackerIds),
+          }),
+        },
+      });
+    }
+
+    case "chooseBoardTargets":
+      return {
+        anyOf: [
+          typed("boardTargets", {
+            chosen: {
+              type: "array",
+              items: objectSchema({
+                kind: stringEnum(prompt.input.candidates.map((candidate) => candidate.kind)),
+                id: stringEnum(prompt.input.candidates.map((candidate) => candidate.id)),
+              }),
+              minItems: 0,
+              maxItems: 1,
+            },
+          }),
+          typed("cancel"),
+        ],
+      };
+
+    case "chooseBoolean":
+      return typed("decision", { value: { type: "boolean" } });
+
+    case "chooseFromSelection":
+      return typed("selectionDecision", {
+        chosenIndices: {
+          type: "array",
+          items: {
+            type: "integer",
+            minimum: 0,
+            maximum: Math.max(0, prompt.input.options.length - 1),
+          },
+        },
+      });
+
+    case "chooseCards":
+      return typed("chooseCardsDecision", {
+        chosenCardIds: {
+          type: "array",
+          items: stringEnum(prompt.input.cards.map((card) => card.id)),
+          minItems: prompt.input.min,
+          maxItems: prompt.input.max,
+        },
+      });
+
+    case "chooseColor": {
+      const { validColors, repeatAllowed, amount } = prompt.input;
+      const properties = Object.fromEntries(
+        validColors.map((color) => [
+          color,
+          {
+            type: "integer",
+            minimum: 0,
+            maximum: repeatAllowed ? amount : 1,
+          },
+        ]),
+      ) as Record<string, WorkbenchJsonSchema>;
+      return typed("colorDecision", {
+        chosenColors: objectSchema(properties),
+      });
+    }
+
+    case "chooseNumber":
+      return typed("numberDecision", {
+        chosenNumber: {
+          anyOf: [
+            {
+              type: "integer",
+              minimum: prompt.input.min,
+              maximum: prompt.input.max,
+            },
+            { type: "null" },
+          ],
+        },
+      });
+
+    case "scry":
+      return typed("scryDecision", {
+        zoneCardIds: {
+          type: "array",
+          items: {
+            type: "array",
+            items: stringEnum(prompt.input.cards.map((card) => card.id)),
+          },
+          minItems: prompt.input.zones.length,
+          maxItems: prompt.input.zones.length,
+        },
+      });
+
+    case "reorder":
+      return typed("reorderDecision", {
+        orderedIds: {
+          type: "array",
+          items: stringEnum(prompt.input.items.map((item) => item.id)),
+          minItems: prompt.input.items.length,
+          maxItems: prompt.input.items.length,
+        },
+      });
+
+    case "chooseDamageAssignmentOrder":
+      return typed("damageAssignmentOrderDecision", {
+        orderedBlockerIds: {
+          type: "array",
+          items: stringEnum(prompt.input.blockerIds),
+          minItems: prompt.input.blockerIds.length,
+          maxItems: prompt.input.blockerIds.length,
+        },
+      });
+
+    case "chooseCombatDamageAssignment": {
+      const assigneeIds = [
+        ...prompt.input.blockerIds,
+        ...(prompt.input.defenderId ? [prompt.input.defenderId] : []),
+      ];
+      return typed("combatDamageAssignmentDecision", {
+        assignments: {
+          type: "array",
+          items: objectSchema({
+            assigneeId: stringEnum(assigneeIds),
+            damage: { type: "integer", minimum: 0, maximum: prompt.input.totalDamage },
+          }),
+        },
+      });
+    }
+
+    default:
+      return objectSchema({
+        type: { type: "string" },
+      });
+  }
+}
+
+function validatePromptOutput(prompt: Prompt, value: unknown): PromptOutput["output"] {
+  if (!isRecord(value) || typeof value.type !== "string") {
+    throw new Error("AI output was not a prompt response object.");
+  }
+
+  switch (prompt.input.type) {
+    case "chooseAction": {
+      if (value.type === "pass") {
+        return { type: "pass", until: undefined, exhaustStack: value.exhaustStack === true };
+      }
+      if (value.type !== "act" || typeof value.actionId !== "string") {
+        throw new Error("AI returned an invalid chooseAction response.");
+      }
+      if (!prompt.input.actions.some((action) => action.id === value.actionId)) {
+        throw new Error("AI selected an action ID the rules engine did not offer.");
+      }
+      return { type: "act", actionId: value.actionId };
+    }
+
+    case "payManaCost": {
+      if (value.type === "cancel") return { type: "cancel" };
+      if (value.type === "pay") {
+        if (!prompt.input.canConfirmFromPool) {
+          throw new Error(
+            "AI tried to confirm mana payment before the engine said the pool was ready.",
+          );
+        }
+        return { type: "pay", auto: false };
+      }
+      if (
+        value.type === "act" &&
+        typeof value.actionId === "string" &&
+        prompt.input.actions.some((action) => action.id === value.actionId)
+      ) {
+        return { type: "act", actionId: value.actionId };
+      }
+      throw new Error("AI returned an invalid mana-payment response.");
+    }
+
+    case "mulligan":
+      if (value.type === "mulliganDecision" && typeof value.keep === "boolean") {
+        return { type: "mulliganDecision", keep: value.keep };
+      }
+      throw new Error("AI returned an invalid mulligan response.");
+
+    case "mulliganPutBack": {
+      if (value.type !== "mulliganPutBackDecision" || !stringArray(value.cardIds)) {
+        throw new Error("AI returned an invalid mulligan put-back response.");
+      }
+      const ids = unique(value.cardIds);
+      const allowed = new Set(prompt.input.handCardIds);
+      if (ids.length !== prompt.input.count || ids.some((id) => !allowed.has(id))) {
+        throw new Error("AI chose an invalid set of cards to put back.");
+      }
+      return { type: "mulliganPutBackDecision", cardIds: ids };
+    }
+
+    case "chooseAttackers": {
+      if (value.type !== "declareAttackers" || !Array.isArray(value.assignments)) {
+        throw new Error("AI returned an invalid attacker declaration.");
+      }
+      const assignments = value.assignments.map((raw) => {
+        if (!isRecord(raw) || typeof raw.attackerId !== "string" || typeof raw.targetId !== "string") {
+          throw new Error("AI returned a malformed attack assignment.");
+        }
+        return { attackerId: raw.attackerId, targetId: raw.targetId };
+      });
+      if (unique(assignments.map((item) => item.attackerId)).length !== assignments.length) {
+        throw new Error("AI assigned the same attacker more than once.");
+      }
+      for (const assignment of assignments) {
+        const option = prompt.input.attackers.find(
+          (attacker) => attacker.attackerId === assignment.attackerId,
+        );
+        if (!option || !option.validTargetIds.includes(assignment.targetId)) {
+          throw new Error("AI chose an illegal attack target.");
+        }
+      }
+      for (const option of prompt.input.attackers) {
+        if (
+          option.mustAttack &&
+          option.validTargetIds.length > 0 &&
+          !assignments.some((item) => item.attackerId === option.attackerId)
+        ) {
+          throw new Error("AI omitted a creature that must attack.");
+        }
+      }
+      return { type: "declareAttackers", assignments };
+    }
+
+    case "chooseBlockers": {
+      if (value.type !== "declareBlockers" || !Array.isArray(value.assignments)) {
+        throw new Error("AI returned an invalid blocker declaration.");
+      }
+      const assignments = value.assignments.map((raw) => {
+        if (!isRecord(raw) || typeof raw.blockerId !== "string" || typeof raw.attackerId !== "string") {
+          throw new Error("AI returned a malformed block assignment.");
+        }
+        return { blockerId: raw.blockerId, attackerId: raw.attackerId };
+      });
+      if (unique(assignments.map((item) => item.blockerId)).length !== assignments.length) {
+        throw new Error("AI assigned the same blocker more than once.");
+      }
+      for (const assignment of assignments) {
+        const attacker = prompt.input.attackers.find(
+          (option) => option.attackerId === assignment.attackerId,
+        );
+        if (!attacker || !attacker.validBlockerIds.includes(assignment.blockerId)) {
+          throw new Error("AI chose an illegal blocker.");
+        }
+      }
+      for (const attacker of prompt.input.attackers) {
+        const count = assignments.filter((item) => item.attackerId === attacker.attackerId).length;
+        if (count > 0 && count < attacker.minBlockers) {
+          throw new Error("AI did not satisfy the attacker's minimum blocker requirement.");
+        }
+        if (attacker.maxBlockers != null && count > attacker.maxBlockers) {
+          throw new Error("AI exceeded the attacker's maximum blocker count.");
+        }
+        if (attacker.mustBeBlocked && attacker.validBlockerIds.length > 0 && count === 0) {
+          throw new Error("AI left an attacker unblocked that must be blocked.");
+        }
+      }
+      return { type: "declareBlockers", assignments };
+    }
+
+    case "chooseBoardTargets": {
+      if (value.type === "cancel") {
+        if (!prompt.input.cancellable) throw new Error("This target selection cannot be cancelled.");
+        return { type: "cancel" };
+      }
+      if (value.type !== "boardTargets" || !Array.isArray(value.chosen) || value.chosen.length > 1) {
+        throw new Error("AI returned an invalid target response.");
+      }
+      if (value.chosen.length === 0) {
+        if (prompt.input.chosenTargets < prompt.input.minTargets) {
+          throw new Error("AI stopped targeting before the minimum target count.");
+        }
+        return { type: "boardTargets", chosen: [] };
+      }
+      const raw = value.chosen[0];
+      if (!isRecord(raw) || typeof raw.kind !== "string" || typeof raw.id !== "string") {
+        throw new Error("AI returned a malformed target.");
+      }
+      const candidate = prompt.input.candidates.find(
+        (target) => target.kind === raw.kind && target.id === raw.id,
+      );
+      if (!candidate) throw new Error("AI selected a target the engine did not offer.");
+      return { type: "boardTargets", chosen: [candidate] };
+    }
+
+    case "chooseBoolean":
+      if (value.type === "decision" && typeof value.value === "boolean") {
+        return { type: "decision", value: value.value };
+      }
+      throw new Error("AI returned an invalid yes/no decision.");
+
+    case "chooseFromSelection": {
+      if (value.type !== "selectionDecision" || !numberArray(value.chosenIndices)) {
+        throw new Error("AI returned an invalid selection.");
+      }
+      const indices = value.chosenIndices;
+      let total = 0;
+      const seen = new Map<number, number>();
+      for (const index of indices) {
+        if (!Number.isInteger(index) || index < 0 || index >= prompt.input.options.length) {
+          throw new Error("AI selected an option index that does not exist.");
+        }
+        const option = prompt.input.options[index];
+        const count = (seen.get(index) ?? 0) + 1;
+        seen.set(index, count);
+        if (count > 1 && !option.canRepeat) {
+          throw new Error("AI repeated an option that cannot be repeated.");
+        }
+        total += option.weight;
+      }
+      if (total < prompt.input.minTotal || total > prompt.input.maxTotal) {
+        throw new Error("AI selection does not satisfy the required total.");
+      }
+      return { type: "selectionDecision", chosenIndices: indices };
+    }
+
+    case "chooseCards": {
+      if (value.type !== "chooseCardsDecision" || !stringArray(value.chosenCardIds)) {
+        throw new Error("AI returned an invalid card choice.");
+      }
+      const ids = unique(value.chosenCardIds);
+      const allowed = new Set(prompt.input.cards.map((card) => card.id));
+      if (
+        ids.length < prompt.input.min ||
+        ids.length > prompt.input.max ||
+        ids.some((id) => !allowed.has(id))
+      ) {
+        throw new Error("AI chose cards outside the engine's legal range.");
+      }
+      return { type: "chooseCardsDecision", chosenCardIds: ids };
+    }
+
+    case "chooseColor": {
+      if (value.type !== "colorDecision" || !isRecord(value.chosenColors)) {
+        throw new Error("AI returned an invalid color choice.");
+      }
+      const chosenColors: Record<string, number> = {};
+      let total = 0;
+      for (const [rawColor, rawCount] of Object.entries(value.chosenColors)) {
+        const color = normalizeColorKey(rawColor, prompt.input.validColors);
+        if (!color || !Number.isInteger(rawCount) || (rawCount as number) < 0) {
+          throw new Error(
+            `AI returned an illegal color allocation. Legal colors: ${prompt.input.validColors.join(", ")}.`,
+          );
+        }
+        const count = rawCount as number;
+        if (!prompt.input.repeatAllowed && count > 1) {
+          throw new Error("AI repeated a color when repetition is not allowed.");
+        }
+        if (count > 0) chosenColors[color] = (chosenColors[color] ?? 0) + count;
+        total += count;
+      }
+      if (total !== prompt.input.amount) {
+        throw new Error("AI color allocation has the wrong total.");
+      }
+      return { type: "colorDecision", chosenColors };
+    }
+
+    case "chooseNumber": {
+      if (value.type !== "numberDecision") throw new Error("AI returned an invalid number choice.");
+      if (value.chosenNumber === null) return { type: "numberDecision", chosenNumber: null };
+      if (
+        typeof value.chosenNumber !== "number" ||
+        !Number.isInteger(value.chosenNumber) ||
+        value.chosenNumber < prompt.input.min ||
+        value.chosenNumber > prompt.input.max
+      ) {
+        throw new Error("AI chose a number outside the legal range.");
+      }
+      return { type: "numberDecision", chosenNumber: value.chosenNumber };
+    }
+
+    case "scry": {
+      if (value.type !== "scryDecision" || !Array.isArray(value.zoneCardIds)) {
+        throw new Error("AI returned an invalid scry decision.");
+      }
+      if (
+        value.zoneCardIds.length !== prompt.input.zones.length ||
+        value.zoneCardIds.some((zone) => !stringArray(zone))
+      ) {
+        throw new Error("AI scry output does not match the available destinations.");
+      }
+      const zones = value.zoneCardIds as string[][];
+      const flattened = zones.flat();
+      const expected = prompt.input.cards.map((card) => card.id);
+      if (!sameSet(flattened, expected) || unique(flattened).length !== flattened.length) {
+        throw new Error("AI scry output must place every card exactly once.");
+      }
+      return { type: "scryDecision", zoneCardIds: zones };
+    }
+
+    case "reorder": {
+      if (value.type !== "reorderDecision" || !stringArray(value.orderedIds)) {
+        throw new Error("AI returned an invalid reorder decision.");
+      }
+      const expected = prompt.input.items.map((item) => item.id);
+      if (!sameSet(value.orderedIds, expected) || unique(value.orderedIds).length !== expected.length) {
+        throw new Error("AI reorder output is not a complete permutation.");
+      }
+      return { type: "reorderDecision", orderedIds: value.orderedIds };
+    }
+
+    case "chooseDamageAssignmentOrder": {
+      if (value.type !== "damageAssignmentOrderDecision" || !stringArray(value.orderedBlockerIds)) {
+        throw new Error("AI returned an invalid damage order.");
+      }
+      if (
+        !sameSet(value.orderedBlockerIds, prompt.input.blockerIds) ||
+        unique(value.orderedBlockerIds).length !== prompt.input.blockerIds.length
+      ) {
+        throw new Error("AI damage order is not a complete blocker permutation.");
+      }
+      return { type: "damageAssignmentOrderDecision", orderedBlockerIds: value.orderedBlockerIds };
+    }
+
+    case "chooseCombatDamageAssignment": {
+      if (value.type !== "combatDamageAssignmentDecision" || !Array.isArray(value.assignments)) {
+        throw new Error("AI returned an invalid combat damage assignment.");
+      }
+      const allowed = new Set([
+        ...prompt.input.blockerIds,
+        ...(prompt.input.defenderId ? [prompt.input.defenderId] : []),
+      ]);
+      const assignments = value.assignments.map((raw) => {
+        if (
+          !isRecord(raw) ||
+          typeof raw.assigneeId !== "string" ||
+          typeof raw.damage !== "number" ||
+          !Number.isInteger(raw.damage) ||
+          raw.damage < 0 ||
+          !allowed.has(raw.assigneeId)
+        ) {
+          throw new Error("AI returned a malformed combat damage entry.");
+        }
+        return { assigneeId: raw.assigneeId, damage: raw.damage };
+      });
+      if (unique(assignments.map((item) => item.assigneeId)).length !== assignments.length) {
+        throw new Error("AI assigned combat damage to the same object more than once.");
+      }
+      const total = assignments.reduce((sum, item) => sum + item.damage, 0);
+      if (total !== prompt.input.totalDamage) {
+        throw new Error("AI combat damage assignment does not use the exact available damage.");
+      }
+      return { type: "combatDamageAssignmentDecision", assignments };
+    }
+
+    default:
+      throw new Error(`Thinking AI does not support ${prompt.input.type}.`);
+  }
+}
+
+function normalizeManaPlan(
+  prompt: Prompt,
+  output: PromptOutput["output"],
+  rawPlan: unknown,
+): string[] {
+  if (prompt.input.type !== "payManaCost" || !Array.isArray(rawPlan)) return [];
+  const legalIds = new Set(prompt.input.actions.map((action) => action.id));
+  const ordered = unique(
+    rawPlan.filter(
+      (item): item is string => typeof item === "string" && legalIds.has(item),
+    ),
+  );
+
+  if (output.type !== "act") return [];
+  return [
+    output.actionId,
+    ...ordered.filter((actionId) => actionId !== output.actionId),
+  ];
+}
+
+function describeOutput(output: PromptOutput["output"]): string {
+  switch (output.type) {
+    case "act":
+      return `Action ${output.actionId}`;
+    case "pass":
+      return "Pass priority";
+    case "pay":
+      return output.auto ? "Auto-pay mana" : "Pay mana";
+    case "cancel":
+      return "Cancel";
+    case "mulliganDecision":
+      return output.keep ? "Keep hand" : "Mulligan";
+    case "mulliganPutBackDecision":
+      return `Put back ${output.cardIds.length} card(s)`;
+    case "declareAttackers":
+      return `Attack with ${output.assignments.length} creature(s)`;
+    case "declareBlockers":
+      return `Block with ${output.assignments.length} creature(s)`;
+    case "boardTargets":
+      return output.chosen.length ? `Choose target ${output.chosen[0].id}` : "Finish targeting";
+    case "decision":
+      return output.value ? "Yes" : "No";
+    case "selectionDecision":
+      return `Choose ${output.chosenIndices.length} selection(s)`;
+    case "chooseCardsDecision":
+      return `Choose ${output.chosenCardIds.length} card(s)`;
+    case "colorDecision":
+      return "Choose colors";
+    case "numberDecision":
+      return `Choose ${output.chosenNumber ?? "none"}`;
+    case "scryDecision":
+      return "Resolve scry";
+    case "reorderDecision":
+      return "Choose order";
+    case "damageAssignmentOrderDecision":
+      return "Choose damage order";
+    case "combatDamageAssignmentDecision":
+      return "Assign combat damage";
+    default:
+      return "Validated AI decision";
+  }
+}
+
+function chatCompletionsEndpoint(baseUrl: string): string {
+  const trimmed = baseUrl.trim().replace(/\/+$/, "");
+  if (!trimmed) throw new Error("Enter an OpenAI-compatible API base URL.");
+  return trimmed.endsWith("/chat/completions") ? trimmed : `${trimmed}/chat/completions`;
+}
+
+function chatText(content: ChatContent | undefined): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => part.text ?? "")
+    .join("")
+    .trim();
+}
+
+function parseJsonDecision(content: string): ModelDecision {
+  const firstBrace = content.indexOf("{");
+  const lastBrace = content.lastIndexOf("}");
+  if (firstBrace < 0 || lastBrace <= firstBrace) {
+    throw new Error("AI did not return the required JSON decision.");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content.slice(firstBrace, lastBrace + 1));
+  } catch {
+    throw new Error("AI returned malformed JSON.");
+  }
+  if (!isRecord(parsed)) {
+    throw new Error("AI response was not a JSON object.");
+  }
+  if ("output" in parsed) {
+    return parsed as unknown as ModelDecision;
+  }
+  if (typeof parsed.type === "string") {
+    return {
+      output: parsed,
+      reason:
+        "Model returned a prompt response without the required output wrapper; Workbench normalized it after legality validation.",
+      yieldUntil: "none",
+      manaPlan: [],
+    };
+  }
+  throw new Error("AI response is missing the output object.");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeColorKey(raw: string, validColors: string[]): string | null {
+  if (validColors.includes(raw)) return raw;
+
+  const aliases: Record<string, string[]> = {
+    W: ["W", "White"],
+    U: ["U", "Blue"],
+    B: ["B", "Black"],
+    R: ["R", "Red"],
+    G: ["G", "Green"],
+    C: ["C", "Colorless"],
+  };
+
+  const normalized = raw.trim().toLowerCase();
+  for (const values of Object.values(aliases)) {
+    const matchesAlias = values.some((value) => value.toLowerCase() === normalized);
+    if (!matchesAlias) continue;
+    const legal = validColors.find((valid) =>
+      values.some((value) => value.toLowerCase() === valid.toLowerCase()),
+    );
+    if (legal) return legal;
+  }
+
+  return null;
+}
+
+function stringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function numberArray(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "number");
+}
+
+function unique<T>(items: T[]): T[] {
+  return [...new Set(items)];
+}
+
+function sameSet(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  const l = new Set(left);
+  const r = new Set(right);
+  return l.size === r.size && [...l].every((item) => r.has(item));
+}

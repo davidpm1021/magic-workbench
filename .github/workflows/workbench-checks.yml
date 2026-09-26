@@ -1,0 +1,52 @@
+name: Workbench checks
+
+on:
+  push:
+    branches:
+      - workbench-v0.1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workbench-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typescript:
+    name: TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: yarn
+
+      - name: Install Yarn
+        run: npm install --global yarn
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Set up mold linker
+        uses: rui314/setup-mold@v1
+
+      - name: Install dependencies
+        run: yarn --frozen-lockfile
+
+      - name: Generate protocol types
+        run: yarn gen:types
+
+      - name: Type-check Workbench
+        run: yarn exec tsc -p tsconfig.app.json --noEmit
+
+      - name: Run Workbench tests
+        run: yarn vitest run src/workbench src/stores/useDeckStore.test.ts

@@ -2,13 +2,15 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useGameDevStore } from "@/stores/useGameDevStore";
 import { useGameUIStore } from "@/stores/useGameUIStore";
-import { PanelRightClose, ScrollText } from "lucide-react";
+import { Bot, PanelRightClose } from "lucide-react";
 import { useLayoutEffect, useRef } from "react";
 import type { RightActionPanelProps } from "../game.types";
 import { TAB_BUTTON_BASE, TAB_ACTIVE, TAB_INACTIVE } from "../game.styles";
 import { ActionLog } from "./ActionLog";
 import { SnapshotsPanel } from "./SnapshotsPanel";
 import { GameDevPanel } from "@/components/dev/GameDevPanel";
+import { WorkbenchErrorBoundary } from "./WorkbenchErrorBoundary";
+import { WorkbenchPanel } from "./WorkbenchPanel";
 export function RightActionPanel({
   collapsed,
   onToggleCollapse: rawToggle,
@@ -48,23 +50,25 @@ export function RightActionPanel({
   }, [collapsed, onLeftEdgeChange]);
 
   if (collapsed)
-    return logActivityCount > 0 ? (
+    return (
       <button
         type="button"
         className="absolute right-[calc(0.75rem+var(--safe-area-inset-right))] top-[calc(0.75rem+var(--safe-area-inset-top))] z-50 flex items-center gap-2 rounded-full border border-primary/50 bg-card/95 px-3 py-2 font-game text-xs font-semibold text-foreground shadow-lg backdrop-blur-sm transition-colors hover:bg-accent"
-        aria-label={`Open action log with ${logActivityCount} entries`}
+        aria-label="Open Magic Workbench"
         onClick={() => {
-          setActiveTab("log");
+          setActiveTab("workbench");
           rawToggle();
         }}
       >
-        <ScrollText className="h-4 w-4 text-primary" />
-        Log
-        <span className="min-w-5 rounded-full bg-primary px-1.5 py-0.5 font-mono text-[10px] text-primary-foreground">
-          {logActivityCount}
-        </span>
+        <Bot className="h-4 w-4 text-primary" />
+        Workbench
+        {logActivityCount > 0 ? (
+          <span className="min-w-5 rounded-full bg-primary px-1.5 py-0.5 font-mono text-[10px] text-primary-foreground">
+            {logActivityCount}
+          </span>
+        ) : null}
       </button>
-    ) : null;
+    );
 
   return (
     <aside
@@ -78,7 +82,16 @@ export function RightActionPanel({
     >
       <div className="h-full p-3 flex flex-col gap-3 overflow-y-auto">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <button
+              className={cn(
+                TAB_BUTTON_BASE,
+                activeTab === "workbench" ? TAB_ACTIVE : TAB_INACTIVE,
+              )}
+              onClick={() => setActiveTab("workbench")}
+            >
+              Workbench
+            </button>
             <button
               className={cn(TAB_BUTTON_BASE, activeTab === "log" ? TAB_ACTIVE : TAB_INACTIVE)}
               onClick={() => setActiveTab("log")}
@@ -111,7 +124,11 @@ export function RightActionPanel({
           </Button>
         </div>
 
-        {activeTab === "log" ? (
+        {activeTab === "workbench" ? (
+          <WorkbenchErrorBoundary>
+            <WorkbenchPanel />
+          </WorkbenchErrorBoundary>
+        ) : activeTab === "log" ? (
           <ActionLog
             gameLog={gameLog}
             resolveCardName={resolveCardName}

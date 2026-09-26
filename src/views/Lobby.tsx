@@ -36,9 +36,12 @@ import type {
 } from "@/types/server";
 import type { Deck } from "@/protocol/deck";
 import { toast } from "sonner";
-import { Settings, Users } from "lucide-react";
+import { Download, Settings, Users, X } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { findOrHostLanRelay, isUnreachable } from "@/lib/lanRelay";
+import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
+import { downloadWorkbenchAudit } from "@/workbench/auditExport";
+import { formatUsd } from "@/workbench/pricing";
 
 const START_GAME_ACK_TIMEOUT_MS = 5000;
 function awaitGameStartedAck(roomId: string): Promise<void> {
@@ -123,6 +126,12 @@ export default function Lobby() {
   const pendingInviteCount = useInviteStore((s) => s.invites.length);
   const invitesEnabled = relayFeatures.includes(RELAY_FEATURE.RoomInvites);
   const prefs = usePreferencesStore();
+  const lastCompletedWorkbenchGame = useWorkbenchStore((s) => s.lastCompletedGame);
+  const workbenchAuditLog = useWorkbenchStore((s) => s.auditLog);
+  const clearCompletedWorkbenchGame = useWorkbenchStore((s) => s.clearCompletedGame);
+  const completedWorkbenchEntries = lastCompletedWorkbenchGame
+    ? workbenchAuditLog.filter((entry) => entry.gameId === lastCompletedWorkbenchGame.gameId)
+    : [];
   const accountHandle = useAuthStore((s) =>
     s.status === "signedIn" ? (s.account?.handle ?? null) : null,
   );
@@ -491,6 +500,40 @@ export default function Lobby() {
             )}
           </div>
         )}
+
+        {lastCompletedWorkbenchGame && completedWorkbenchEntries.length > 0 ? (
+          <div className="mx-4 mb-2 flex shrink-0 flex-wrap items-center gap-2 rounded-lg border border-border bg-card/80 px-3 py-2 shadow-sm sm:mx-6 lg:mx-8">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">Last Workbench game audit is ready</p>
+              <p className="text-xs text-muted-foreground">
+                Turn {lastCompletedWorkbenchGame.turn} • {lastCompletedWorkbenchGame.paidAiCalls} AI calls • {lastCompletedWorkbenchGame.errors} errors • {formatUsd(lastCompletedWorkbenchGame.estimatedCostUsd)}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                downloadWorkbenchAudit({
+                  gameId: lastCompletedWorkbenchGame.gameId,
+                  entries: completedWorkbenchEntries,
+                  winnerId: lastCompletedWorkbenchGame.winnerId,
+                  turn: lastCompletedWorkbenchGame.turn,
+                  filenamePrefix: "magic-workbench-completed",
+                })
+              }
+            >
+              <Download /> Download audit
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={clearCompletedWorkbenchGame}
+              title="Dismiss completed audit"
+            >
+              <X />
+            </Button>
+          </div>
+        ) : null}
 
         <div className="flex-1 min-h-0">
           {settingUp && !currentRoom ? (

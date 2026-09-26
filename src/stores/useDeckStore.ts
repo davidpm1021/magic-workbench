@@ -18,7 +18,7 @@ import {
   copyLimitFromText,
 } from "@/lib/formats";
 import { chooseImageUrisForCard, tokenIdentityKey } from "@/stores/useScryfallStore";
-import { collectProducedTokenKeys } from "@/lib/decks";
+import { collectProducedTokenKeys, isNonDeckCard } from "@/lib/decks";
 import { resolveDeckName } from "@/lib/deckName";
 import { mergeDeckImportIntoDeck } from "@/lib/deckImport";
 /** Migrate legacy "constructed" format id to "standard". */
@@ -73,15 +73,26 @@ function isSchemeCard(card: DeckCard): boolean {
 function isPlaneCard(card: DeckCard): boolean {
   return card.types?.some((type) => type.toLowerCase() === "plane") ?? false;
 }
+
+const pendingNonDeckCleanupNames = new Set<string>();
+
+function keepDeckCards(cards: DeckCard[] | undefined): DeckCard[] {
+  return (cards ?? []).filter((card) => {
+    if (!isNonDeckCard(card)) return true;
+    pendingNonDeckCleanupNames.add(card.identity.name);
+    return false;
+  });
+}
+
 function normalizeDeck(deck: EditorDeck): EditorDeck {
-  const main = [...(deck.cards ?? [])];
-  const sideboard = [...(deck.sideboard ?? [])];
-  const attractions = [...(deck.attractions ?? [])];
-  const contraptions = [...(deck.contraptions ?? [])];
-  const schemes = [...(deck.schemes ?? [])];
-  const planes = [...(deck.planes ?? [])];
-  // Migrate legacy single-commander to commanders array
-  const commanders = [...(deck.commanders ?? [])];
+  const main = keepDeckCards(deck.cards);
+  const sideboard = keepDeckCards(deck.sideboard);
+  const attractions = keepDeckCards(deck.attractions);
+  const contraptions = keepDeckCards(deck.contraptions);
+  const schemes = keepDeckCards(deck.schemes);
+  const planes = keepDeckCards(deck.planes);
+  const maybeboard = keepDeckCards(deck.maybeboard);
+  const commanders = keepDeckCards(deck.commanders);
   const legacy = (
     deck as {
       commander?: DeckCard;
@@ -118,7 +129,9 @@ function normalizeDeck(deck: EditorDeck): EditorDeck {
     contraptions,
     schemes,
     planes,
+    maybeboard: maybeboard.length > 0 ? maybeboard : undefined,
     commanders: commanders.length > 0 ? commanders : undefined,
+    companion: deck.companion && !isNonDeckCard(deck.companion) ? deck.companion : undefined,
     editor: normalizeEditorMetadata(deck),
   };
   delete (
@@ -260,6 +273,165 @@ function dropInlinePlaymat<T extends object>(deck: T): T {
 // False until hydration succeeds, so a failed migration can't persist over the
 // stored decks — writes are dropped and the on-disk data survives untouched.
 let deckPersistReady = false;
+let deckDiskBackupReady = false;
+let deckHydrationGeneration = 0;
+let deckReconciledGeneration = -1;
+const WORKBENCH_DECK_BACKUP_URL = "/workbench-data/decks";
+let workbenchDeckBackupTestEnabled = false;
+
+export function setWorkbenchDeckBackupTestEnabled(enabled: boolean): void {
+  workbenchDeckBackupTestEnabled = enabled;
+}
+
+function workbenchDeckBackupEnabled(): boolean {
+  return (
+    workbenchDeckBackupTestEnabled ||
+    import.meta.env.DEV ||
+    (typeof window !== "undefined" &&
+      ["localhost", "127.0.0.1"].includes(window.location.hostname))
+  );
+}
+
+interface WorkbenchDeckBackupPayload {
+  schemaVersion: 1;
+  updatedAt: number;
+  savedDecks: SavedDeck[];
+}
+
+let deckBackupWriteQueue: Promise<void> = Promise.resolve();
+let pendingDeckBackup: SavedDeck[] | null = null;
+let deckReconcilePromise: Promise<void> = Promise.resolve();
+
+export async function waitForWorkbenchDeckBackup(): Promise<void> {
+  // Rehydration completion schedules reconciliation in a microtask so the
+  // Zustand store is fully assigned before disk work touches it. Yield once
+  // before capturing the active reconciliation promise.
+  await Promise.resolve();
+  await deckReconcilePromise;
+  await deckBackupWriteQueue.catch(() => undefined);
+}
+
+function flushPendingDeckBackup(): void {
+  if (!deckDiskBackupReady || !pendingDeckBackup) return;
+  const pending = pendingDeckBackup;
+  pendingDeckBackup = null;
+  mirrorSavedDecksToDisk(pending);
+}
+
+function mirrorSavedDecksToDisk(savedDecks: SavedDeck[]): void {
+  if (!workbenchDeckBackupEnabled()) return;
+  const payload: WorkbenchDeckBackupPayload = {
+    schemaVersion: 1,
+    updatedAt: Date.now(),
+    savedDecks,
+  };
+  const body = JSON.stringify(payload);
+
+  deckBackupWriteQueue = deckBackupWriteQueue
+    .catch(() => undefined)
+    .then(async () => {
+      const response = await fetch(WORKBENCH_DECK_BACKUP_URL, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+      if (!response.ok) {
+        throw new Error(`Deck backup returned HTTP ${response.status}.`);
+      }
+    })
+    .catch(() => {
+      // Browser storage remains usable even if the local disk backup cannot
+      // be written. The next savedDecks change will try again.
+    });
+}
+
+async function reconcileSavedDecksWithDisk(): Promise<void> {
+  if (!workbenchDeckBackupEnabled()) {
+    deckDiskBackupReady = true;
+    return;
+  }
+
+  try {
+    const localDecks = useDeckStore.getState().savedDecks;
+    const response = await fetch(WORKBENCH_DECK_BACKUP_URL, { method: "GET" });
+    if (response.status === 204) {
+      deckDiskBackupReady = true;
+      if (localDecks.length > 0) mirrorSavedDecksToDisk(localDecks);
+      flushPendingDeckBackup();
+      return;
+    }
+    if (!response.ok) {
+      deckDiskBackupReady = true;
+      if (localDecks.length > 0) mirrorSavedDecksToDisk(localDecks);
+      flushPendingDeckBackup();
+      return;
+    }
+
+    const raw = await response.text();
+    if (!raw.trim()) {
+      deckDiskBackupReady = true;
+      if (localDecks.length > 0) mirrorSavedDecksToDisk(localDecks);
+      flushPendingDeckBackup();
+      return;
+    }
+
+    const parsed = JSON.parse(raw) as {
+      savedDecks?: SavedDeck[];
+      state?: {
+        savedDecks?: SavedDeck[];
+      };
+    };
+    const diskDecks = (parsed.savedDecks ?? parsed.state?.savedDecks ?? []).map((saved) => ({
+      ...saved,
+      deck: normalizeDeck(dropInlinePlaymat(migrateDeck(saved.deck))),
+    }));
+
+    const currentLocalDecks = useDeckStore.getState().savedDecks;
+    const mergedById = new Map<string, SavedDeck>();
+    for (const saved of diskDecks) mergedById.set(saved.id, saved);
+    for (const saved of currentLocalDecks) {
+      const existing = mergedById.get(saved.id);
+      if (!existing || saved.savedAt >= existing.savedAt) mergedById.set(saved.id, saved);
+    }
+    const mergedDecks = [...mergedById.values()].sort((a, b) => a.savedAt - b.savedAt);
+    const restoredCount = mergedDecks.filter(
+      (saved) => !currentLocalDecks.some((local) => local.id === saved.id),
+    ).length;
+
+    deckDiskBackupReady = true;
+    if (
+      mergedDecks.length !== currentLocalDecks.length ||
+      mergedDecks.some((saved, index) => saved !== currentLocalDecks[index])
+    ) {
+      useDeckStore.setState({ savedDecks: mergedDecks });
+    } else {
+      mirrorSavedDecksToDisk(mergedDecks);
+    }
+
+    flushPendingDeckBackup();
+
+    if (pendingNonDeckCleanupNames.size > 0) {
+      const names = [...pendingNonDeckCleanupNames].sort();
+      pendingNonDeckCleanupNames.clear();
+      toast.warning(
+        `Removed non-deck token entr${names.length === 1 ? "y" : "ies"} from saved decks: ${names.join(", ")}`,
+      );
+    }
+
+    if (restoredCount > 0) {
+      toast.success(
+        `Recovered ${restoredCount} saved deck${restoredCount === 1 ? "" : "s"} from your Workbench disk backup.`,
+        { id: "workbench-deck-backup-restored" },
+      );
+    }
+  } catch {
+    deckDiskBackupReady = true;
+    const localDecks = useDeckStore.getState().savedDecks;
+    if (localDecks.length > 0) mirrorSavedDecksToDisk(localDecks);
+    flushPendingDeckBackup();
+  }
+}
+
 const deckStorage = createJSONStorage(() => ({
   getItem: (name) => localStorage.getItem(name),
   setItem: (name, value) => {
@@ -268,13 +440,18 @@ const deckStorage = createJSONStorage(() => ({
       localStorage.setItem(name, value);
     } catch {
       toast.error(
-        `Seems like you reached the limit of your browser storage \u2014 contact us on Discord for more info.`,
+        `Seems like you reached the limit of your browser storage — contact us on Discord for more info.`,
         { id: "deck-storage-full" },
       );
     }
   },
-  removeItem: (name) => localStorage.removeItem(name),
+  removeItem: (name) => {
+    // Browser persistence can be cleared during migrations or rebuilds. The
+    // independent disk backup must survive that lifecycle.
+    localStorage.removeItem(name);
+  },
 }));
+
 interface DeckState {
   currentDeck: EditorDeck;
   currentDeckId: string | null;
@@ -1171,11 +1348,13 @@ export const useDeckStore = create<DeckState>()(
         storage: deckStorage,
         partialize: ({ editorSessionId: _editorSessionId, ...state }) => ({
           ...state,
-          savedDecks: state.savedDecks.filter((saved) => !saved.accountDeckId),
+          savedDecks: state.savedDecks
+            .filter((saved) => !saved.accountDeckId)
+            .map((saved) => ({ ...saved, deck: normalizeDeck(saved.deck) })),
         }),
         // Bump on any persisted-deck shape change so `migrate` runs over existing
         // users' decks — a shape change without a bump never migrates.
-        version: 7,
+        version: 8,
         migrate: (persistedState: unknown) => {
           if (!persistedState || typeof persistedState !== "object")
             return persistedState as DeckState;
@@ -1188,13 +1367,17 @@ export const useDeckStore = create<DeckState>()(
             currentDeckId: state.currentDeckId ?? null,
             savedDecks: (state.savedDecks ?? []).map((s) => ({
               ...s,
-              deck: dropInlinePlaymat(migrateDeck(s.deck)),
+              deck: normalizeDeck(dropInlinePlaymat(migrateDeck(s.deck))),
             })),
           };
         },
         merge: (persisted, current) => {
           const p = persisted as Partial<DeckState>;
           const merged = { ...current, ...p } as DeckState;
+          merged.savedDecks = (p.savedDecks ?? []).map((saved) => ({
+            ...saved,
+            deck: normalizeDeck(saved.deck),
+          }));
           merged.isReadOnly = false;
           merged.readOnlySource = null;
           if (p.currentDeck && hasPendingEditorPublication()) {
@@ -1206,18 +1389,55 @@ export const useDeckStore = create<DeckState>()(
           }
           return merged;
         },
-        onRehydrateStorage: () => (_state, error) => {
-          if (error) {
-            useDeckStore.setState({ migrationError: true });
-          } else {
-            deckPersistReady = true;
-            // Deferred: sync hydration fires this callback while the store is
-            // still being created, before `useDeckStore` is assigned.
-            queueMicrotask(() => void completeDeckMigrations(useDeckStore.getState()));
-          }
+        onRehydrateStorage: () => {
+          beginDeckHydration();
+          return (_state, error) => {
+            if (error) {
+              // Hydration can finish while the store variable is still being
+              // assigned, so defer the observable error state.
+              queueMicrotask(() => {
+                useDeckStore.setState({ migrationError: true });
+              });
+            }
+            // Reconciliation itself also waits until the store assignment is
+            // complete, but this callback is guaranteed to run for every
+            // explicit persist.rehydrate() as well as initial hydration.
+            queueMicrotask(finishDeckHydration);
+          };
         },
       },
     ),
     { name: "deck", enabled: import.meta.env.DEV },
   ),
 );
+
+function beginDeckHydration(): void {
+  deckHydrationGeneration += 1;
+  deckPersistReady = false;
+  deckDiskBackupReady = false;
+}
+
+function finishDeckHydration(): void {
+  const generation = deckHydrationGeneration;
+  if (deckReconciledGeneration === generation) return;
+  deckReconciledGeneration = generation;
+  deckPersistReady = true;
+
+  queueMicrotask(() => {
+    deckReconcilePromise = reconcileSavedDecksWithDisk().finally(() => {
+      void completeDeckMigrations(useDeckStore.getState());
+    });
+  });
+}
+
+// Mirror the actual saved-deck library directly to disk. This does not depend
+// on the localStorage persistence adapter, so browser-origin changes, storage
+// migrations, and repo rebuilds cannot silently skip the backup.
+useDeckStore.subscribe((state, previousState) => {
+  if (state.savedDecks === previousState.savedDecks) return;
+  if (!deckPersistReady || !deckDiskBackupReady) {
+    pendingDeckBackup = state.savedDecks;
+    return;
+  }
+  mirrorSavedDecksToDisk(state.savedDecks);
+});

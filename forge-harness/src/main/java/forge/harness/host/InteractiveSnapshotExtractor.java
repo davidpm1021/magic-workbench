@@ -40,6 +40,7 @@ import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityStackInstance;
 import forge.game.spellability.TargetChoices;
 import forge.game.trigger.Trigger;
+import forge.game.trigger.WrappedAbility;
 import forge.game.zone.ZoneType;
 import forge.item.IPaperCard;
 import forge.item.PaperToken;
@@ -158,12 +159,14 @@ public final class InteractiveSnapshotExtractor {
         }
         final Map<String, List<JsonObject>> battlefieldByController = new LinkedHashMap<>();
         for (final Player player : game.getRegisteredPlayers()) {
-            final int ownerIndex = SnapshotExtractor.playerIndex(game, player);
             for (final Card card : player.getCardsIn(ZoneType.Battlefield)) {
                 final String controllerId =
                         "player-" + SnapshotExtractor.playerIndex(game, card.getController());
+                final int actualOwnerIndex = card.getOwner() != null
+                        ? SnapshotExtractor.playerIndex(game, card.getOwner())
+                        : SnapshotExtractor.playerIndex(game, player);
                 final CardDto dto = toCard(
-                        game, card, ownerIndex, false, viewerPlayer, secretChoiceVisibility);
+                        game, card, actualOwnerIndex, false, viewerPlayer, secretChoiceVisibility);
                 if (card.isFaceDown() && !faceShownTo(card, viewerPlayer)) {
                     redact(dto);
                 }
@@ -697,8 +700,11 @@ public final class InteractiveSnapshotExtractor {
         dto.text = normalizedOracle(card);
         dto.choices = choices(game, card, viewerPlayer, secretChoiceVisibility);
         dto.controllerId = "player-" + SnapshotExtractor.playerIndex(game, card.getController());
-        dto.ownerId = "player-" + ownerIndex;
         final Player owner = card.getOwner();
+        final int actualOwnerIndex = owner != null
+                ? SnapshotExtractor.playerIndex(game, owner)
+                : ownerIndex;
+        dto.ownerId = "player-" + actualOwnerIndex;
         if (card.isCommander() && owner != null) {
             dto.commanderTax = 2 * owner.getCommanderCast(card);
         }
@@ -1106,19 +1112,29 @@ public final class InteractiveSnapshotExtractor {
         if (ability == null) {
             return null;
         }
-        if (ability.isTrigger()) {
-            final Trigger trigger = ability.getTrigger();
+
+        SpellAbility resolved = ability;
+        while (resolved instanceof WrappedAbility) {
+            final SpellAbility wrapped = ((WrappedAbility) resolved).getWrappedAbility();
+            if (wrapped == null || wrapped == resolved) {
+                break;
+            }
+            resolved = wrapped;
+        }
+
+        if (resolved.isTrigger()) {
+            final Trigger trigger = resolved.getTrigger();
             String text = trigger.toString(true);
             if (text.contains("ABILITY")) {
-                text = trigger.replaceAbilityText(text, ability, true);
+                text = trigger.replaceAbilityText(text, resolved, true);
             }
             return text.trim();
         }
-        final Card source = ability.getHostCard();
-        if (ability.isSpell() && source != null && source.isPermanent()) {
+        final Card source = resolved.getHostCard();
+        if (resolved.isSpell() && source != null && source.isPermanent()) {
             return null;
         }
-        return ability.toString().trim();
+        return resolved.toString().trim();
     }
 
     private static void putIfNotBlank(

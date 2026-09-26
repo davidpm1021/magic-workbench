@@ -7,6 +7,7 @@ import { resolveDeckName } from "@/lib/deckName";
 import { getFormat, isCommanderEligible } from "@/lib/formats";
 import { useScryfallStore } from "@/stores/useScryfallStore";
 import { scryfallToDeckCard } from "@/lib/scryfall.utils";
+import { isNonDeckCard } from "@/lib/decks";
 import { useDeckStore } from "@/stores/useDeckStore";
 import { showAccountSaveNudge } from "@/components/auth/accountSaveNudge";
 import type { DeckCard, DeckFormat } from "@/protocol/deck";
@@ -18,6 +19,7 @@ export interface ResolvedDeckTextImport {
   commanders: DeckCard[];
   notFound: string[];
   substitutedPrintings: string[];
+  ignoredNonDeckCards: string[];
 }
 export async function resolveDeckTextImport(
   entries: ParsedDeckEntry[],
@@ -85,6 +87,7 @@ export async function resolveDeckTextImport(
   const commanders: DeckCard[] = [];
   const notFound: string[] = [];
   const substitutedPrintings: string[] = [];
+  const ignoredNonDeckCards: string[] = [];
   for (const entry of entries) {
     const { count, side, maybe, commander } = entry;
     const sc = lookup(entry);
@@ -98,6 +101,10 @@ export async function resolveDeckTextImport(
       scryfallMap.has(scryfallCardKey(entry.name, entry.setCode, entry.collectorNumber));
     if (!exactPrintingFound) substitutedPrintings.push(entry.name);
     const base = scryfallToDeckCard(sc);
+    if (isNonDeckCard(base)) {
+      ignoredNonDeckCards.push(entry.name);
+      continue;
+    }
     const inferredCommander = entry.commanderCandidate && isCommanderEligible(base);
     const target =
       commander || inferredCommander ? commanders : side ? sideboard : maybe ? maybeboard : cards;
@@ -116,7 +123,15 @@ export async function resolveDeckTextImport(
   ) {
     throw new Error("None of the cards could be found on Scryfall");
   }
-  return { cards, sideboard, maybeboard, commanders, notFound, substitutedPrintings };
+  return {
+    cards,
+    sideboard,
+    maybeboard,
+    commanders,
+    notFound,
+    substitutedPrintings,
+    ignoredNonDeckCards,
+  };
 }
 export function useDeckTextImport() {
   return useCallback(
@@ -127,8 +142,15 @@ export function useDeckTextImport() {
       onProgress: (fraction: number) => void,
     ): Promise<string> => {
       const customName = name.trim();
-      const { cards, sideboard, maybeboard, commanders, notFound, substitutedPrintings } =
-        await resolveDeckTextImport(entries, onProgress);
+      const {
+        cards,
+        sideboard,
+        maybeboard,
+        commanders,
+        notFound,
+        substitutedPrintings,
+        ignoredNonDeckCards,
+      } = await resolveDeckTextImport(entries, onProgress);
       const deckName = resolveDeckName(customName || DEFAULT_IMPORT_NAME, commanders);
       const importedFormat =
         formatId ??
@@ -155,7 +177,12 @@ export function useDeckTextImport() {
       });
       showAccountSaveNudge();
       onProgress(1);
-      if (notFound.length > 0) {
+      if (ignoredNonDeckCards.length > 0) {
+        const ignored = [...new Set(ignoredNonDeckCards)];
+        const shown = ignored.slice(0, 3).join(", ");
+        const extra = ignored.length > 3 ? ` +${ignored.length - 3} more` : "";
+        toast.warning(`Imported "${deckName}" — skipped non-deck tokens: ${shown}${extra}`);
+      } else if (notFound.length > 0) {
         const shown = notFound.slice(0, 3).join(", ");
         const extra = notFound.length > 3 ? ` +${notFound.length - 3} more` : "";
         toast.warning(`Imported "${deckName}" — couldn't find: ${shown}${extra}`);
@@ -195,7 +222,12 @@ export function useDeckTextImportIntoCurrent() {
         result.sideboard.length +
         result.maybeboard.length +
         result.commanders.length;
-      if (result.notFound.length > 0) {
+      if (result.ignoredNonDeckCards.length > 0) {
+        const ignored = [...new Set(result.ignoredNonDeckCards)];
+        const shown = ignored.slice(0, 3).join(", ");
+        const extra = ignored.length > 3 ? ` +${ignored.length - 3} more` : "";
+        toast.warning(`Added ${count} cards — skipped non-deck tokens: ${shown}${extra}`);
+      } else if (result.notFound.length > 0) {
         const shown = result.notFound.slice(0, 3).join(", ");
         const extra = result.notFound.length > 3 ? ` +${result.notFound.length - 3} more` : "";
         toast.warning(`Added ${count} cards — couldn't find: ${shown}${extra}`);
