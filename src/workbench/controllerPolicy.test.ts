@@ -7,6 +7,7 @@ import {
   chooseCachedManaPlanStep,
   chooseDeterministicManaPlan,
   chooseDeterministicManaStep,
+  chooseDeterministicReorder,
   isManaManagementAction,
   promptForWorkbenchModel,
   buildWorkbenchDecisionContext,
@@ -1119,6 +1120,132 @@ describe("Workbench controller policy", () => {
 
     expect(context.spellsActuallyCastThisTurn).toEqual(["Consider", "Charcoal Diamond"]);
     expect(context.secondSpellAlreadyCast).toBe(true);
+  });
+
+
+  it("preflights spree-style mode combinations against visible colored mana", () => {
+    const land = (id: string, name: string, color: string) => ({
+      id,
+      identity: { name },
+      zoneId: "battlefield",
+      controllerId: "player-0",
+      ownerId: "player-0",
+      tapped: false,
+      summoningSick: false,
+      types: ["Land"],
+      subtypes: [],
+      text: `{T}: Add {${color}}.`,
+      keywords: [],
+      counters: {},
+      damage: 0,
+    });
+    const game = {
+      ...view(),
+      activePlayerId: "player-0",
+      priorityPlayerId: "player-0",
+      players: [
+        {
+          id: "player-0",
+          life: 40,
+          manaPool: {},
+          hand: [],
+          graveyard: [],
+          exile: [],
+          commandZone: [],
+          library: [],
+          landsPlayedThisTurn: 1,
+          maxLandPlaysPerTurn: 1,
+        },
+      ],
+      battlefield: [
+        land("swamp-1", "Swamp", "B"),
+        land("swamp-2", "Swamp", "B"),
+        land("island", "Island", "U"),
+        land("plains", "Plains", "W"),
+        land("forest", "Forest", "G"),
+      ],
+    } as unknown as ClientGameView;
+    const prompt = {
+      promptId: 200,
+      decidingPlayerId: "player-0",
+      sourceCard: {
+        id: "avarice",
+        identity: { name: "Insatiable Avarice" },
+        manaCost: "{B}",
+      },
+      sourceAbilityText:
+        "Spree\n+ {2} — Search your library for a card.\n+ {B}{B} — Target player draws three cards and loses 3 life.",
+      input: {
+        type: "chooseFromSelection",
+        presentation: { title: "Choose modes", targets: [] },
+        options: [
+          { label: "Search your library", weight: 1, canRepeat: false },
+          { label: "Draw three and lose 3 life", weight: 1, canRepeat: false },
+        ],
+        minTotal: 1,
+        maxTotal: 2,
+      },
+    } as unknown as Prompt;
+
+    const context = buildWorkbenchDecisionContext({
+      auditLog: [],
+      gameView: game,
+      gameLog: [],
+      currentPrompt: prompt,
+    });
+
+    expect(context.selectionCostHints?.affordableSelections).toEqual([
+      {
+        chosenIndices: [0],
+        totalManaCost: "{2}{B}",
+      },
+    ]);
+  });
+
+  it("auto-preserves reorder only when the repeated items are truly equivalent", () => {
+    const equivalent = {
+      promptId: 201,
+      input: {
+        type: "reorder",
+        presentation: { title: "Order triggers", targets: [] },
+        items: [
+          {
+            id: "a",
+            card: { id: "mentor", identity: { name: "Monastery Mentor" } },
+            oracle: "Prowess",
+          },
+          {
+            id: "b",
+            card: { id: "mentor", identity: { name: "Monastery Mentor" } },
+            oracle: "Prowess",
+          },
+        ],
+      },
+    } as unknown as Prompt;
+    expect(chooseDeterministicReorder(equivalent)).toEqual({
+      type: "reorderDecision",
+      orderedIds: ["a", "b"],
+    });
+
+    const distinctSources = {
+      ...equivalent,
+      input: {
+        ...equivalent.input,
+        items: [
+          {
+            id: "a",
+            card: { id: "monk-1", identity: { name: "Monk Token" } },
+            oracle: "Prowess",
+          },
+          {
+            id: "b",
+            card: { id: "monk-2", identity: { name: "Monk Token" } },
+            oracle: "Prowess",
+          },
+        ],
+      },
+    } as unknown as Prompt;
+    expect(chooseDeterministicReorder(distinctSources)).toBeNull();
   });
 
 });
