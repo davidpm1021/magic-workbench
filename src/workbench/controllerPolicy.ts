@@ -172,8 +172,14 @@ function normalizedPoolAmount(pool: Record<string, number>, color: string): numb
 function canPaySimpleManaRequirement(
   requirement: ManaRequirement,
   availability: WorkbenchDecisionContext["manaAvailability"],
-): boolean {
+): boolean | null {
   const colors = ["W", "U", "B", "R", "G", "C"];
+  // A source that produces multiple differently colored mana simultaneously
+  // cannot be represented safely by the simple "choose one color" search.
+  // Leave those positions to the model rather than creating a false preflight.
+  if (availability.untappedSources.some((source) => source.amount > 1 && source.colors.length > 1)) {
+    return null;
+  }
   const initial = Object.fromEntries(
     colors.map((color) => [color, Math.min(requirement.colored[color], normalizedPoolAmount(availability.pool, color))]),
   ) as Record<string, number>;
@@ -219,12 +225,16 @@ function enumerateSelectionChoices(
   minTotal: number,
   maxTotal: number,
   limit = 96,
-): number[][] {
+): number[][] | null {
   const results: number[][] = [];
+  let overflow = false;
   const walk = (index: number, total: number, chosen: number[]) => {
-    if (results.length >= limit) return;
+    if (overflow) return;
     if (index >= options.length) {
-      if (total >= minTotal && total <= maxTotal) results.push([...chosen]);
+      if (total >= minTotal && total <= maxTotal) {
+        results.push([...chosen]);
+        if (results.length > limit) overflow = true;
+      }
       return;
     }
     const option = options[index];
@@ -237,10 +247,11 @@ function enumerateSelectionChoices(
       for (let n = 0; n < count; n += 1) chosen.push(index);
       walk(index + 1, total + count * option.weight, chosen);
       chosen.splice(chosen.length - count, count);
+      if (overflow) return;
     }
   };
   walk(0, 0, []);
-  return results;
+  return overflow ? null : results;
 }
 
 export function chooseDeterministicReorder(prompt: Prompt): PromptOutput["output"] | null {
@@ -957,21 +968,31 @@ export function buildWorkbenchDecisionContext(args: {
             currentPrompt.input.minTotal,
             currentPrompt.input.maxTotal,
           )
-        : [];
-    const affordableSelections =
-      combinations.length > 0
-        ? combinations.flatMap((chosenIndices) => {
-            const requirement = combineSimpleManaCosts([
-              baseManaCost!,
-              ...chosenIndices.map((index) => options[index].additionalCost!),
-            ]);
-            if (!requirement || !canPaySimpleManaRequirement(requirement, availability)) return [];
-            return [{
-              chosenIndices,
-              totalManaCost: manaRequirementLabel(requirement),
-            }];
-          })
         : null;
+    let affordabilityUnknown = combinations == null;
+    const payable =
+      combinations?.flatMap((chosenIndices) => {
+        const requirement = combineSimpleManaCosts([
+          baseManaCost!,
+          ...chosenIndices.map((index) => options[index].additionalCost!),
+        ]);
+        if (!requirement) {
+          affordabilityUnknown = true;
+          return [];
+        }
+        const canPay = canPaySimpleManaRequirement(requirement, availability);
+        if (canPay == null) {
+          affordabilityUnknown = true;
+          return [];
+        }
+        if (!canPay) return [];
+        return [{
+          chosenIndices,
+          totalManaCost: manaRequirementLabel(requirement),
+        }];
+      }) ?? [];
+    const affordableSelections =
+      !affordabilityUnknown && payable.length > 0 ? payable : null;
 
     selectionCostHints = {
       sourceCard: typeof identity?.name === "string" ? identity.name : null,
