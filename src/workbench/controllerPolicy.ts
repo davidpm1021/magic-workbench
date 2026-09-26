@@ -127,6 +127,151 @@ function parseSimpleManaCost(manaCost: string): ManaRequirement | null {
   };
 }
 
+
+function combineSimpleManaCosts(costs: string[]): ManaRequirement | null {
+  const combined: ManaRequirement = {
+    generic: 0,
+    colored: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+    total: 0,
+  };
+  for (const cost of costs) {
+    const parsed = parseSimpleManaCost(cost);
+    if (!parsed) return null;
+    combined.generic += parsed.generic;
+    for (const color of ["W", "U", "B", "R", "G", "C"]) {
+      combined.colored[color] += parsed.colored[color] ?? 0;
+    }
+    combined.total += parsed.total;
+  }
+  return combined;
+}
+
+function manaRequirementLabel(requirement: ManaRequirement): string {
+  const parts: string[] = [];
+  if (requirement.generic > 0) parts.push(`{${requirement.generic}}`);
+  for (const color of ["W", "U", "B", "R", "G", "C"]) {
+    for (let count = 0; count < (requirement.colored[color] ?? 0); count += 1) {
+      parts.push(`{${color}}`);
+    }
+  }
+  return parts.join("") || "{0}";
+}
+
+function normalizedPoolAmount(pool: Record<string, number>, color: string): number {
+  const aliases: Record<string, string[]> = {
+    W: ["W", "White"],
+    U: ["U", "Blue"],
+    B: ["B", "Black"],
+    R: ["R", "Red"],
+    G: ["G", "Green"],
+    C: ["C", "Colorless"],
+  };
+  return (aliases[color] ?? [color]).reduce((sum, key) => sum + (pool[key] ?? 0), 0);
+}
+
+function canPaySimpleManaRequirement(
+  requirement: ManaRequirement,
+  availability: WorkbenchDecisionContext["manaAvailability"],
+): boolean {
+  const colors = ["W", "U", "B", "R", "G", "C"];
+  const initial = Object.fromEntries(
+    colors.map((color) => [color, Math.min(requirement.colored[color], normalizedPoolAmount(availability.pool, color))]),
+  ) as Record<string, number>;
+  const poolTotal = colors.reduce(
+    (sum, color) => sum + normalizedPoolAmount(availability.pool, color),
+    0,
+  );
+  const sources = availability.untappedSources;
+  const memo = new Set<string>();
+
+  const search = (index: number, colored: Record<string, number>, total: number): boolean => {
+    const coloredSatisfied = colors.every(
+      (color) => colored[color] >= (requirement.colored[color] ?? 0),
+    );
+    if (coloredSatisfied && total >= requirement.total) return true;
+    if (index >= sources.length) return false;
+
+    const cappedTotal = Math.min(total, requirement.total);
+    const key = `${index}|${colors.map((color) => colored[color]).join(",")}|${cappedTotal}`;
+    if (memo.has(key)) return false;
+    memo.add(key);
+
+    if (search(index + 1, colored, total)) return true;
+
+    const source = sources[index];
+    for (const color of source.colors) {
+      if (!colors.includes(color)) continue;
+      const next = { ...colored };
+      next[color] = Math.min(
+        requirement.colored[color] ?? 0,
+        (next[color] ?? 0) + source.amount,
+      );
+      if (search(index + 1, next, total + source.amount)) return true;
+    }
+    return false;
+  };
+
+  return search(0, initial, poolTotal);
+}
+
+function enumerateSelectionChoices(
+  options: Array<{ weight: number; canRepeat: boolean }>,
+  minTotal: number,
+  maxTotal: number,
+  limit = 96,
+): number[][] {
+  const results: number[][] = [];
+  const walk = (index: number, total: number, chosen: number[]) => {
+    if (results.length >= limit) return;
+    if (index >= options.length) {
+      if (total >= minTotal && total <= maxTotal) results.push([...chosen]);
+      return;
+    }
+    const option = options[index];
+    const maxCount = option.canRepeat
+      ? Math.floor((maxTotal - total) / Math.max(1, option.weight))
+      : total + option.weight <= maxTotal
+        ? 1
+        : 0;
+    for (let count = 0; count <= maxCount; count += 1) {
+      for (let n = 0; n < count; n += 1) chosen.push(index);
+      walk(index + 1, total + count * option.weight, chosen);
+      chosen.splice(chosen.length - count, count);
+    }
+  };
+  walk(0, 0, []);
+  return results;
+}
+
+export function chooseDeterministicReorder(prompt: Prompt): PromptOutput["output"] | null {
+  if (prompt.input.type !== "reorder") return null;
+  if (prompt.input.items.length <= 1) {
+    return {
+      type: "reorderDecision",
+      orderedIds: prompt.input.items.map((item) => item.id),
+    };
+  }
+
+  const first = prompt.input.items[0];
+  const firstSignature = JSON.stringify({
+    cardId: first.card.id,
+    oracle: first.oracle ?? null,
+  });
+  const equivalent = prompt.input.items.every(
+    (item) =>
+      JSON.stringify({
+        cardId: item.card.id,
+        oracle: item.oracle ?? null,
+      }) === firstSignature,
+  );
+  if (!equivalent) return null;
+
+  return {
+    type: "reorderDecision",
+    orderedIds: prompt.input.items.map((item) => item.id),
+  };
+}
+
 interface ManaActionCandidate {
   actionId: string;
   cardId: string;
@@ -521,6 +666,10 @@ export interface WorkbenchDecisionContext {
       label: string | null;
       additionalCost: string | null;
     }>;
+    affordableSelections: Array<{
+      chosenIndices: number[];
+      totalManaCost: string;
+    }> | null;
   } | null;
   recentFailedPayments: Array<{
     card: string | null;
@@ -793,14 +942,42 @@ export function buildWorkbenchDecisionContext(args: {
       .split(/\r?\n/)
       .map((line) => line.match(/^\+\s*((?:\{[^}]+\})+)\s*[—-]/)?.[1] ?? null);
 
+    const baseManaCost =
+      typeof sourceCard?.manaCost === "string" ? sourceCard.manaCost : null;
+    const options = currentPrompt.input.options.map((option, index) => ({
+      index,
+      label: typeof option.label === "string" ? option.label : null,
+      additionalCost: additionalCosts[index] ?? null,
+    }));
+    const availability = estimateManaAvailability(gameView, currentPrompt.decidingPlayerId);
+    const combinations =
+      baseManaCost && options.every((option) => option.additionalCost != null)
+        ? enumerateSelectionChoices(
+            currentPrompt.input.options,
+            currentPrompt.input.minTotal,
+            currentPrompt.input.maxTotal,
+          )
+        : [];
+    const affordableSelections =
+      combinations.length > 0
+        ? combinations.flatMap((chosenIndices) => {
+            const requirement = combineSimpleManaCosts([
+              baseManaCost!,
+              ...chosenIndices.map((index) => options[index].additionalCost!),
+            ]);
+            if (!requirement || !canPaySimpleManaRequirement(requirement, availability)) return [];
+            return [{
+              chosenIndices,
+              totalManaCost: manaRequirementLabel(requirement),
+            }];
+          })
+        : null;
+
     selectionCostHints = {
       sourceCard: typeof identity?.name === "string" ? identity.name : null,
-      baseManaCost: typeof sourceCard?.manaCost === "string" ? sourceCard.manaCost : null,
-      options: currentPrompt.input.options.map((option, index) => ({
-        index,
-        label: typeof option.label === "string" ? option.label : null,
-        additionalCost: additionalCosts[index] ?? null,
-      })),
+      baseManaCost,
+      options,
+      affordableSelections,
     };
   }
 
@@ -1128,7 +1305,7 @@ export function buildWorkbenchDecisionContext(args: {
       "When currentTransaction is present, continue the action you already initiated. Tapped/sacrificed/payment state may be the result of costs you intentionally paid.",
       "Outside the same multi-step transaction, re-evaluate every currently legal strategic option from the present game state. Do not continue a prior plan merely because an earlier decision intended it.",
       "Use manaAvailability as a highlighted estimate of the mana currently available without sacrificing cards; flexible sources list every color they can make.",
-      "If selectionCostHints is present, add the source card's baseManaCost to every selected additionalCost before judging affordability.",
+      "If selectionCostHints is present, add the source card's baseManaCost to every selected additionalCost before judging affordability. When affordableSelections is non-null, choose only an exact chosenIndices combination listed there; Workbench already checked those combinations against visible mana.",
       "If a payment attempt just failed, do not repeat the identical transaction unless resources changed; choose a cheaper mode or a different action.",
       "Workbench normally handles mechanical mana production during payManaCost. Do not float mana during ordinary priority without a concrete reason.",
       "Use spellsActuallyCastThisTurn as the authoritative spell-count continuity for this turn. Do not call a later spell the second spell if two spells are already listed.",
