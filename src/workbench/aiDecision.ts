@@ -138,6 +138,7 @@ export async function requestWorkbenchDecision(
             "Use only the visible game state, recent engine history, decision continuity, and the current engine prompt. " +
             "Recent decisions are actions you actually chose in this same game; preserve their intent across follow-up prompts. " +
             "Do not repeat a transaction that just failed unless visible resources changed. " +
+            "When decisionContext.selectionCostHints.affordableSelections is non-null, any chooseFromSelection output must exactly match one listed chosenIndices combination; the other combinations are not payable with visible mana. " +
             "Do not take an action merely because the engine exposes it. Preserve mana until there is a concrete use. " +
             "Before using counterspells or removal on your own cards, require a specific visible strategic benefit and state it in the reason. " +
             "A card's static abilities apply only from zones where its text or the rules explicitly allow them to function. Never apply a commander's battlefield static abilities while that commander is still in the command zone. " +
