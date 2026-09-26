@@ -11,6 +11,7 @@ import {
   chooseCachedManaPlanStep,
   chooseDeterministicManaPlan,
   chooseDeterministicManaStep,
+  chooseDeterministicReorder,
   countRepeatedSamePromptDecision,
   shouldCompleteWorkbenchTransaction,
   summarizeWorkbenchStateDelta,
@@ -625,6 +626,42 @@ export function useWorkbenchController(paused = false): void {
     }
     if (currentPrompt.input.type === "chooseColor" && pendingManaColorRef.current) return;
     if (currentPrompt.input.type === "revealCards" || currentPrompt.input.type === "diceRolled") return;
+
+    const trivialReorder = chooseDeterministicReorder(currentPrompt);
+    if (trivialReorder) {
+      const gameView = preflightState.gameView;
+      if (gameView) {
+        addAuditEntry({
+          id: `det-${Date.now()}-${currentPrompt.promptId ?? 0}`,
+          gameId: gameView.gameId,
+          createdAt: Date.now(),
+          source: "deterministic",
+          status: "deterministic",
+          promptId: currentPromptId,
+          promptType: currentPrompt.input.type,
+          importance: "deterministic",
+          model: null,
+          latencyMs: 0,
+          usage: null,
+          estimatedCostUsd: 0,
+          reason:
+            "Trigger/order prompt contained only one item or repeated triggers from the same source with identical oracle text; preserving engine order is equivalent and needs no AI call.",
+          output: trivialReorder,
+          error: null,
+          responseStatus: null,
+          incompleteReason: null,
+          rawModelText: null,
+          promptSnapshot: currentPrompt,
+          visibleGameState: compactWorkbenchGameView(gameView),
+        });
+      }
+      setStatus({
+        kind: "idle",
+        message: "Preserved an equivalent trigger order deterministically. No AI call needed.",
+      });
+      void respond(trivialReorder);
+      return;
+    }
 
     const deterministic = resolvePrompt(currentPrompt, { prefs: { show: showOverrides } });
     if (deterministic.kind === "auto") return;
