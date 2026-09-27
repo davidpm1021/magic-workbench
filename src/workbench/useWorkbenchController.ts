@@ -219,7 +219,6 @@ export function useWorkbenchController(paused = false): void {
         // Commander benchmarks use three rotating community opponents. Advance
         // the window by three each game and wrap through the deterministic pool.
         const startIndex = (latestTest.reports.length * 3) % suite.length;
-        const nextMeta = [0, 1, 2].map((offset) => suite[(startIndex + offset) % suite.length]);
         // Try beyond the three scheduled entries so one stale or malformed
         // community list cannot kill an unattended benchmark run.
         const fallbackMeta = Array.from({ length: Math.min(suite.length, 8) }, (_, offset) =>
