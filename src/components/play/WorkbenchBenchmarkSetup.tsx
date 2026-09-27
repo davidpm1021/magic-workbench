@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useOwnedDecks } from "@/hooks/useOwnedDecks";
 import { searchArchidektBenchmarks } from "@/lib/archidekt";
 import {
-  loadCommunityBenchmarkDeck,
+  loadPlayableCommunityBenchmarks,
   selectRepresentativeBenchmarks,
   toCommunityBenchmark,
   type CommunityBenchmarkDeck,
@@ -73,8 +73,17 @@ export function WorkbenchBenchmarkSetup({
       // A Commander benchmark is a real four-player pod: the user's deck plus
       // three distinct community opponents. The first pod starts here; the
       // batch controller rotates subsequent pods.
-      const opponentMeta = suite.slice(0, 3);
-      const opponents = await Promise.all(opponentMeta.map(loadCommunityBenchmarkDeck));
+      const skipped: string[] = [];
+      const loaded = await loadPlayableCommunityBenchmarks(suite, 3, ({ benchmark, reason }) => {
+        skipped.push(`${benchmark.name}: ${reason}`);
+        useWorkbenchStore.getState().recordRuntimeError(reason, `benchmark-skip:${benchmark.id}`);
+      });
+      if (loaded.length < 3) {
+        throw new Error(
+          `Only ${loaded.length} valid community opponent(s) could be loaded from this pool. ${skipped.slice(0, 2).join(" | ")}`,
+        );
+      }
+      const opponents = loaded.map((item) => item.deck);
       const started = await onStart(
         player.deck,
         opponents,
@@ -84,7 +93,7 @@ export function WorkbenchBenchmarkSetup({
       if (!started) throw new Error("Forge could not start the benchmark pod.");
       useWorkbenchStore.getState().startDeckTest(
         games,
-        suite.map((deck) => ({
+        loaded.map((item) => item.benchmark).concat(suite.filter((deck) => !loaded.some((item) => item.benchmark.id === deck.id))).map((deck) => ({
           id: deck.id,
           name: deck.name,
           sourceUrl: deck.sourceUrl,
