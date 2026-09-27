@@ -118,7 +118,7 @@ interface RawSearchResult {
   viewCount?: number;
   views?: number;
   edhBracket?: number;
-  bracket?: number;
+  bracket?: number | { bracket?: number; id?: number; value?: number };
   updatedAt?: string;
   cardCount?: number;
   size?: number;
@@ -137,7 +137,11 @@ function mapSearchResult(d: RawSearchResult): ArchidektSearchResult {
     description: normalizeDescription(d.description),
     tags: normalizeTags(d.tags),
     views: d.viewCount ?? d.views,
-    bracket: d.edhBracket ?? d.bracket,
+    bracket:
+      d.edhBracket ??
+      (typeof d.bracket === "number"
+        ? d.bracket
+        : d.bracket?.bracket ?? d.bracket?.value ?? d.bracket?.id),
     updatedAt: d.updatedAt,
     cardCount: d.cardCount ?? d.size,
   };
