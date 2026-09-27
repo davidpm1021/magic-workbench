@@ -124,7 +124,10 @@ interface WorkbenchState {
   gameTelemetry: WorkbenchGameTelemetry[];
   deckTestSession: WorkbenchDeckTestSession;
   status: WorkbenchStatus;
+  runtimeErrors: Array<{ createdAt: number; message: string; source: string }>;
 
+  recordRuntimeError: (message: string, source: string) => void;
+  clearRuntimeErrors: () => void;
   setControllerMode: (mode: WorkbenchControllerMode) => void;
   setAiBaseUrl: (value: string) => void;
   setAiModel: (value: string) => void;
@@ -274,6 +277,13 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         kind: "idle",
         message: "Manual control. Workbench is observing the game.",
       },
+      runtimeErrors: [],
+
+      recordRuntimeError: (message, source) =>
+        set((state) => ({
+          runtimeErrors: [...state.runtimeErrors.slice(-199), { createdAt: Date.now(), message, source }],
+        })),
+      clearRuntimeErrors: () => set({ runtimeErrors: [] }),
 
       setControllerMode: (controllerMode) =>
         set({
