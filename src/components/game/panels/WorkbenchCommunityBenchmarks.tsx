@@ -34,7 +34,17 @@ export function WorkbenchCommunityBenchmarks() {
       .finally(() => {
         if (active) setLoading(false);
       });
-    const startBenchmark = async (benchmark: CommunityBenchmarkDeck) => {
+    return () => {
+      active = false;
+    };
+  }, [bracket, generation]);
+
+  const suite = useMemo(
+    () => selectRepresentativeBenchmarks(decks, 8, bracket),
+    [decks, bracket],
+  );
+
+  const startBenchmark = async (benchmark: CommunityBenchmarkDeck) => {
     const state = useGameStore.getState();
     const localSlot = state.myPlayerSlot ?? "player-0";
     const playerDeck =
@@ -110,16 +120,6 @@ export function WorkbenchCommunityBenchmarks() {
       setStartingId(null);
     }
   };
-
-  return () => {
-      active = false;
-    };
-  }, [bracket, generation]);
-
-  const suite = useMemo(
-    () => selectRepresentativeBenchmarks(decks, 8, bracket),
-    [decks, bracket],
-  );
 
   return (
     <section className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2">
