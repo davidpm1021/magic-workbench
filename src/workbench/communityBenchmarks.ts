@@ -93,6 +93,38 @@ export function selectRepresentativeBenchmarks(
   return selected;
 }
 
+export interface LoadedCommunityBenchmark {
+  benchmark: CommunityBenchmarkDeck;
+  deck: Deck;
+}
+
+export interface SkippedCommunityBenchmark {
+  benchmark: CommunityBenchmarkDeck;
+  reason: string;
+}
+
+export async function loadPlayableCommunityBenchmarks(
+  candidates: CommunityBenchmarkDeck[],
+  count: number,
+  onSkip?: (skipped: SkippedCommunityBenchmark) => void,
+): Promise<LoadedCommunityBenchmark[]> {
+  const loaded: LoadedCommunityBenchmark[] = [];
+  // Resolve sequentially on purpose. A benchmark refresh should be gentle to
+  // Archidekt/Scryfall and does not need a burst of dozens of deck requests.
+  for (const benchmark of candidates) {
+    if (loaded.length >= count) break;
+    try {
+      loaded.push({ benchmark, deck: await loadCommunityBenchmarkDeck(benchmark) });
+    } catch (error) {
+      onSkip?.({
+        benchmark,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return loaded;
+}
+
 export async function loadCommunityBenchmarkDeck(
   benchmark: CommunityBenchmarkDeck,
 ): Promise<Deck> {
@@ -118,16 +150,15 @@ export async function loadCommunityBenchmarkDeck(
     })),
   ];
   const resolved = await resolveDeckTextImport(entries, () => {});
-  if (resolved.notFound.length > 0) {
-    throw new Error(
-      `Benchmark "${benchmark.name}" is missing ${resolved.notFound.length} card(s) in the local card resolver.`,
-    );
-  }
   const cardCount = resolved.cards.length + resolved.commanders.length;
-  if (cardCount !== 100 || resolved.commanders.length === 0) {
-    throw new Error(
-      `Benchmark "${benchmark.name}" is not a complete 100-card Commander deck after import.`,
-    );
+  if (resolved.notFound.length > 0 || cardCount !== 100 || resolved.commanders.length === 0) {
+    const details = [
+      `${cardCount}/100 playable cards`,
+      `${resolved.commanders.length} commander(s)`,
+      resolved.notFound.length > 0 ? `${resolved.notFound.length} unresolved card(s): ${resolved.notFound.slice(0, 3).join(", ")}` : null,
+      resolved.ignoredNonDeckCards.length > 0 ? `${resolved.ignoredNonDeckCards.length} token/non-deck card(s) ignored` : null,
+    ].filter(Boolean).join("; ");
+    throw new Error(`Benchmark "${benchmark.name}" failed validation: ${details}.`);
   }
   return {
     id: `archidekt:${benchmark.id}`,
