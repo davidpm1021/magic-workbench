@@ -362,6 +362,84 @@ function workbenchDeckPersistence(): Plugin {
   };
 }
 
+function workbenchArchidektProxy(): Plugin {
+  const dataDir = path.join(os.homedir(), ".magic-workbench");
+  const cacheFile = path.join(dataDir, "archidekt-benchmarks.json");
+  const maxAgeMs = 6 * 60 * 60 * 1000;
+
+  return {
+    name: "workbench-archidekt-proxy",
+    configureServer(server) {
+      server.middlewares.use("/workbench-archidekt", async (req, res) => {
+        if (req.method !== "GET") {
+          res.statusCode = 405;
+          res.end("Method not allowed");
+          return;
+        }
+        const requestUrl = new URL(req.url ?? "/", "http://localhost");
+        const upstreamPath = requestUrl.searchParams.get("path");
+        if (!upstreamPath || !/^\/api\/decks\/(?:v3\/|\d+\/)$/.test(upstreamPath)) {
+          res.statusCode = 400;
+          res.end("Unsupported Archidekt path");
+          return;
+        }
+        const cacheable = upstreamPath.startsWith("/api/decks/v3/");
+        if (cacheable) {
+          try {
+            const cached = JSON.parse(readFileSync(cacheFile, "utf8")) as {
+              savedAt?: number;
+              path?: string;
+              body?: unknown;
+            };
+            if (
+              cached.path === upstreamPath &&
+              typeof cached.savedAt === "number" &&
+              Date.now() - cached.savedAt < maxAgeMs
+            ) {
+              res.statusCode = 200;
+              res.setHeader("Content-Type", "application/json");
+              res.setHeader("X-Workbench-Cache", "hit");
+              res.end(JSON.stringify(cached.body));
+              return;
+            }
+          } catch {
+            // A missing or invalid cache simply refreshes from Archidekt.
+          }
+        }
+        try {
+          const upstream = await fetch(`https://archidekt.com${upstreamPath}`, {
+            headers: {
+              "Accept": "application/json",
+              "User-Agent": "MagicWorkbench/0.1 (+https://github.com/davidpm1021/magic-workbench)",
+            },
+          });
+          const body = await upstream.text();
+          res.statusCode = upstream.status;
+          res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "application/json");
+          res.setHeader("X-Workbench-Cache", "miss");
+          res.end(body);
+          if (cacheable && upstream.ok) {
+            try {
+              mkdirSync(dataDir, { recursive: true });
+              writeFileSync(
+                cacheFile,
+                JSON.stringify({ savedAt: Date.now(), path: upstreamPath, body: JSON.parse(body) }),
+                "utf8",
+              );
+            } catch {
+              // Cache failure must never make community benchmarks unavailable.
+            }
+          }
+        } catch (error) {
+          res.statusCode = 502;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: { message: error instanceof Error ? error.message : String(error) } }));
+        }
+      });
+    },
+  };
+}
+
 function crossOriginIsolation(): Plugin {
   return {
     name: "cross-origin-isolation",
@@ -390,6 +468,7 @@ export default defineConfig({
     crossOriginIsolation(),
     workbenchAiProxy(),
     workbenchDeckPersistence(),
+    workbenchArchidektProxy(),
   ],
   resolve: {
     alias: {
