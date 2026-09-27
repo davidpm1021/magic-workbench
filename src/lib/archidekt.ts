@@ -10,6 +10,10 @@ export interface ArchidektSearchResult {
   format: string;
   description: string;
   tags: string[];
+  views?: number;
+  bracket?: number;
+  updatedAt?: string;
+  cardCount?: number;
 }
 
 export interface ArchidektDeckCard {
@@ -100,6 +104,13 @@ interface RawSearchResult {
   deckFormat?: number;
   description?: string | null;
   tags?: unknown;
+  viewCount?: number;
+  views?: number;
+  edhBracket?: number;
+  bracket?: number;
+  updatedAt?: string;
+  cardCount?: number;
+  size?: number;
 }
 
 interface RawSearchResponse {
@@ -114,6 +125,10 @@ function mapSearchResult(d: RawSearchResult): ArchidektSearchResult {
     format: (d.deckFormat != null && ARCHIDEKT_FORMATS[d.deckFormat]) || "",
     description: normalizeDescription(d.description),
     tags: normalizeTags(d.tags),
+    views: d.viewCount ?? d.views,
+    bracket: d.edhBracket ?? d.bracket,
+    updatedAt: d.updatedAt,
+    cardCount: d.cardCount ?? d.size,
   };
 }
 
@@ -141,6 +156,37 @@ export async function searchArchidekt(
   if (!res.ok) throw new Error(`Archidekt search failed: ${res.status}`);
   const data = (await res.json()) as RawSearchResponse;
   return (data.results ?? []).map(mapSearchResult);
+}
+
+
+export interface ArchidektBenchmarkQuery {
+  bracket?: number;
+  pageSize?: number;
+  minViews?: number;
+}
+
+export async function searchArchidektBenchmarks(
+  query: ArchidektBenchmarkQuery = {},
+  opts: RequestOptions = {},
+): Promise<ArchidektSearchResult[]> {
+  const fetchFn = resolveFetch(opts);
+  const pageSize = Math.max(1, Math.min(50, query.pageSize ?? 25));
+  const params = new URLSearchParams({
+    deckFormat: String(GAME_FORMAT_TO_ARCHIDEKT.commander),
+    pageSize: String(pageSize),
+    orderBy: "-viewCount",
+  });
+  if (query.bracket) params.set("edhBracket", String(query.bracket));
+  const res = await fetchFn(`https://archidekt.com/api/decks/v3/?${params.toString()}`, {
+    headers: { "User-Agent": USER_AGENT },
+    signal: opts.signal,
+  });
+  if (!res.ok) throw new Error(`Archidekt benchmark search failed: ${res.status}`);
+  const data = (await res.json()) as RawSearchResponse;
+  return (data.results ?? [])
+    .map(mapSearchResult)
+    .filter((deck) => (deck.cardCount == null || deck.cardCount === 100))
+    .filter((deck) => (deck.views ?? 0) >= (query.minViews ?? 0));
 }
 
 interface RawDeckResponse {
