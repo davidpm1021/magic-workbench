@@ -79,6 +79,13 @@ export interface WorkbenchGameTelemetry {
   openingManaColors?: string[];
   keptOpeningHand?: boolean | null;
   manualRecoveries?: number;
+  benchmarkOpponent?: {
+    id: string;
+    name: string;
+    sourceUrl: string;
+    archetype: string;
+    bracket?: number;
+  };
   pilotRuleAssumptionRisks?: Array<{
     promptId: number;
     promptType: string;
