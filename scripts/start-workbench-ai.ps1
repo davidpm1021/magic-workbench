@@ -56,7 +56,11 @@ if (Test-Path $envFile) {
       return
     }
 
-    $name = $parts[0].Trim()
+    # Strip a possible UTF-8 BOM as well as whitespace. Older Windows
+    # PowerShell versions can write a BOM when .env.local is created with
+    # Set-Content -Encoding UTF8, which otherwise makes the first variable
+    # name fail to match WORKBENCH_AI_API_KEY.
+    $name = $parts[0].Trim().TrimStart([char]0xFEFF)
     $value = $parts[1].Trim()
 
     if (
@@ -101,6 +105,14 @@ if ($env:WORKBENCH_AI_BASE_URL) {
 }
 
 $plainKey = $env:WORKBENCH_AI_API_KEY
+# Accept the old VITE-prefixed spelling if a local file from an earlier build
+# still uses it, but normalize the value into the server-only variable. Never
+# expose the provider key to Vite's client environment.
+if (-not $plainKey -and $env:VITE_WORKBENCH_AI_API_KEY) {
+  $plainKey = $env:VITE_WORKBENCH_AI_API_KEY.Trim()
+  $env:WORKBENCH_AI_API_KEY = $plainKey
+  Set-EnvFileValue -Name "WORKBENCH_AI_API_KEY" -Value $plainKey
+}
 $apiKeyLoadedFromFile = [bool]$plainKey
 $secureKey = $null
 $bstr = [IntPtr]::Zero
