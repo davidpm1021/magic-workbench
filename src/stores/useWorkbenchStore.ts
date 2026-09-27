@@ -331,7 +331,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         set((state) => {
           const entries = state.auditLog.filter((entry) => entry.gameId === gameId);
           const existingReport = state.gameTelemetry.find((report) => report.gameId === gameId);
-          const report =
+          const baseReport =
             existingReport ??
             buildWorkbenchGameTelemetry({
               gameId,
@@ -340,6 +340,14 @@ export const useWorkbenchStore = create<WorkbenchState>()(
               snapshots: state.telemetrySnapshots[gameId] ?? [],
               auditEntries: entries,
             });
+          const suite = state.deckTestSession.benchmarkOpponents ?? [];
+          const benchmarkOpponent =
+            state.deckTestSession.status === "running" && suite.length > 0
+              ? suite[state.deckTestSession.reports.length % suite.length]
+              : undefined;
+          const report = benchmarkOpponent
+            ? { ...baseReport, benchmarkOpponent }
+            : baseReport;
           const nextSnapshots = { ...state.telemetrySnapshots };
           delete nextSnapshots[gameId];
 
