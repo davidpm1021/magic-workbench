@@ -1,3 +1,6 @@
+import { fetchArchidektDeck } from "@/lib/archidekt";
+import { resolveDeckTextImport } from "@/components/editor/useDeckTextImport";
+import type { Deck } from "@/protocol/deck";
 import type { ArchidektSearchResult } from "@/lib/archidekt";
 
 export type BenchmarkArchetype =
@@ -88,4 +91,55 @@ export function selectRepresentativeBenchmarks(
     index += 1;
   }
   return selected;
+}
+
+export async function loadCommunityBenchmarkDeck(
+  benchmark: CommunityBenchmarkDeck,
+): Promise<Deck> {
+  const source = await fetchArchidektDeck(benchmark.id);
+  const entries = [
+    ...source.commanders.map((card) => ({
+      name: card.name,
+      count: card.count,
+      commander: true,
+      side: false,
+      maybe: false,
+      setCode: card.set,
+      collectorNumber: card.cardNumber,
+    })),
+    ...source.cards.map((card) => ({
+      name: card.name,
+      count: card.count,
+      commander: false,
+      side: false,
+      maybe: false,
+      setCode: card.set,
+      collectorNumber: card.cardNumber,
+    })),
+  ];
+  const resolved = await resolveDeckTextImport(entries, () => {});
+  if (resolved.notFound.length > 0) {
+    throw new Error(
+      `Benchmark "${benchmark.name}" is missing ${resolved.notFound.length} card(s) in the local card resolver.`,
+    );
+  }
+  const cardCount = resolved.cards.length + resolved.commanders.length;
+  if (cardCount !== 100 || resolved.commanders.length === 0) {
+    throw new Error(
+      `Benchmark "${benchmark.name}" is not a complete 100-card Commander deck after import.`,
+    );
+  }
+  return {
+    id: `archidekt:${benchmark.id}`,
+    name: benchmark.name,
+    format: "commander",
+    cards: resolved.cards,
+    sideboard: resolved.sideboard,
+    commanders: resolved.commanders,
+    maybeboard: [],
+    attractions: [],
+    contraptions: [],
+    schemes: [],
+    planes: [],
+  };
 }
