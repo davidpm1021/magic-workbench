@@ -680,10 +680,15 @@ export function useWorkbenchController(paused = false): void {
     if (deterministic.kind === "auto") return;
 
     if (!isWorkbenchAiPrompt(currentPrompt)) {
-      setStatus({
-        kind: "paused",
-        message: `AI takeover paused for ${currentPrompt.input.type}. Take this decision manually.`,
+      const message =
+        `Thinking AI does not yet automate ${currentPrompt.input.type}. Resolve this prompt manually; takeover will resume automatically after it advances.`;
+      setRecovery({
+        promptId: currentPromptId,
+        promptType: currentPrompt.input.type,
+        error: message,
+        mode: "error",
       });
+      setStatus({ kind: "paused", message });
       return;
     }
 
