@@ -79,6 +79,17 @@ export interface RequestOptions {
   signal?: AbortSignal;
 }
 
+function archidektUrl(path: string): string {
+  if (
+    typeof window !== "undefined" &&
+    window.location.hostname === "localhost" &&
+    window.location.port === "1420"
+  ) {
+    return `/workbench-archidekt?path=${encodeURIComponent(path)}`;
+  }
+  return `https://archidekt.com${path}`;
+}
+
 function resolveFetch(opts?: RequestOptions): FetchFn {
   const f = opts?.fetch ?? (globalThis as { fetch?: FetchFn }).fetch;
   if (!f) throw new Error("No fetch implementation available");
@@ -177,7 +188,7 @@ export async function searchArchidektBenchmarks(
     orderBy: "-viewCount",
   });
   if (query.bracket) params.set("edhBracket", String(query.bracket));
-  const res = await fetchFn(`https://archidekt.com/api/decks/v3/?${params.toString()}`, {
+  const res = await fetchFn(archidektUrl(`/api/decks/v3/?${params.toString()}`), {
     headers: { "User-Agent": USER_AGENT },
     signal: opts.signal,
   });
@@ -222,7 +233,7 @@ export async function fetchArchidektDeck(
   opts: RequestOptions = {},
 ): Promise<ArchidektDeck> {
   const fetchFn = resolveFetch(opts);
-  const res = await fetchFn(`https://archidekt.com/api/decks/${id}/`, {
+  const res = await fetchFn(archidektUrl(`/api/decks/${id}/`), {
     headers: { "User-Agent": USER_AGENT },
     signal: opts.signal,
   });
@@ -259,7 +270,7 @@ export async function fetchArchidektResult(
   opts: RequestOptions = {},
 ): Promise<ArchidektSearchResult> {
   const fetchFn = resolveFetch(opts);
-  const res = await fetchFn(`https://archidekt.com/api/decks/${id}/`, {
+  const res = await fetchFn(archidektUrl(`/api/decks/${id}/`), {
     headers: { "User-Agent": USER_AGENT },
     signal: opts.signal,
   });
