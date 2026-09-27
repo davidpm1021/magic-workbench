@@ -22,6 +22,8 @@ import {
   requestWorkbenchDecision,
 } from "./aiDecision";
 import { captureWorkbenchTelemetrySnapshot } from "./deckTelemetry";
+import { fetchArchidektResult } from "@/lib/archidekt";
+import { loadCommunityBenchmarkDeck, toCommunityBenchmark } from "./communityBenchmarks";
 
 export function useWorkbenchController(paused = false): void {
   const currentPrompt = useGameStore((state) => state.currentPrompt);
@@ -194,7 +196,7 @@ export function useWorkbenchController(paused = false): void {
       return;
     }
 
-    const opponentDecks = Object.entries(gameState.gameDecks)
+    const currentOpponentDecks = Object.entries(gameState.gameDecks)
       .filter(([slot]) => slot !== localSlot)
       .sort(([left], [right]) => left.localeCompare(right, undefined, { numeric: true }))
       .map(([, deck]) => deck);
@@ -211,6 +213,14 @@ export function useWorkbenchController(paused = false): void {
       await useGameStore.getState().endGame();
       const latestTest = useWorkbenchStore.getState().deckTestSession;
       if (latestTest.status !== "running") return;
+      let opponentDecks = currentOpponentDecks;
+      const suite = latestTest.benchmarkOpponents ?? [];
+      if (suite.length > 0) {
+        const nextIndex = latestTest.reports.length % suite.length;
+        const nextMeta = suite[nextIndex];
+        const source = await fetchArchidektResult(nextMeta.id);
+        opponentDecks = [await loadCommunityBenchmarkDeck(toCommunityBenchmark(source))];
+      }
       const started = await useGameStore
         .getState()
         .startGame(playerDeck, formatId, commanderName, opponentDecks, "Forge");
@@ -220,7 +230,10 @@ export function useWorkbenchController(paused = false): void {
       }
       setStatus({
         kind: "paused",
-        message: `Deck test game ${latestTest.reports.length + 1}/${latestTest.targetGames} started. Thinking AI is taking over.`,
+        message:
+          (latestTest.benchmarkOpponents?.length ?? 0) > 0
+            ? `Benchmark game ${latestTest.reports.length + 1}/${latestTest.targetGames} started vs ${latestTest.benchmarkOpponents![latestTest.reports.length % latestTest.benchmarkOpponents!.length].name}.`
+            : `Deck test game ${latestTest.reports.length + 1}/${latestTest.targetGames} started. Thinking AI is taking over.`,
       });
     })()
       .catch((error: unknown) => {
