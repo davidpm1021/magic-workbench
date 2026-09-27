@@ -67,6 +67,7 @@ export function WorkbenchPanel() {
   const history = useWorkbenchStore((state) => state.history);
   const auditLog = useWorkbenchStore((state) => state.auditLog);
   const recovery = useWorkbenchStore((state) => state.recovery);
+  const runtimeErrors = useWorkbenchStore((state) => state.runtimeErrors);
   const status = useWorkbenchStore((state) => state.status);
   const setControllerMode = useWorkbenchStore((state) => state.setControllerMode);
   const setAiBaseUrl = useWorkbenchStore((state) => state.setAiBaseUrl);
