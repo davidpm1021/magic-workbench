@@ -23,7 +23,7 @@ import {
 } from "./aiDecision";
 import { captureWorkbenchTelemetrySnapshot } from "./deckTelemetry";
 import { fetchArchidektResult } from "@/lib/archidekt";
-import { loadCommunityBenchmarkDeck, toCommunityBenchmark } from "./communityBenchmarks";
+import { loadPlayableCommunityBenchmarks, toCommunityBenchmark } from "./communityBenchmarks";
 
 export function useWorkbenchController(paused = false): void {
   const currentPrompt = useGameStore((state) => state.currentPrompt);
@@ -220,10 +220,28 @@ export function useWorkbenchController(paused = false): void {
         // the window by three each game and wrap through the deterministic pool.
         const startIndex = (latestTest.reports.length * 3) % suite.length;
         const nextMeta = [0, 1, 2].map((offset) => suite[(startIndex + offset) % suite.length]);
-        const sources = await Promise.all(nextMeta.map((meta) => fetchArchidektResult(meta.id)));
-        opponentDecks = await Promise.all(
-          sources.map((source) => loadCommunityBenchmarkDeck(toCommunityBenchmark(source))),
+        // Try beyond the three scheduled entries so one stale or malformed
+        // community list cannot kill an unattended benchmark run.
+        const fallbackMeta = Array.from({ length: Math.min(suite.length, 8) }, (_, offset) =>
+          suite[(startIndex + offset) % suite.length],
         );
+        const sources = await Promise.all(
+          fallbackMeta.map((meta) => fetchArchidektResult(meta.id)),
+        );
+        const loaded = await loadPlayableCommunityBenchmarks(
+          sources.map(toCommunityBenchmark),
+          3,
+          ({ benchmark, reason }) =>
+            useWorkbenchStore
+              .getState()
+              .recordRuntimeError(reason, `benchmark-skip:${benchmark.id}`),
+        );
+        if (loaded.length < 3) {
+          throw new Error(
+            `Benchmark restart found only ${loaded.length} valid community opponents.`,
+          );
+        }
+        opponentDecks = loaded.map((item) => item.deck);
       }
       const started = await useGameStore
         .getState()
