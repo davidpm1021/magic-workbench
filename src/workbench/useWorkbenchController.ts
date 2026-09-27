@@ -216,10 +216,14 @@ export function useWorkbenchController(paused = false): void {
       let opponentDecks = currentOpponentDecks;
       const suite = latestTest.benchmarkOpponents ?? [];
       if (suite.length > 0) {
-        const nextIndex = latestTest.reports.length % suite.length;
-        const nextMeta = suite[nextIndex];
-        const source = await fetchArchidektResult(nextMeta.id);
-        opponentDecks = [await loadCommunityBenchmarkDeck(toCommunityBenchmark(source))];
+        // Commander benchmarks use three rotating community opponents. Advance
+        // the window by three each game and wrap through the deterministic pool.
+        const startIndex = (latestTest.reports.length * 3) % suite.length;
+        const nextMeta = [0, 1, 2].map((offset) => suite[(startIndex + offset) % suite.length]);
+        const sources = await Promise.all(nextMeta.map((meta) => fetchArchidektResult(meta.id)));
+        opponentDecks = await Promise.all(
+          sources.map((source) => loadCommunityBenchmarkDeck(toCommunityBenchmark(source))),
+        );
       }
       const started = await useGameStore
         .getState()
@@ -232,7 +236,7 @@ export function useWorkbenchController(paused = false): void {
         kind: "paused",
         message:
           (latestTest.benchmarkOpponents?.length ?? 0) > 0
-            ? `Benchmark game ${latestTest.reports.length + 1}/${latestTest.targetGames} started vs ${latestTest.benchmarkOpponents![latestTest.reports.length % latestTest.benchmarkOpponents!.length].name}.`
+            ? `Benchmark game ${latestTest.reports.length + 1}/${latestTest.targetGames} started with three rotating community opponents.`
             : `Deck test game ${latestTest.reports.length + 1}/${latestTest.targetGames} started. Thinking AI is taking over.`,
       });
     })()
