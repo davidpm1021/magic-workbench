@@ -199,6 +199,7 @@ export function WorkbenchPanel() {
       entries: currentGameAudit,
       winnerId: gameView.gameOver ? gameView.winnerId ?? null : undefined,
       turn: gameView.gameOver ? gameView.turn : undefined,
+      runtimeErrors,
     });
   };
 
