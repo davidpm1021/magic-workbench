@@ -9,6 +9,7 @@ import {
   loadCommunityBenchmarkDeck,
 } from "@/workbench/communityBenchmarks";
 import { useGameStore } from "@/stores/useGameStore";
+import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 
 export function WorkbenchCommunityBenchmarks() {
   const [bracket, setBracket] = useState(3);
@@ -17,6 +18,7 @@ export function WorkbenchCommunityBenchmarks() {
   const [error, setError] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
   const [startingId, setStartingId] = useState<string | null>(null);
+  const [suiteGames, setSuiteGames] = useState(16);
 
   useEffect(() => {
     let active = true;
@@ -56,6 +58,52 @@ export function WorkbenchCommunityBenchmarks() {
         "Forge",
       );
       if (!started) throw new Error("Forge could not start the benchmark matchup.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setStartingId(null);
+    }
+  };
+
+  const startSuite = async () => {
+    const state = useGameStore.getState();
+    const localSlot = state.myPlayerSlot ?? "player-0";
+    const playerDeck =
+      state.gameDecks[localSlot] ??
+      state.gameDecks["player-0"] ??
+      Object.values(state.gameDecks)[0];
+    if (!playerDeck || suite.length === 0) {
+      setError("Start a Forge game with the deck you want to benchmark first.");
+      return;
+    }
+    setStartingId("suite");
+    setError(null);
+    try {
+      const first = await loadCommunityBenchmarkDeck(suite[0]);
+      await state.endGame();
+      const started = await useGameStore.getState().startGame(
+        playerDeck,
+        "commander",
+        playerDeck.commanders?.[0]?.identity.name,
+        [first],
+        "Forge",
+      );
+      if (!started) throw new Error("Forge could not start the benchmark suite.");
+      useWorkbenchStore.getState().startDeckTest(
+        suiteGames,
+        suite.map((deck) => ({
+          id: deck.id,
+          name: deck.name,
+          sourceUrl: deck.sourceUrl,
+          archetype: deck.archetype,
+          bracket: deck.bracket,
+        })),
+      );
+      useWorkbenchStore.getState().setControllerMode("thinking-ai");
+      useWorkbenchStore.getState().setStatus({
+        kind: "paused",
+        message: `Benchmark suite started: game 1/${suiteGames} vs ${suite[0].name}.`,
+      });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -113,6 +161,29 @@ export function WorkbenchCommunityBenchmarks() {
           No complete popular decks were returned for this bracket.
         </p>
       ) : null}
+      <div className="grid grid-cols-[1fr_auto] gap-2">
+        <label className="block space-y-1">
+          <span className="text-[10px] text-muted-foreground">Suite games</span>
+          <input
+            type="number"
+            min="1"
+            max="1000"
+            className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+            value={suiteGames}
+            onChange={(event) => setSuiteGames(Math.max(1, Math.min(1000, Number(event.target.value) || 1)))}
+          />
+        </label>
+        <Button
+          size="sm"
+          variant="primary"
+          className="self-end h-8 px-3 text-[11px]"
+          disabled={loading || startingId !== null || suite.length === 0}
+          onClick={() => void startSuite()}
+        >
+          <Play className="mr-1.5 h-3.5 w-3.5" />
+          Run suite
+        </Button>
+      </div>
       <div className="space-y-1">
         {suite.map((deck) => (
           <div
