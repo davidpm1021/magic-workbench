@@ -16,9 +16,31 @@ export interface WorkbenchDiagnosticFinding {
   evidence: string[];
 }
 
+export interface WorkbenchMatchupDiagnostic {
+  archetype: string;
+  games: number;
+  wins: number;
+  winRate: number;
+  confidence: WorkbenchDiagnosticConfidence;
+}
+
 export interface WorkbenchDeckDiagnostics {
-  schemaVersion: 1;
+  schemaVersion: 2;
   generatedAt: string;
+  sample: {
+    games: number;
+    targetForBaseline: number;
+    targetForHighConfidence: number;
+    status: "insufficient" | "developing" | "useful";
+    message: string;
+  };
+  benchmark: {
+    multiplayer: boolean;
+    equalShareBaseline: number | null;
+    winRate: number;
+    deltaFromBaseline: number | null;
+    matchups: WorkbenchMatchupDiagnostic[];
+  };
   deckFindings: WorkbenchDiagnosticFinding[];
   pilotFindings: WorkbenchDiagnosticFinding[];
 }
@@ -251,6 +273,59 @@ function mulliganColorFinding(
   };
 }
 
+
+function matchupDiagnostics(reports: WorkbenchGameTelemetry[]): WorkbenchMatchupDiagnostic[] {
+  const byArchetype = new Map<string, { games: Set<string>; wins: Set<string> }>();
+  for (const report of reports) {
+    const opponents =
+      report.benchmarkOpponents ?? (report.benchmarkOpponent ? [report.benchmarkOpponent] : []);
+    for (const opponent of opponents) {
+      const bucket = byArchetype.get(opponent.archetype) ?? {
+        games: new Set<string>(),
+        wins: new Set<string>(),
+      };
+      bucket.games.add(report.gameId);
+      if (report.won) bucket.wins.add(report.gameId);
+      byArchetype.set(opponent.archetype, bucket);
+    }
+  }
+  return [...byArchetype.entries()]
+    .map(([archetype, bucket]) => {
+      const games = bucket.games.size;
+      const wins = bucket.wins.size;
+      return {
+        archetype,
+        games,
+        wins,
+        winRate: games === 0 ? 0 : wins / games,
+        confidence: games >= 12 ? ("high" as const) : games >= 5 ? ("medium" as const) : ("low" as const),
+      };
+    })
+    .sort((left, right) => left.winRate - right.winRate || right.games - left.games);
+}
+
+function matchupWeaknessFindings(
+  reports: WorkbenchGameTelemetry[],
+  baseline: number | null,
+): WorkbenchDiagnosticFinding[] {
+  if (baseline == null) return [];
+  return matchupDiagnostics(reports)
+    .filter((matchup) => matchup.games >= 5 && matchup.winRate <= baseline - 0.1)
+    .slice(0, 3)
+    .map((matchup) => ({
+      id: `matchup:${matchup.archetype}`,
+      category: "deck" as const,
+      title: `Weak against ${matchup.archetype} pods`,
+      confidence: matchup.confidence,
+      gamesAffected: matchup.games - matchup.wins,
+      gamesEvaluated: matchup.games,
+      evidence: [
+        `Won ${matchup.wins}/${matchup.games} games (${percent(matchup.winRate)}) when a ${matchup.archetype} opponent was present.`,
+        `Equal-share four-player baseline is ${percent(baseline)}; observed performance was ${Math.round((matchup.winRate - baseline) * 100)} percentage points relative to that baseline.`,
+      ],
+    }));
+}
+
 export function analyzeWorkbenchDeckTest(
   reports: WorkbenchGameTelemetry[],
   summary: WorkbenchDeckTestSummary,
@@ -268,6 +343,10 @@ export function analyzeWorkbenchDeckTest(
   if (landDrops) pushFinding(deckFindings, landDrops);
   deckFindings.push(...stuckCardFindings(reports, summary));
 
+  const multiplayer = reports.some((report) => (report.benchmarkOpponents?.length ?? 0) >= 3);
+  const equalShareBaseline = multiplayer ? 0.25 : null;
+  deckFindings.push(...matchupWeaknessFindings(reports, equalShareBaseline));
+
   const aiReliability = aiReliabilityFinding(reports);
   if (aiReliability) pushFinding(pilotFindings, aiReliability);
   const commandZoneRule = commandZoneRuleFinding(reports);
@@ -275,9 +354,34 @@ export function analyzeWorkbenchDeckTest(
   const mulliganColor = mulliganColorFinding(reports);
   if (mulliganColor) pushFinding(pilotFindings, mulliganColor);
 
+  const games = reports.length;
+  const sampleStatus = games < 5 ? "insufficient" : games < 12 ? "developing" : "useful";
+  const sampleMessage =
+    games < 5
+      ? `Only ${games} completed game${games === 1 ? "" : "s"}. Run at least ${5 - games} more before treating deck signals as patterns.`
+      : games < 12
+        ? `${games} completed games provide early signals. Reach 12+ for a more useful diagnostic sample and 20+ for stronger repeated-pattern confidence.`
+        : games < 20
+          ? `${games} completed games provide a useful diagnostic sample. Reach 20+ to strengthen repeated-pattern confidence.`
+          : `${games} completed games provide a strong working sample; matchup-specific findings can still need more games.`;
+
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
+    sample: {
+      games,
+      targetForBaseline: 12,
+      targetForHighConfidence: 20,
+      status: sampleStatus,
+      message: sampleMessage,
+    },
+    benchmark: {
+      multiplayer,
+      equalShareBaseline,
+      winRate: summary.winRate,
+      deltaFromBaseline: equalShareBaseline == null ? null : summary.winRate - equalShareBaseline,
+      matchups: matchupDiagnostics(reports),
+    },
     deckFindings,
     pilotFindings,
   };
