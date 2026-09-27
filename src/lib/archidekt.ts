@@ -187,7 +187,10 @@ export async function searchArchidektBenchmarks(
     pageSize: String(pageSize),
     orderBy: "-viewCount",
   });
-  if (query.bracket) params.set("edhBracket", String(query.bracket));
+  // Archidekt's deck-search API does not accept the old edhBracket filter
+  // parameter. Fetch the popular Commander page and filter the explicit
+  // bracket metadata client-side instead. This also keeps estimated/unset
+  // brackets out of a supposedly comparable benchmark pool.
   const res = await fetchFn(archidektUrl(`/api/decks/v3/?${params.toString()}`), {
     headers: { "User-Agent": USER_AGENT },
     signal: opts.signal,
@@ -197,6 +200,7 @@ export async function searchArchidektBenchmarks(
   return (data.results ?? [])
     .map(mapSearchResult)
     .filter((deck) => (deck.cardCount == null || deck.cardCount === 100))
+    .filter((deck) => !query.bracket || deck.bracket === query.bracket)
     .filter((deck) => (deck.views ?? 0) >= (query.minViews ?? 0));
 }
 
