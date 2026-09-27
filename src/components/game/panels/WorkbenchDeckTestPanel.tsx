@@ -200,12 +200,13 @@ export function WorkbenchDeckTestPanel() {
                 {Object.entries(
                   deckTestSession.reports.reduce<Record<string, { games: number; wins: number; archetype: string }>>(
                     (acc, report) => {
-                      const opponent = report.benchmarkOpponent;
-                      if (!opponent) return acc;
-                      const current = acc[opponent.name] ?? { games: 0, wins: 0, archetype: opponent.archetype };
-                      current.games += 1;
-                      current.wins += Number(report.won);
-                      acc[opponent.name] = current;
+                      const opponents = report.benchmarkOpponents ?? (report.benchmarkOpponent ? [report.benchmarkOpponent] : []);
+                      for (const opponent of opponents) {
+                        const current = acc[opponent.name] ?? { games: 0, wins: 0, archetype: opponent.archetype };
+                        current.games += 1;
+                        current.wins += Number(report.won);
+                        acc[opponent.name] = current;
+                      }
                       return acc;
                     },
                     {},
