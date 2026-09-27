@@ -453,7 +453,11 @@ export const manaSymbolUrl = (code: ManaCode) => {
   const file = `${encodeURIComponent(filename)}.svg`;
   if (scryfallAssetsMirrored)
     return scryfallAssetUrl(`https://svgs.scryfall.io/card-symbols/${file}`);
-  const defaultBase =
-    getPlatformType() === "web" ? "/scryfall-symbols/" : "https://svgs.scryfall.io/card-symbols/";
+  // Use Scryfall's CDN directly in the browser. The old localhost
+  // /scryfall-symbols proxy is rejected with HTTP 403 by the upstream CDN
+  // in some dev sessions, which leaves every mana glyph broken at once.
+  // Scryfall's SVG endpoint is CORS-enabled, so the browser can load these
+  // assets directly while the explicit VITE override remains available.
+  const defaultBase = "https://svgs.scryfall.io/card-symbols/";
   return `${import.meta.env.VITE_SCRYFALL_SYMBOL_BASE || defaultBase}${file}`;
 };
