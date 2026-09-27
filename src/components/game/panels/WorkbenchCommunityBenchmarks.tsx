@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, RefreshCw } from "lucide-react";
+import { ExternalLink, Play, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { searchArchidektBenchmarks } from "@/lib/archidekt";
 import {
   selectRepresentativeBenchmarks,
   toCommunityBenchmark,
   type CommunityBenchmarkDeck,
+  loadCommunityBenchmarkDeck,
 } from "@/workbench/communityBenchmarks";
+import { useGameStore } from "@/stores/useGameStore";
 
 export function WorkbenchCommunityBenchmarks() {
   const [bracket, setBracket] = useState(3);
@@ -14,6 +16,7 @@ export function WorkbenchCommunityBenchmarks() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
+  const [startingId, setStartingId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -29,7 +32,38 @@ export function WorkbenchCommunityBenchmarks() {
       .finally(() => {
         if (active) setLoading(false);
       });
-    return () => {
+    const startBenchmark = async (benchmark: CommunityBenchmarkDeck) => {
+    const state = useGameStore.getState();
+    const localSlot = state.myPlayerSlot ?? "player-0";
+    const playerDeck =
+      state.gameDecks[localSlot] ??
+      state.gameDecks["player-0"] ??
+      Object.values(state.gameDecks)[0];
+    if (!playerDeck) {
+      setError("Start a Forge game with the deck you want to test first.");
+      return;
+    }
+    setStartingId(benchmark.id);
+    setError(null);
+    try {
+      const opponent = await loadCommunityBenchmarkDeck(benchmark);
+      await state.endGame();
+      const started = await useGameStore.getState().startGame(
+        playerDeck,
+        "commander",
+        playerDeck.commanders?.[0]?.identity.name,
+        [opponent],
+        "Forge",
+      );
+      if (!started) throw new Error("Forge could not start the benchmark matchup.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setStartingId(null);
+    }
+  };
+
+  return () => {
       active = false;
     };
   }, [bracket, generation]);
@@ -91,6 +125,16 @@ export function WorkbenchCommunityBenchmarks() {
                 {deck.author} · {deck.archetype} · {(deck.views ?? 0).toLocaleString()} views
               </p>
             </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-1.5"
+              disabled={startingId !== null}
+              title="Start this benchmark matchup"
+              onClick={() => void startBenchmark(deck)}
+            >
+              <Play className="h-3.5 w-3.5" />
+            </Button>
             <a
               href={deck.sourceUrl}
               target="_blank"
@@ -104,8 +148,9 @@ export function WorkbenchCommunityBenchmarks() {
         ))}
       </div>
       <p className="text-[10px] leading-relaxed text-muted-foreground">
-        Candidate searches are cached locally for six hours to avoid hammering Archidekt. The
-        displayed suite is deterministic and rotates across archetypes before repeating one.
+        Candidate searches are cached locally for six hours to avoid hammering Archidekt. Pick a deck
+        with the play button to replace the current opponent, then use Start batch below to repeat
+        that exact sourced matchup. The suite is deterministic and rotates across archetypes.
       </p>
     </section>
   );
