@@ -162,6 +162,37 @@ const DEFAULT_STRATEGY =
   "Play to maximize your chance of winning while respecting multiplayer threat assessment. Preserve interaction when a larger threat is likely, sequence mana efficiently, and do not assume hidden information.";
 
 const DECK_TEST_STORAGE_KEY = "magic-workbench-deck-test-v1";
+const WORKBENCH_CONFIG_STORAGE_KEY = "magic-workbench-config-v1";
+
+interface PersistedWorkbenchConfig {
+  aiBaseUrl: string;
+  aiModel: string;
+  aiFastModel: string;
+  strategyPrompt: string;
+  autoYieldTrivial: boolean;
+  gameBudgetUsd: number;
+}
+
+function loadWorkbenchConfig(): Partial<PersistedWorkbenchConfig> {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(window.localStorage.getItem(WORKBENCH_CONFIG_STORAGE_KEY) ?? "{}") as Partial<PersistedWorkbenchConfig>;
+  } catch {
+    return {};
+  }
+}
+
+function saveWorkbenchConfig(patch: Partial<PersistedWorkbenchConfig>): void {
+  if (typeof window === "undefined") return;
+  try {
+    const current = loadWorkbenchConfig();
+    window.localStorage.setItem(WORKBENCH_CONFIG_STORAGE_KEY, JSON.stringify({ ...current, ...patch }));
+  } catch {
+    return;
+  }
+}
+
+const savedWorkbenchConfig = loadWorkbenchConfig();
 
 function emptyDeckTestSession(): WorkbenchDeckTestSession {
   return {
@@ -223,13 +254,13 @@ export const useWorkbenchStore = create<WorkbenchState>()(
   devtools(
     (set) => ({
       controllerMode: "manual",
-      aiBaseUrl: defaultBaseUrl,
-      aiModel: defaultModel,
-      aiFastModel: defaultFastModel,
+      aiBaseUrl: savedWorkbenchConfig.aiBaseUrl ?? defaultBaseUrl,
+      aiModel: savedWorkbenchConfig.aiModel ?? defaultModel,
+      aiFastModel: savedWorkbenchConfig.aiFastModel ?? defaultFastModel,
       aiApiKey: "",
-      strategyPrompt: DEFAULT_STRATEGY,
-      autoYieldTrivial: true,
-      gameBudgetUsd: 10,
+      strategyPrompt: savedWorkbenchConfig.strategyPrompt ?? DEFAULT_STRATEGY,
+      autoYieldTrivial: savedWorkbenchConfig.autoYieldTrivial ?? true,
+      gameBudgetUsd: savedWorkbenchConfig.gameBudgetUsd ?? 10,
       recommendation: null,
       history: [],
       auditLog: [],
@@ -264,13 +295,17 @@ export const useWorkbenchStore = create<WorkbenchState>()(
                     message: "Manual control. Workbench is observing the game.",
                   },
         }),
-      setAiBaseUrl: (aiBaseUrl) => set({ aiBaseUrl }),
-      setAiModel: (aiModel) => set({ aiModel }),
-      setAiFastModel: (aiFastModel) => set({ aiFastModel }),
+      setAiBaseUrl: (aiBaseUrl) => { saveWorkbenchConfig({ aiBaseUrl }); set({ aiBaseUrl }); },
+      setAiModel: (aiModel) => { saveWorkbenchConfig({ aiModel }); set({ aiModel }); },
+      setAiFastModel: (aiFastModel) => { saveWorkbenchConfig({ aiFastModel }); set({ aiFastModel }); },
       setAiApiKey: (aiApiKey) => set({ aiApiKey }),
-      setStrategyPrompt: (strategyPrompt) => set({ strategyPrompt }),
-      setAutoYieldTrivial: (autoYieldTrivial) => set({ autoYieldTrivial }),
-      setGameBudgetUsd: (gameBudgetUsd) => set({ gameBudgetUsd: Math.max(0, gameBudgetUsd) }),
+      setStrategyPrompt: (strategyPrompt) => { saveWorkbenchConfig({ strategyPrompt }); set({ strategyPrompt }); },
+      setAutoYieldTrivial: (autoYieldTrivial) => { saveWorkbenchConfig({ autoYieldTrivial }); set({ autoYieldTrivial }); },
+      setGameBudgetUsd: (gameBudgetUsd) => {
+        const value = Math.max(0, gameBudgetUsd);
+        saveWorkbenchConfig({ gameBudgetUsd: value });
+        set({ gameBudgetUsd: value });
+      },
       setRecommendation: (recommendation) =>
         set((state) => ({
           recommendation,
