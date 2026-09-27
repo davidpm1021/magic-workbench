@@ -87,12 +87,22 @@ export interface WorkbenchCompletedGame {
 
 export type WorkbenchDeckTestStatus = "idle" | "running" | "completed" | "stopped" | "error";
 
+export interface WorkbenchBenchmarkOpponent {
+  id: string;
+  name: string;
+  sourceUrl: string;
+  archetype: string;
+  bracket?: number;
+}
+
 export interface WorkbenchDeckTestSession {
   status: WorkbenchDeckTestStatus;
   targetGames: number;
   startedAt: number | null;
   reports: WorkbenchGameTelemetry[];
   error: string | null;
+  benchmarkOpponents?: WorkbenchBenchmarkOpponent[];
+  benchmarkGameIndex?: number;
 }
 
 interface WorkbenchState {
@@ -135,7 +145,8 @@ interface WorkbenchState {
   recordTelemetrySnapshot: (snapshot: WorkbenchTelemetrySnapshot) => void;
   completeGame: (gameId: string, winnerId: string | null, turn: number) => void;
   clearCompletedGame: () => void;
-  startDeckTest: (targetGames: number) => void;
+  startDeckTest: (targetGames: number, benchmarkOpponents?: WorkbenchBenchmarkOpponent[]) => void;
+  advanceBenchmarkOpponent: () => void;
   stopDeckTest: () => void;
   failDeckTest: (message: string) => void;
   clearDeckTest: () => void;
@@ -384,6 +395,17 @@ export const useWorkbenchStore = create<WorkbenchState>()(
             startedAt: Date.now(),
             reports: [],
             error: null,
+            benchmarkOpponents: [],
+            benchmarkGameIndex: 0,
+          };
+          saveDeckTestSession(deckTestSession);
+          return { deckTestSession };
+        }),
+      advanceBenchmarkOpponent: () =>
+        set((state) => {
+          const deckTestSession = {
+            ...state.deckTestSession,
+            benchmarkGameIndex: (state.deckTestSession.benchmarkGameIndex ?? 0) + 1,
           };
           saveDeckTestSession(deckTestSession);
           return { deckTestSession };
