@@ -237,7 +237,9 @@ export function useWorkbenchController(paused = false): void {
       });
     })()
       .catch((error: unknown) => {
-        failDeckTest(error instanceof Error ? error.message : String(error));
+        const message = error instanceof Error ? error.message : String(error);
+        useWorkbenchStore.getState().recordRuntimeError(message, "deck-test-restart");
+        failDeckTest(message);
       })
       .finally(() => {
         restartingDeckTestGameRef.current = null;
@@ -901,6 +903,7 @@ export function useWorkbenchController(paused = false): void {
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         const message = error instanceof Error ? error.message : String(error);
+        useWorkbenchStore.getState().recordRuntimeError(message, "ai-decision");
         setRecovery({
           promptId,
           promptType: currentPrompt.input.type,
