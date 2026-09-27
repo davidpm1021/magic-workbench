@@ -386,13 +386,21 @@ export const useWorkbenchStore = create<WorkbenchState>()(
               auditEntries: entries,
             });
           const suite = state.deckTestSession.benchmarkOpponents ?? [];
-          const benchmarkOpponent =
+          const benchmarkOpponents =
             state.deckTestSession.status === "running" && suite.length > 0
-              ? suite[state.deckTestSession.reports.length % suite.length]
-              : undefined;
-          const report = benchmarkOpponent
-            ? { ...baseReport, benchmarkOpponent }
-            : baseReport;
+              ? [0, 1, 2].map(
+                  (offset) =>
+                    suite[(state.deckTestSession.reports.length * 3 + offset) % suite.length],
+                )
+              : [];
+          const report =
+            benchmarkOpponents.length > 0
+              ? {
+                  ...baseReport,
+                  benchmarkOpponent: benchmarkOpponents[0],
+                  benchmarkOpponents,
+                }
+              : baseReport;
           const nextSnapshots = { ...state.telemetrySnapshots };
           delete nextSnapshots[gameId];
 
