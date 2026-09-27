@@ -378,12 +378,28 @@ function workbenchArchidektProxy(): Plugin {
         }
         const requestUrl = new URL(req.url ?? "/", "http://localhost");
         const upstreamPath = requestUrl.searchParams.get("path");
-        if (!upstreamPath || !/^\/api\/decks\/(?:v3\/|\d+\/)$/.test(upstreamPath)) {
+        let upstreamUrl: URL | null = null;
+        try {
+          upstreamUrl = upstreamPath ? new URL(upstreamPath, "https://archidekt.com") : null;
+        } catch {
+          upstreamUrl = null;
+        }
+        // Validate only the pathname. Search endpoints legitimately include
+        // query parameters such as deckFormat, pageSize, page, and orderBy.
+        // The previous regex tested the full path+query string and therefore
+        // rejected every real benchmark search locally with HTTP 400.
+        if (
+          !upstreamPath ||
+          !upstreamUrl ||
+          upstreamUrl.origin !== "https://archidekt.com" ||
+          !/^\/api\/decks\/(?:v3\/|\d+\/)$/.test(upstreamUrl.pathname)
+        ) {
           res.statusCode = 400;
-          res.end("Unsupported Archidekt path");
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: { message: "Unsupported Archidekt path" } }));
           return;
         }
-        const cacheable = upstreamPath.startsWith("/api/decks/v3/");
+        const cacheable = upstreamUrl.pathname === "/api/decks/v3/";
         if (cacheable) {
           try {
             const cached = JSON.parse(readFileSync(cacheFile, "utf8")) as {
