@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { BarChart3, Download, Play, Square, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { WorkbenchDiagnosticsPanel } from "@/components/game/panels/WorkbenchDiagnosticsPanel";
+import { WorkbenchCommunityBenchmarks } from "@/components/game/panels/WorkbenchCommunityBenchmarks";
 import { useGameStore } from "@/stores/useGameStore";
 import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
 import {
@@ -73,6 +74,8 @@ export function WorkbenchDeckTestPanel() {
           </p>
         </div>
       </div>
+
+      <WorkbenchCommunityBenchmarks />
 
       <div className="grid grid-cols-[1fr_auto] gap-2">
         <label className="block space-y-1">
