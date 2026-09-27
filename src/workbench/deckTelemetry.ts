@@ -86,6 +86,13 @@ export interface WorkbenchGameTelemetry {
     archetype: string;
     bracket?: number;
   };
+  benchmarkOpponents?: Array<{
+    id: string;
+    name: string;
+    sourceUrl: string;
+    archetype: string;
+    bracket?: number;
+  }>;
   pilotRuleAssumptionRisks?: Array<{
     promptId: number;
     promptType: string;
