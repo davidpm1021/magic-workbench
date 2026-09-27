@@ -16,6 +16,7 @@ export interface WorkbenchAuditPayload {
     estimatedCostUsd: number;
   };
   entries: WorkbenchAuditEntry[];
+  runtimeErrors?: Array<{ createdAt: number; message: string; source: string }>;
 }
 
 export function buildWorkbenchAuditPayload(args: {
@@ -23,6 +24,7 @@ export function buildWorkbenchAuditPayload(args: {
   entries: WorkbenchAuditEntry[];
   winnerId?: string | null;
   turn?: number;
+  runtimeErrors?: Array<{ createdAt: number; message: string; source: string }>;
 }): WorkbenchAuditPayload {
   const { gameId, entries } = args;
   return {
@@ -48,6 +50,7 @@ export function buildWorkbenchAuditPayload(args: {
       ),
     },
     entries,
+    runtimeErrors: args.runtimeErrors ?? [],
   };
 }
 
@@ -57,6 +60,7 @@ export function downloadWorkbenchAudit(args: {
   winnerId?: string | null;
   turn?: number;
   filenamePrefix?: string;
+  runtimeErrors?: Array<{ createdAt: number; message: string; source: string }>;
 }): void {
   const payload = buildWorkbenchAuditPayload(args);
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
