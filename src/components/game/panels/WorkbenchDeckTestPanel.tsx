@@ -193,6 +193,33 @@ export function WorkbenchDeckTestPanel() {
             </div>
           </div>
 
+          {deckTestSession.reports.some((report) => report.benchmarkOpponent) ? (
+            <div className="rounded-md border border-border/50 bg-background/60 p-2">
+              <p className="font-medium">Benchmark matchups</p>
+              <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground">
+                {Object.entries(
+                  deckTestSession.reports.reduce<Record<string, { games: number; wins: number; archetype: string }>>(
+                    (acc, report) => {
+                      const opponent = report.benchmarkOpponent;
+                      if (!opponent) return acc;
+                      const current = acc[opponent.name] ?? { games: 0, wins: 0, archetype: opponent.archetype };
+                      current.games += 1;
+                      current.wins += Number(report.won);
+                      acc[opponent.name] = current;
+                      return acc;
+                    },
+                    {},
+                  ),
+                ).map(([name, result]) => (
+                  <div key={name} className="flex justify-between gap-2">
+                    <span className="truncate">{name} · {result.archetype}</span>
+                    <span>{result.wins}-{result.games - result.wins}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <WorkbenchDiagnosticsPanel diagnostics={diagnostics} />
 
           {Object.keys(summary.stuckCardGames).length > 0 ? (
