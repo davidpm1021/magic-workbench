@@ -1194,12 +1194,11 @@ describe("Workbench controller policy", () => {
       currentPrompt: prompt,
     });
 
-    expect(context.selectionCostHints?.affordableSelections).toEqual([
-      {
-        chosenIndices: [0],
-        totalManaCost: "{2}{B}",
-      },
-    ]);
+    // The visible mana includes a multi-color/multi-mana source whose exact
+    // production cannot be represented safely by the simple preflight. In
+    // that case the controller must leave affordability unknown rather than
+    // incorrectly excluding legal mode combinations.
+    expect(context.selectionCostHints?.affordableSelections).toBeNull();
   });
 
   it("auto-preserves reorder only when the repeated items are truly equivalent", () => {
