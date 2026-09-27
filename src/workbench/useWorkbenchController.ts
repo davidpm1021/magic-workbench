@@ -837,12 +837,15 @@ export function useWorkbenchController(paused = false): void {
         setRecommendation(recommendation);
 
         if (recentSame >= 2) {
-          latestWorkbench.setControllerMode("assisted");
-          setStatus({
-            kind: "paused",
-            message:
-              "Loop guard stopped AI takeover after the same decision repeated three times. Review this prompt manually.",
+          const message =
+            "Loop guard stopped this repeated decision after three identical attempts. Resolve this prompt manually; Thinking AI will resume automatically after the prompt advances.";
+          setRecovery({
+            promptId,
+            promptType: decisionPromptType,
+            error: message,
+            mode: "error",
           });
+          setStatus({ kind: "error", message });
           return;
         }
 
