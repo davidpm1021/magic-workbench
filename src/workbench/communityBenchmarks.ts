@@ -125,6 +125,69 @@ export async function loadPlayableCommunityBenchmarks(
   return loaded;
 }
 
+
+function hashSeed(seed: string): number {
+  let value = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    value ^= seed.charCodeAt(index);
+    value = Math.imul(value, 16777619);
+  }
+  return value >>> 0;
+}
+
+function seededRandom(seed: string): () => number {
+  let state = hashSeed(seed) || 1;
+  return () => {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    return (state >>> 0) / 4294967296;
+  };
+}
+
+export function sampleBenchmarkCatalog(
+  decks: CommunityBenchmarkDeck[],
+  count: number,
+  seed: string,
+  recentIds: readonly string[] = [],
+): CommunityBenchmarkDeck[] {
+  const recent = new Set(recentIds);
+  const random = seededRandom(seed);
+  const preferred = decks.filter((deck) => !recent.has(deck.id));
+  const fallback = decks.filter((deck) => recent.has(deck.id));
+  const shuffle = (items: CommunityBenchmarkDeck[]) =>
+    items
+      .map((deck) => ({ deck, key: random() }))
+      .sort((left, right) => left.key - right.key || left.deck.id.localeCompare(right.deck.id))
+      .map((item) => item.deck);
+  const pool = [...shuffle(preferred), ...shuffle(fallback)];
+  const buckets = new Map<BenchmarkArchetype, CommunityBenchmarkDeck[]>();
+  for (const deck of pool) buckets.set(deck.archetype, [...(buckets.get(deck.archetype) ?? []), deck]);
+  const order: BenchmarkArchetype[] = ["aggro", "value", "control", "combo", "graveyard", "tokens", "voltron", "other"];
+  const selected: CommunityBenchmarkDeck[] = [];
+  let round = 0;
+  while (selected.length < count) {
+    let added = false;
+    for (const archetype of order) {
+      const candidate = buckets.get(archetype)?.[round];
+      if (!candidate) continue;
+      selected.push(candidate);
+      added = true;
+      if (selected.length >= count) break;
+    }
+    if (!added) break;
+    round += 1;
+  }
+  if (selected.length < count) {
+    for (const deck of pool) {
+      if (selected.some((item) => item.id === deck.id)) continue;
+      selected.push(deck);
+      if (selected.length >= count) break;
+    }
+  }
+  return selected;
+}
+
 export async function loadCommunityBenchmarkDeck(
   benchmark: CommunityBenchmarkDeck,
 ): Promise<Deck> {
