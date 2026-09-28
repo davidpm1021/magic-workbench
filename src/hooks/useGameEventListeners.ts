@@ -305,10 +305,11 @@ export function useGameEventListeners() {
       );
       unsubscribers.push(
         platform.events.on<unknown>("game:log", (payload) => {
-          const entry = normalizeGameLogPayload(payload);
-          setState((state) => ({
-            gameLog: [...state.gameLog.slice(-199), entry],
-          }));
+          const normalized = normalizeGameLogPayload(payload);
+          setState((state) => {
+            const entry = { ...normalized, sequence: normalized.sequence ?? state.gameLog.length + 1 };
+            return { gameLog: [...state.gameLog, entry] };
+          });
           toastOpponentPublicAction(entry);
         }),
       );
