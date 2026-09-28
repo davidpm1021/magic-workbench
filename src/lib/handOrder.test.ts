@@ -3,7 +3,7 @@ import { nextHandOrderMode, orderHandCards } from "./handOrder";
 import type { CardDto } from "@/protocol/game";
 
 function card(id: string, name: string, cmc: number): CardDto {
-  return { id, name, cmc, color: "", types: [] } as unknown as CardDto;
+  return { id, identity: { name }, cmc, color: "", types: [] } as unknown as CardDto;
 }
 
 describe("hand display order", () => {
@@ -28,7 +28,7 @@ describe("hand display order", () => {
   });
 
   it("sorts by name", () => {
-    expect(orderHandCards(cards, "name", manual).map((item) => item.name)).toEqual([
+    expect(orderHandCards(cards, "name", manual).map((item) => item.identity.name)).toEqual([
       "Hallimar Excavator", "Island", "Thunderclap Drake", "Visage Bandit",
     ]);
   });
