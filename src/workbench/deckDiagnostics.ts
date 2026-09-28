@@ -274,6 +274,49 @@ function mulliganColorFinding(
 }
 
 
+
+function earlyRampFinding(reports: WorkbenchGameTelemetry[]): WorkbenchDiagnosticFinding | null {
+  const eligible = reports.filter((report) => report.earlyRampPermanentTurn !== undefined);
+  if (eligible.length < 5) return null;
+  const affected = eligible.filter(
+    (report) => report.earlyRampPermanentTurn == null || report.earlyRampPermanentTurn > 3,
+  );
+  if (affected.length / eligible.length < 0.5) return null;
+  return {
+    id: "early-ramp-development",
+    category: "deck",
+    title: "Limited early ramp development",
+    confidence: confidenceForSample(eligible.length, affected.length),
+    gamesAffected: affected.length,
+    gamesEvaluated: eligible.length,
+    evidence: [
+      `${affected.length}/${eligible.length} games had no observed nonland mana acceleration on the battlefield by own turn 3 (${percent(affected.length / eligible.length)}).`,
+      "This is a development signal, not a recommendation by itself; some commanders and curves need less dedicated ramp than others.",
+    ],
+  };
+}
+
+function interactionAvailabilityFinding(
+  reports: WorkbenchGameTelemetry[],
+): WorkbenchDiagnosticFinding | null {
+  const eligible = reports.filter((report) => report.interactionCardsSeen !== undefined);
+  if (eligible.length < 5) return null;
+  const affected = eligible.filter((report) => (report.interactionCardsSeen?.length ?? 0) === 0);
+  if (affected.length / eligible.length < 0.4) return null;
+  return {
+    id: "interaction-availability",
+    category: "deck",
+    title: "Interaction availability",
+    confidence: confidenceForSample(eligible.length, affected.length),
+    gamesAffected: affected.length,
+    gamesEvaluated: eligible.length,
+    evidence: [
+      `${affected.length}/${eligible.length} games never exposed a card matching the conservative targeted-interaction detector (${percent(affected.length / eligible.length)}).`,
+      "The detector covers common destroy, exile, counter, bounce, and targeted-damage wording. It intentionally misses unusual interaction rather than overcounting it.",
+    ],
+  };
+}
+
 function matchupDiagnostics(reports: WorkbenchGameTelemetry[]): WorkbenchMatchupDiagnostic[] {
   const byArchetype = new Map<string, { games: Set<string>; wins: Set<string> }>();
   for (const report of reports) {
@@ -342,6 +385,10 @@ export function analyzeWorkbenchDeckTest(
   const landDrops = landDropFinding(reports, summary);
   if (landDrops) pushFinding(deckFindings, landDrops);
   deckFindings.push(...stuckCardFindings(reports, summary));
+  const ramp = earlyRampFinding(reports);
+  if (ramp) pushFinding(deckFindings, ramp);
+  const interaction = interactionAvailabilityFinding(reports);
+  if (interaction) pushFinding(deckFindings, interaction);
 
   const multiplayer = reports.some((report) => (report.benchmarkOpponents?.length ?? 0) >= 3);
   const equalShareBaseline = multiplayer ? 0.25 : null;
