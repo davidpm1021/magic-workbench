@@ -26,7 +26,8 @@ describe("community benchmarks", () => {
     expect(classifyBenchmarkArchetype(["Aristocrats", "Graveyard"])).toBe("graveyard");
     expect(classifyBenchmarkArchetype(["Equipment", "Commander Matters"])).toBe("voltron");
     expect(classifyBenchmarkArchetype(["Counterspells"])).toBe("control");
-  
+  });
+
   it("varies catalog samples by seed while reproducing the same seed", () => {
     const input = Array.from({ length: 40 }, (_, index) =>
       toCommunityBenchmark(deck(String(index), 3, [index % 2 ? "Aggro" : "Control"], 1000 - index)),
@@ -46,7 +47,6 @@ describe("community benchmarks", () => {
     const sample = sampleBenchmarkCatalog(input, 10, "fresh", recent);
     expect(sample.every((item) => !recent.includes(item.id))).toBe(true);
   });
-});
 
   it("keeps source attribution", () => {
     const result = toCommunityBenchmark(deck("123", 3, ["Tokens"], 4000));
