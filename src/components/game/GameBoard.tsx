@@ -323,6 +323,21 @@ export function GameBoard({
       (compactBoard ? HAND_RESERVE_TRIM_COMPACT : HAND_RESERVE_TRIM),
   );
   const opponentLayout = usePreferencesStore((s) => s.opponentLayout);
+  const activePlayer = activePlayerId === me.id ? me : opponents.find((player) => player.id === activePlayerId);
+  const priorityPlayer =
+    priorityPlayerId === me.id ? me : opponents.find((player) => player.id === priorityPlayerId);
+  const activeTurnName =
+    activePlayerId === me.id
+      ? "YOUR TURN"
+      : activePlayer
+        ? `${stripUsernameTag(activePlayer.name).toUpperCase()}'S TURN`
+        : "TURN";
+  const priorityLabel =
+    priorityPlayerId === me.id
+      ? "YOUR PRIORITY"
+      : priorityPlayer
+        ? `${stripUsernameTag(priorityPlayer.name)} has priority`
+        : null;
 
   const isTargetingPrompt = promptType === "chooseBoardTargets";
   const chooseActionPrompt = promptOf(currentPrompt, "chooseAction");
@@ -1683,6 +1698,26 @@ export function GameBoard({
       className="game-board-surface relative flex flex-col min-h-0 flex-1 overflow-hidden"
     >
       <ReconnectBanner />
+      <div className="pointer-events-none absolute left-1/2 top-2 z-[9060] flex -translate-x-1/2 flex-col items-center gap-0.5">
+        <div
+          className={cn(
+            "rounded-full border px-4 py-1 text-xs font-black tracking-[0.16em] shadow-lg backdrop-blur",
+            activePlayerId === me.id
+              ? "border-primary/70 bg-primary/90 text-primary-foreground"
+              : "border-border/70 bg-background/90 text-foreground",
+          )}
+        >
+          {activeTurnName}
+        </div>
+        {priorityLabel ? (
+          <div className="rounded-full bg-background/85 px-2 py-0.5 text-[9px] font-semibold text-muted-foreground shadow">
+            {priorityLabel}
+            {priorityPlayerId === me.id && activePlayerId !== me.id
+              ? ` · ${activePlayer ? stripUsernameTag(activePlayer.name) : "Opponent"}'s turn`
+              : ""}
+          </div>
+        ) : null}
+      </div>
       <GlobalStateRail
         dayTime={dayTime}
         monarchName={
