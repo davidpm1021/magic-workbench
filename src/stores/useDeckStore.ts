@@ -259,6 +259,13 @@ export interface SavedDeck {
   savedAt: number;
   accountDeckId?: string;
   accountVersionNo?: number;
+  externalSource?: {
+    provider: "archidekt";
+    deckId: string;
+    url: string;
+    lastSyncedAt: number;
+    fingerprint: string;
+  };
 }
 // Playmats used to be an inline `data:` blob under `playmat`. That field is gone,
 // but a spread would still carry a stored blob back onto the wire, so persisted
@@ -473,7 +480,8 @@ interface DeckState {
   loadPresetDeck: (deck: EditorDeck) => void;
   loadHubDeck: (deck: EditorDeck) => void;
   importReadOnlyDeck: () => string | null;
-  addSavedDeck: (deck: EditorDeck) => string;
+  addSavedDeck: (deck: EditorDeck, externalSource?: SavedDeck["externalSource"]) => string;
+  replaceSavedDeckFromExternal: (id: string, deck: EditorDeck, externalSource: SavedDeck["externalSource"]) => void;
   mergeIntoCurrentDeck: (sections: {
     cards: DeckCard[];
     sideboard: DeckCard[];
@@ -751,13 +759,24 @@ export const useDeckStore = create<DeckState>()(
           }));
           return id;
         },
-        addSavedDeck: (deck) => {
+        addSavedDeck: (deck, externalSource) => {
           const id = crypto.randomUUID();
           set((s) => ({
-            savedDecks: [...s.savedDecks, { id, deck: normalizeDeck(deck), savedAt: Date.now() }],
+            savedDecks: [...s.savedDecks, { id, deck: normalizeDeck(deck), savedAt: Date.now(), externalSource }],
           }));
           return id;
         },
+        replaceSavedDeckFromExternal: (id, deck, externalSource) =>
+          set((state) => ({
+            savedDecks: state.savedDecks.map((saved) =>
+              saved.id === id
+                ? { ...saved, deck: normalizeDeck(deck), savedAt: Date.now(), externalSource }
+                : saved,
+            ),
+            ...(state.currentDeckId === id
+              ? { currentDeck: normalizeDeck(deck), editorSessionId: crypto.randomUUID() }
+              : {}),
+          })),
         mergeIntoCurrentDeck: (sections) =>
           set((state) => {
             const deck = normalizeDeck(state.currentDeck);
