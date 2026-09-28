@@ -461,11 +461,13 @@ export default function DeckEditor() {
               }
         }
         badge={
-          presetKey
-            ? "Preset copy"
-            : accountDecksSignedIn && !accountDeck
-              ? "Sync pending"
-              : undefined
+          saved.externalSource?.provider === "archidekt"
+            ? "Archidekt linked"
+            : presetKey
+              ? "Preset copy"
+              : accountDecksSignedIn && !accountDeck
+                ? "Sync pending"
+                : undefined
         }
       />
     );
