@@ -178,6 +178,7 @@ export interface ArchidektBenchmarkQuery {
   bracket?: number;
   pageSize?: number;
   minViews?: number;
+  page?: number;
 }
 
 export async function searchArchidektBenchmarks(
@@ -190,6 +191,7 @@ export async function searchArchidektBenchmarks(
     deckFormat: String(GAME_FORMAT_TO_ARCHIDEKT.commander),
     pageSize: String(pageSize),
     orderBy: "-viewCount",
+    page: String(Math.max(1, query.page ?? 1)),
   });
   // Archidekt's deck-search API does not accept the old edhBracket filter
   // parameter. Fetch the popular Commander page and filter the explicit
@@ -206,6 +208,26 @@ export async function searchArchidektBenchmarks(
     .filter((deck) => (deck.cardCount == null || deck.cardCount === 100))
     .filter((deck) => !query.bracket || deck.bracket === query.bracket)
     .filter((deck) => (deck.views ?? 0) >= (query.minViews ?? 0));
+}
+
+
+export async function buildArchidektBenchmarkCatalog(
+  query: ArchidektBenchmarkQuery & { targetSize?: number; maxPages?: number } = {},
+  opts: RequestOptions = {},
+): Promise<ArchidektSearchResult[]> {
+  const targetSize = Math.max(12, Math.min(500, query.targetSize ?? 120));
+  const maxPages = Math.max(1, Math.min(20, query.maxPages ?? 12));
+  const byId = new Map<string, ArchidektSearchResult>();
+  for (let page = 1; page <= maxPages && byId.size < targetSize; page += 1) {
+    const results = await searchArchidektBenchmarks(
+      { ...query, page, pageSize: Math.min(50, query.pageSize ?? 50) },
+      opts,
+    );
+    for (const deck of results) byId.set(deck.id, deck);
+    // A page with no matching bracket decks does not imply later popular pages
+    // are empty, so continue through the configured horizon.
+  }
+  return [...byId.values()];
 }
 
 interface RawDeckResponse {
