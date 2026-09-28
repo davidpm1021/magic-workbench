@@ -11,6 +11,10 @@ export interface WorkbenchCardPerformance {
   seenWinRate: number;
   castWinRate: number;
   castWhenSeenRate: number;
+  stuckWhenSeenRate: number;
+  overallWinRate: number;
+  seenWinRateDelta: number;
+  sampleConfidence: "insufficient" | "early" | "useful";
 }
 
 export function analyzeCardPerformance(
@@ -34,6 +38,10 @@ export function analyzeCardPerformance(
         seenWinRate: 0,
         castWinRate: 0,
         castWhenSeenRate: 0,
+        stuckWhenSeenRate: 0,
+        overallWinRate: 0,
+        seenWinRateDelta: 0,
+        sampleConfidence: "insufficient",
       };
       row.gamesSeen += 1;
       if (report.won) row.winsWhenSeen += 1;
@@ -46,13 +54,21 @@ export function analyzeCardPerformance(
       rows.set(name, row);
     }
   }
+  const overallWinRate = reports.length ? reports.filter((report) => report.won).length / reports.length : 0;
   return [...rows.values()]
-    .map((row) => ({
-      ...row,
-      seenWinRate: row.gamesSeen ? row.winsWhenSeen / row.gamesSeen : 0,
-      castWinRate: row.gamesCast ? row.winsWhenCast / row.gamesCast : 0,
-      castWhenSeenRate: row.gamesSeen ? row.gamesCast / row.gamesSeen : 0,
-    }))
+    .map((row) => {
+      const seenWinRate = row.gamesSeen ? row.winsWhenSeen / row.gamesSeen : 0;
+      return {
+        ...row,
+        seenWinRate,
+        castWinRate: row.gamesCast ? row.winsWhenCast / row.gamesCast : 0,
+        castWhenSeenRate: row.gamesSeen ? row.gamesCast / row.gamesSeen : 0,
+        stuckWhenSeenRate: row.gamesSeen ? row.gamesStuck / row.gamesSeen : 0,
+        overallWinRate,
+        seenWinRateDelta: seenWinRate - overallWinRate,
+        sampleConfidence: row.gamesSeen >= 12 ? ("useful" as const) : row.gamesSeen >= 5 ? ("early" as const) : ("insufficient" as const),
+      };
+    })
     .sort(
       (left, right) =>
         right.gamesStuck - left.gamesStuck ||
