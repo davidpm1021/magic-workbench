@@ -67,6 +67,12 @@ export interface WorkbenchGameTelemetry {
   cardsDrawnApprox: number;
   castEvents: number;
   cardsCast: Record<string, number>;
+  cardsSeen?: string[];
+  averageUnusedManaOnOwnTurn?: number;
+  turnsWithUnusedMana?: number;
+  earlyRampPermanentTurn?: number | null;
+  interactionCardsSeen?: string[];
+  interactionCardsCast?: string[];
   stuckCards: WorkbenchStuckCard[];
   mulliganPrompts: number;
   paidAiCalls: number;
@@ -456,6 +462,55 @@ export function buildWorkbenchGameTelemetry(args: {
     (entry) => entry.source === "human" || entry.status === "manual",
   ).length;
   const pilotRuleAssumptionRisks = findPilotRuleAssumptionRisks(args.auditEntries);
+  const cardsSeenByName = new Set<string>();
+  for (const snapshot of snapshots) {
+    for (const card of [...snapshot.hand, ...snapshot.battlefield, ...snapshot.graveyard, ...snapshot.exile]) {
+      cardsSeenByName.add(card.name);
+    }
+  }
+  const ownTurnSnapshots = snapshots.filter((snapshot) => snapshot.activePlayerId === playerId);
+  const ownTurnManaByTurn = new Map<number, number>();
+  let observedOwnTurn = 0;
+  let wasOwnTurn = false;
+  for (const snapshot of snapshots) {
+    const own = snapshot.activePlayerId === playerId;
+    if (own && !wasOwnTurn) observedOwnTurn += 1;
+    wasOwnTurn = own;
+    if (!own || observedOwnTurn === 0) continue;
+    ownTurnManaByTurn.set(
+      observedOwnTurn,
+      Math.max(ownTurnManaByTurn.get(observedOwnTurn) ?? 0, snapshot.player.manaPoolTotal),
+    );
+  }
+  const unusedManaValues = [...ownTurnManaByTurn.values()];
+  const averageUnusedManaOnOwnTurn =
+    unusedManaValues.length === 0
+      ? 0
+      : unusedManaValues.reduce((sum, value) => sum + value, 0) / unusedManaValues.length;
+  const turnsWithUnusedMana = unusedManaValues.filter((value) => value > 0).length;
+  const looksLikeRamp = (card: WorkbenchTelemetryCard) =>
+    !card.types.includes("Land") &&
+    (/\\badd \\{?[WUBRGC]\\}?/i.test(card.text ?? "") ||
+      /search your library for (?:a|an|up to .*?) land/i.test(card.text ?? ""));
+  let earlyRampPermanentTurn: number | null = null;
+  let scanTurn = 0;
+  let scanWasOwn = false;
+  for (const snapshot of snapshots) {
+    const own = snapshot.activePlayerId === playerId;
+    if (own && !scanWasOwn) scanTurn += 1;
+    scanWasOwn = own;
+    if (scanTurn > 4) break;
+    if (snapshot.battlefield.some(looksLikeRamp)) {
+      earlyRampPermanentTurn = scanTurn;
+      break;
+    }
+  }
+  const interactionPattern = /destroy target|exile target|counter target|return target .* to (?:its|their) owner's hand|deals? .* damage to target/i;
+  const interactionCardsSeen = [...cardsSeenByName].filter((name) => {
+    const card = snapshots.flatMap((snapshot) => [...snapshot.hand, ...snapshot.battlefield, ...snapshot.graveyard]).find((item) => item.name === name);
+    return card ? interactionPattern.test(card.text ?? "") : false;
+  });
+  const interactionCardsCast = Object.keys(cardsCast).filter((name) => interactionCardsSeen.includes(name));
 
   return {
     schemaVersion: 1,
@@ -486,6 +541,12 @@ export function buildWorkbenchGameTelemetry(args: {
     ),
     castEvents: stackIds.size,
     cardsCast,
+    cardsSeen: [...cardsSeenByName].sort(),
+    averageUnusedManaOnOwnTurn,
+    turnsWithUnusedMana,
+    earlyRampPermanentTurn,
+    interactionCardsSeen,
+    interactionCardsCast,
     stuckCards: [...stuckByName.entries()]
       .map(([name, maxObservedTurnSpan]) => ({ name, maxObservedTurnSpan }))
       .sort(
