@@ -38,7 +38,7 @@ export function orderHandCards(
     sorted.sort((left, right) => right.cmc - left.cmc || stableIndex(left) - stableIndex(right));
   } else {
     sorted.sort((left, right) =>
-      left.name.localeCompare(right.name) || stableIndex(left) - stableIndex(right),
+      left.identity.name.localeCompare(right.identity.name) || stableIndex(left) - stableIndex(right),
     );
   }
   return sorted;
