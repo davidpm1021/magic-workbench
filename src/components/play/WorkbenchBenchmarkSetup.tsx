@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { FlaskConical, Loader2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useOwnedDecks } from "@/hooks/useOwnedDecks";
-import { searchArchidektBenchmarks } from "@/lib/archidekt";
+import { buildArchidektBenchmarkCatalog } from "@/lib/archidekt";
 import {
   loadPlayableCommunityBenchmarks,
-  selectRepresentativeBenchmarks,
+  sampleBenchmarkCatalog,
   toCommunityBenchmark,
   type CommunityBenchmarkDeck,
 } from "@/workbench/communityBenchmarks";
@@ -32,6 +32,7 @@ export function WorkbenchBenchmarkSetup({
   const [bracket, setBracket] = useState(3);
   const [games, setGames] = useState(16);
   const [candidates, setCandidates] = useState<CommunityBenchmarkDeck[]>([]);
+  const [sampleSeed, setSampleSeed] = useState(() => crypto.randomUUID());
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +45,7 @@ export function WorkbenchBenchmarkSetup({
     let active = true;
     setLoading(true);
     setError(null);
-    void searchArchidektBenchmarks({ bracket, pageSize: 50, minViews: 100 })
+    void buildArchidektBenchmarkCatalog({ bracket, pageSize: 50, minViews: 25, targetSize: 150, maxPages: 12 })
       .then((results) => {
         if (active) setCandidates(results.map(toCommunityBenchmark));
       })
@@ -60,8 +61,8 @@ export function WorkbenchBenchmarkSetup({
   }, [bracket]);
 
   const suite = useMemo(
-    () => selectRepresentativeBenchmarks(candidates, 12, bracket),
-    [candidates, bracket],
+    () => sampleBenchmarkCatalog(candidates, Math.min(48, candidates.length), sampleSeed),
+    [candidates, sampleSeed],
   );
   const player = commanderDecks.find((entry) => entry.id === deckId);
 
@@ -176,12 +177,18 @@ export function WorkbenchBenchmarkSetup({
             <div>
               <p className="font-semibold">Opponent pool</p>
               <p className="text-xs text-muted-foreground">
-                {loading ? "Loading Archidekt decks…" : `${suite.length} representative decks available`}
+                {loading ? "Loading Archidekt decks…" : `${candidates.length} catalog decks · ${suite.length} sampled for this run`}
               </p>
             </div>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           </div>
           {!loading && suite.length > 0 ? (
+            <>
+            <div className="mt-2 flex justify-end">
+              <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={() => setSampleSeed(crypto.randomUUID())}>
+                New opponent sample
+              </Button>
+            </div>
             <div className="mt-3 grid gap-1.5 sm:grid-cols-2">
               {suite.map((deck) => (
                 <div key={deck.id} className="truncate rounded-md bg-muted/40 px-2 py-1.5 text-xs">
@@ -189,6 +196,7 @@ export function WorkbenchBenchmarkSetup({
                 </div>
               ))}
             </div>
+            </>
           ) : null}
           {error ? <p className="mt-3 text-xs text-destructive">{error}</p> : null}
         </section>
