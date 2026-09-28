@@ -6,6 +6,7 @@ import type { Prompt } from "@/protocol";
 import { validCardIdsInCards, type BoardTargetBuckets } from "@/lib/boardTargets";
 import type { PreviewPointerInput } from "@/lib/cardPreview";
 import { stripUsernameTag } from "@/lib/username";
+import { cn } from "@/lib/utils";
 import { HAND_ORDER_OPTIONS, nextHandOrderMode } from "@/lib/handOrder";
 import { type ZonePanelItem } from "@/stores/usePreferencesStore";
 import { BoardCanvas, type BoardCanvasLayout, type BoardCanvasRegion } from "@/pixi/BoardCanvas";
