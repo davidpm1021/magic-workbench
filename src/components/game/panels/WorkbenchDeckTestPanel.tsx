@@ -11,6 +11,7 @@ import {
 } from "@/workbench/deckTelemetry";
 import { analyzeWorkbenchDeckTest } from "@/workbench/deckDiagnostics";
 import { formatUsd } from "@/workbench/pricing";
+import { analyzeCardPerformance } from "@/workbench/cardPerformance";
 
 export function WorkbenchDeckTestPanel() {
   const gameView = useGameStore((state) => state.gameView);
@@ -29,6 +30,10 @@ export function WorkbenchDeckTestPanel() {
   const diagnostics = useMemo(
     () => analyzeWorkbenchDeckTest(deckTestSession.reports, summary),
     [deckTestSession.reports, summary],
+  );
+  const cardPerformance = useMemo(
+    () => analyzeCardPerformance(deckTestSession.reports),
+    [deckTestSession.reports],
   );
   const running = deckTestSession.status === "running";
 
@@ -222,6 +227,33 @@ export function WorkbenchDeckTestPanel() {
           ) : null}
 
           <WorkbenchDiagnosticsPanel diagnostics={diagnostics} />
+
+          {cardPerformance.length > 0 ? (
+            <div className="rounded-md border border-border/50 bg-background/60 p-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-medium">Card performance</p>
+                <span className="text-[9px] text-muted-foreground">observational</span>
+              </div>
+              <div className="mt-1 grid grid-cols-[1fr_auto_auto_auto] gap-x-2 text-[9px] text-muted-foreground">
+                <span>Card</span><span>Seen</span><span>Cast</span><span>Stuck</span>
+                {cardPerformance
+                  .filter((card) => card.gamesSeen >= Math.min(3, summary.games))
+                  .slice(0, 12)
+                  .map((card) => (
+                    <div key={card.name} className="contents">
+                      <span className="truncate text-foreground" title={card.name}>{card.name}</span>
+                      <span>{card.gamesSeen}</span>
+                      <span>{card.gamesCast}</span>
+                      <span>{card.gamesStuck}</span>
+                    </div>
+                  ))}
+              </div>
+              <p className="mt-1.5 text-[9px] leading-relaxed text-muted-foreground">
+                Seen/cast/stuck rates identify cards worth investigating. They do not establish
+                that a card caused wins or losses.
+              </p>
+            </div>
+          ) : null}
 
           {Object.keys(summary.stuckCardGames).length > 0 ? (
             <div className="rounded-md border border-border/50 bg-background/60 p-2">
