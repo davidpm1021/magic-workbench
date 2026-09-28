@@ -6,7 +6,7 @@ import type { Prompt } from "@/protocol";
 import { validCardIdsInCards, type BoardTargetBuckets } from "@/lib/boardTargets";
 import type { PreviewPointerInput } from "@/lib/cardPreview";
 import { stripUsernameTag } from "@/lib/username";
-import { nextHandOrderMode } from "@/lib/handOrder";
+import { HAND_ORDER_OPTIONS, nextHandOrderMode } from "@/lib/handOrder";
 import { type ZonePanelItem } from "@/stores/usePreferencesStore";
 import { BoardCanvas, type BoardCanvasLayout, type BoardCanvasRegion } from "@/pixi/BoardCanvas";
 import {
@@ -1768,6 +1768,14 @@ export function GameBoard({
         onToggleSelfPhase={toggleSelfStop}
         onToggleOpponentPhase={toggleOpponentStop}
       />
+      <button
+        type="button"
+        className="absolute bottom-2 left-1/2 z-[9050] -translate-x-1/2 rounded-md border border-border/70 bg-background/90 px-2 py-1 text-[10px] font-semibold text-foreground shadow-md backdrop-blur hover:bg-muted"
+        title="Cycle hand display order"
+        onClick={() => setHandOrderModeFromBoard(nextHandOrderMode(handOrderMode))}
+      >
+        Sort: {HAND_ORDER_OPTIONS.find((option) => option.value === handOrderMode)?.label ?? "Default"}
+      </button>
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {a11ySummary}
       </div>
