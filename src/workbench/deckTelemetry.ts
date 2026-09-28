@@ -468,7 +468,6 @@ export function buildWorkbenchGameTelemetry(args: {
       cardsSeenByName.add(card.name);
     }
   }
-  const ownTurnSnapshots = snapshots.filter((snapshot) => snapshot.activePlayerId === playerId);
   const ownTurnManaByTurn = new Map<number, number>();
   let observedOwnTurn = 0;
   let wasOwnTurn = false;
