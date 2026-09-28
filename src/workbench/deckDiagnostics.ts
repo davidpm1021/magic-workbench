@@ -275,6 +275,94 @@ function mulliganColorFinding(
 
 
 
+
+function winRate(reports: WorkbenchGameTelemetry[]): number {
+  return reports.length === 0 ? 0 : reports.filter((report) => report.won).length / reports.length;
+}
+
+function comparativeFinding(args: {
+  id: string;
+  title: string;
+  reports: WorkbenchGameTelemetry[];
+  affected: (report: WorkbenchGameTelemetry) => boolean;
+  evidenceLabel: string;
+  minimumGroup?: number;
+}): WorkbenchDiagnosticFinding | null {
+  const minimumGroup = args.minimumGroup ?? 4;
+  const affected = args.reports.filter(args.affected);
+  const comparison = args.reports.filter((report) => !args.affected(report));
+  if (affected.length < minimumGroup || comparison.length < minimumGroup) return null;
+  const affectedRate = winRate(affected);
+  const comparisonRate = winRate(comparison);
+  const delta = affectedRate - comparisonRate;
+  if (Math.abs(delta) < 0.1) return null;
+  return {
+    id: args.id,
+    category: "deck",
+    title: args.title,
+    confidence:
+      args.reports.length >= 20 && Math.min(affected.length, comparison.length) >= 7
+        ? "high"
+        : "medium",
+    gamesAffected: affected.length,
+    gamesEvaluated: args.reports.length,
+    evidence: [
+      `${args.evidenceLabel}: ${affected.filter((report) => report.won).length}/${affected.length} wins (${percent(affectedRate)}).`,
+      `Comparison games: ${comparison.filter((report) => report.won).length}/${comparison.length} wins (${percent(comparisonRate)}).`,
+      `Observed difference: ${delta >= 0 ? "+" : ""}${Math.round(delta * 100)} percentage points. This is an association, not proof of causation.`,
+    ],
+  };
+}
+
+function comparativeDeckFindings(
+  reports: WorkbenchGameTelemetry[],
+): WorkbenchDiagnosticFinding[] {
+  if (reports.length < 10) return [];
+  const candidates = [
+    comparativeFinding({
+      id: "impact:commander-late",
+      title: "Late commander deployment correlates with results",
+      reports,
+      affected: (report) =>
+        report.commanderName != null &&
+        (report.firstCommanderCastTurn == null || report.firstCommanderCastTurn > 5),
+      evidenceLabel: "Games without a commander cast by own turn 5",
+    }),
+    comparativeFinding({
+      id: "impact:land-miss",
+      title: "Missed land drops correlate with results",
+      reports,
+      affected: (report) => report.missedLandDropTurns.length > 0,
+      evidenceLabel: "Games with at least one observed missed land drop",
+    }),
+    comparativeFinding({
+      id: "impact:no-early-ramp",
+      title: "Early ramp correlates with results",
+      reports,
+      affected: (report) =>
+        report.earlyRampPermanentTurn !== undefined &&
+        (report.earlyRampPermanentTurn == null || report.earlyRampPermanentTurn > 3),
+      evidenceLabel: "Games without observed nonland ramp by own turn 3",
+    }),
+    comparativeFinding({
+      id: "impact:no-interaction-seen",
+      title: "Interaction access correlates with results",
+      reports,
+      affected: (report) =>
+        report.interactionCardsSeen !== undefined && report.interactionCardsSeen.length === 0,
+      evidenceLabel: "Games where no conservatively detected interaction card was seen",
+    }),
+    comparativeFinding({
+      id: "impact:stuck-card",
+      title: "Cards stuck in hand correlate with results",
+      reports,
+      affected: (report) => report.stuckCards.length > 0,
+      evidenceLabel: "Games with at least one card stuck across three own-turn transitions",
+    }),
+  ];
+  return candidates.filter((finding): finding is WorkbenchDiagnosticFinding => finding !== null);
+}
+
 function earlyRampFinding(reports: WorkbenchGameTelemetry[]): WorkbenchDiagnosticFinding | null {
   const eligible = reports.filter((report) => report.earlyRampPermanentTurn !== undefined);
   if (eligible.length < 5) return null;
@@ -393,6 +481,7 @@ export function analyzeWorkbenchDeckTest(
   const multiplayer = reports.some((report) => (report.benchmarkOpponents?.length ?? 0) >= 3);
   const equalShareBaseline = multiplayer ? 0.25 : null;
   deckFindings.push(...matchupWeaknessFindings(reports, equalShareBaseline));
+  deckFindings.push(...comparativeDeckFindings(reports));
 
   const aiReliability = aiReliabilityFinding(reports);
   if (aiReliability) pushFinding(pilotFindings, aiReliability);
