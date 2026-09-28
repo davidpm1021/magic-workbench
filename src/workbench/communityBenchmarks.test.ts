@@ -3,6 +3,7 @@ import {
   classifyBenchmarkArchetype,
   selectRepresentativeBenchmarks,
   toCommunityBenchmark,
+  sampleBenchmarkCatalog,
 } from "./communityBenchmarks";
 import type { ArchidektSearchResult } from "@/lib/archidekt";
 
@@ -25,7 +26,27 @@ describe("community benchmarks", () => {
     expect(classifyBenchmarkArchetype(["Aristocrats", "Graveyard"])).toBe("graveyard");
     expect(classifyBenchmarkArchetype(["Equipment", "Commander Matters"])).toBe("voltron");
     expect(classifyBenchmarkArchetype(["Counterspells"])).toBe("control");
+  
+  it("varies catalog samples by seed while reproducing the same seed", () => {
+    const input = Array.from({ length: 40 }, (_, index) =>
+      toCommunityBenchmark(deck(String(index), 3, [index % 2 ? "Aggro" : "Control"], 1000 - index)),
+    );
+    const a = sampleBenchmarkCatalog(input, 12, "seed-a").map((item) => item.id);
+    const aAgain = sampleBenchmarkCatalog(input, 12, "seed-a").map((item) => item.id);
+    const b = sampleBenchmarkCatalog(input, 12, "seed-b").map((item) => item.id);
+    expect(aAgain).toEqual(a);
+    expect(b).not.toEqual(a);
   });
+
+  it("avoids recently faced decks when enough alternatives exist", () => {
+    const input = Array.from({ length: 30 }, (_, index) =>
+      toCommunityBenchmark(deck(String(index), 3, ["Value"], 1000 - index)),
+    );
+    const recent = input.slice(0, 10).map((item) => item.id);
+    const sample = sampleBenchmarkCatalog(input, 10, "fresh", recent);
+    expect(sample.every((item) => !recent.includes(item.id))).toBe(true);
+  });
+});
 
   it("keeps source attribution", () => {
     const result = toCommunityBenchmark(deck("123", 3, ["Tokens"], 4000));
