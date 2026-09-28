@@ -310,7 +310,7 @@ export function useGameEventListeners() {
             const entry = { ...normalized, sequence: normalized.sequence ?? state.gameLog.length + 1 };
             return { gameLog: [...state.gameLog, entry] };
           });
-          toastOpponentPublicAction(entry);
+          toastOpponentPublicAction(normalized);
         }),
       );
       unsubscribers.push(
