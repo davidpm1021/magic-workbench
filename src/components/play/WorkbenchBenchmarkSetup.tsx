@@ -30,6 +30,7 @@ export function WorkbenchBenchmarkSetup({
   const commanderDecks = savedDecks.filter((entry) => (entry.deck.format ?? "") === "commander");
   const [deckId, setDeckId] = useState(preSelectedDeckId ?? commanderDecks[0]?.id ?? "");
   const [bracket, setBracket] = useState(3);
+  const [testMode, setTestMode] = useState<"manual" | "ai-benchmark">("manual");
   const [games, setGames] = useState(16);
   const [candidates, setCandidates] = useState<CommunityBenchmarkDeck[]>([]);
   const [sampleSeed, setSampleSeed] = useState(() => crypto.randomUUID());
@@ -92,7 +93,7 @@ export function WorkbenchBenchmarkSetup({
         player.deck.commanders?.[0]?.identity.name,
       );
       if (!started) throw new Error("Forge could not start the benchmark pod.");
-      useWorkbenchStore.getState().startDeckTest(
+      if (testMode === "ai-benchmark") useWorkbenchStore.getState().startDeckTest(
         games,
         loaded.map((item) => item.benchmark).concat(suite.filter((deck) => !loaded.some((item) => item.benchmark.id === deck.id))).map((deck) => ({
           id: deck.id,
@@ -102,11 +103,20 @@ export function WorkbenchBenchmarkSetup({
           bracket: deck.bracket,
         })),
       );
-      useWorkbenchStore.getState().setControllerMode("thinking-ai");
-      useWorkbenchStore.getState().setStatus({
-        kind: "paused",
-        message: `Commander benchmark started: game 1/${games}, four-player Bracket ${bracket} pod.`,
-      });
+      if (testMode === "ai-benchmark") {
+        useWorkbenchStore.getState().setControllerMode("thinking-ai");
+        useWorkbenchStore.getState().setStatus({
+          kind: "paused",
+          message: `AI benchmark started: game 1/${games}, four-player Bracket ${bracket} pod.`,
+        });
+      } else {
+        useWorkbenchStore.getState().clearDeckTest();
+        useWorkbenchStore.getState().setControllerMode("manual");
+        useWorkbenchStore.getState().setStatus({
+          kind: "idle",
+          message: `Manual playtest started against a Bracket ${bracket} community pod. You control your deck.`,
+        });
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
       setStarting(false);
@@ -127,6 +137,29 @@ export function WorkbenchBenchmarkSetup({
             from the selected Commander bracket.
           </p>
         </header>
+
+        <section className="grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            className={`rounded-xl border p-4 text-left transition ${testMode === "manual" ? "border-primary bg-primary/10" : "border-border/60 bg-muted/20"}`}
+            onClick={() => setTestMode("manual")}
+          >
+            <span className="block font-semibold">Manual Playtest</span>
+            <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+              One four-player game. You pilot your deck; Forge pilots the three opponents. No AI takeover or automatic rematch.
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`rounded-xl border p-4 text-left transition ${testMode === "ai-benchmark" ? "border-primary bg-primary/10" : "border-border/60 bg-muted/20"}`}
+            onClick={() => setTestMode("ai-benchmark")}
+          >
+            <span className="block font-semibold">AI Benchmark</span>
+            <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+              Thinking AI pilots your deck across many games and rotates community opponents automatically.
+            </span>
+          </button>
+        </section>
 
         <section className="space-y-4 rounded-xl border border-border/60 bg-muted/20 p-4">
           <label className="block space-y-1.5">
@@ -158,14 +191,15 @@ export function WorkbenchBenchmarkSetup({
                 <option value={5}>5 · cEDH</option>
               </select>
             </label>
-            <label className="block space-y-1.5">
+            <label className={`block space-y-1.5 ${testMode === "manual" ? "opacity-40" : ""}`}>
               <span className="text-xs font-semibold">Games</span>
               <input
                 type="number"
                 min="1"
                 max="1000"
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                value={games}
+                value={testMode === "manual" ? 1 : games}
+                disabled={testMode === "manual"}
                 onChange={(event) => setGames(Math.max(1, Math.min(1000, Number(event.target.value) || 1)))}
               />
             </label>
@@ -209,7 +243,11 @@ export function WorkbenchBenchmarkSetup({
           onClick={() => void run()}
         >
           {starting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-          {starting ? "Starting benchmark…" : `Run ${games}-game 4-player benchmark`}
+          {starting
+            ? "Starting game…"
+            : testMode === "manual"
+              ? "Start manual 4-player playtest"
+              : `Run ${games}-game AI benchmark`}
         </Button>
       </div>
     </div>
