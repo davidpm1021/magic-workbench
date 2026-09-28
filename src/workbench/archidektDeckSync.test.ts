@@ -7,7 +7,7 @@ describe("external deck sync metadata", () => {
   });
 
   it("persists Archidekt source metadata and replaces the same saved deck in place", () => {
-    vi.spyOn(crypto, "randomUUID").mockReturnValue("saved-id");
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("00000000-0000-4000-8000-000000000001");
     const deck = {
       name: "Linked deck",
       format: "commander",
@@ -26,13 +26,13 @@ describe("external deck sync metadata", () => {
       fingerprint: "old",
     };
     const id = useDeckStore.getState().addSavedDeck(deck, source);
-    expect(id).toBe("saved-id");
+    expect(id).toBe("00000000-0000-4000-8000-000000000001");
     expect(useDeckStore.getState().savedDecks).toHaveLength(1);
     expect(useDeckStore.getState().savedDecks[0].externalSource?.deckId).toBe("123");
 
     useDeckStore.getState().replaceSavedDeckFromExternal(
       id,
-      { ...deck, name: "Updated linked deck" },
+      Object.assign({}, deck, { name: "Updated linked deck" }),
       { ...source, lastSyncedAt: 2, fingerprint: "new" },
     );
     expect(useDeckStore.getState().savedDecks).toHaveLength(1);
