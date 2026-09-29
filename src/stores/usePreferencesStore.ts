@@ -18,6 +18,7 @@ export type CardPreviewMode = "hover" | "right-click";
 export type BattlefieldCardStyle = "realistic" | "art" | "frame";
 export type InGameCardPreviewStyle = "printed" | "rules";
 export type InlineCardStyle = "printed" | "rules";
+export type CommentaryMode = "off" | "key" | "full";
 export type RulesPreviewSectionId = "actions" | "rules" | "progression" | "details" | "flavor";
 
 export interface LastRoomSetup {
@@ -42,6 +43,8 @@ export interface PreferencesState {
 
   flashDurationMs: number;
   setFlashDurationMs: (ms: number) => void;
+  commentaryMode: CommentaryMode;
+  setCommentaryMode: (mode: CommentaryMode) => void;
 
   serverHost: string;
   serverPort: number;
@@ -164,6 +167,7 @@ const PERSISTED_PREFERENCE_KEYS = [
   "personalThemeName",
   "appLanguage",
   "flashDurationMs",
+  "commentaryMode",
   "serverHost",
   "serverPort",
   "serverUsername",
@@ -271,6 +275,8 @@ export const usePreferencesStore = create<PreferencesState>()(
 
           flashDurationMs: 1000,
           setFlashDurationMs: (ms) => set({ flashDurationMs: ms }),
+          commentaryMode: "off",
+          setCommentaryMode: (commentaryMode) => set({ commentaryMode }),
 
           serverHost: serverDefaults.host,
           serverPort: serverDefaults.port,
