@@ -11,6 +11,7 @@ import { SnapshotsPanel } from "./SnapshotsPanel";
 import { GameDevPanel } from "@/components/dev/GameDevPanel";
 import { WorkbenchErrorBoundary } from "./WorkbenchErrorBoundary";
 import { WorkbenchPanel } from "./WorkbenchPanel";
+import { CommentaryPanel } from "./CommentaryPanel";
 export function RightActionPanel({
   collapsed,
   onToggleCollapse: rawToggle,
@@ -126,6 +127,7 @@ export function RightActionPanel({
 
         {activeTab === "workbench" ? (
           <WorkbenchErrorBoundary>
+            <CommentaryPanel gameLog={gameLog} resolvePlayerName={resolvePlayerName} />
             <WorkbenchPanel />
           </WorkbenchErrorBoundary>
         ) : activeTab === "log" ? (
