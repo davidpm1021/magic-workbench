@@ -4,6 +4,7 @@ import {
   selectRepresentativeBenchmarks,
   toCommunityBenchmark,
   sampleBenchmarkCatalog,
+  filterExcludedBenchmarkCommanders,
 } from "./communityBenchmarks";
 import type { ArchidektSearchResult } from "@/lib/archidekt";
 
@@ -70,4 +71,12 @@ describe("community benchmarks", () => {
     expect(first.every((item) => item.bracket === 3)).toBe(true);
     expect(new Set(first.map((item) => item.archetype)).size).toBe(4);
   });
+  it("filters explicitly excluded commanders before sampling", () => {
+    const input = [
+      { ...toCommunityBenchmark(deck("k", 3, ["Goblins"], 9000)), name: "Krenko, Mob Boss Goblins" },
+      { ...toCommunityBenchmark(deck("a", 3, ["Value"], 8000)), name: "Muldrotha Value" },
+    ];
+    expect(filterExcludedBenchmarkCommanders(input, ["Krenko, Mob Boss"]).map((item) => item.id)).toEqual(["a"]);
+  });
+
 });
