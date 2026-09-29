@@ -221,8 +221,21 @@ export function useWorkbenchController(paused = false): void {
         const startIndex = (latestTest.reports.length * 3) % suite.length;
         // Try beyond the three scheduled entries so one stale or malformed
         // community list cannot kill an unattended benchmark run.
-        const fallbackMeta = Array.from({ length: Math.min(suite.length, 8) }, (_, offset) =>
-          suite[(startIndex + offset) % suite.length],
+        const recentlyFaced = new Set(
+          latestTest.reports
+            .slice(-Math.min(12, latestTest.reports.length))
+            .flatMap((report) =>
+              (report.benchmarkOpponents ?? (report.benchmarkOpponent ? [report.benchmarkOpponent] : []))
+                .map((opponent) => opponent.id),
+            ),
+        );
+        const orderedMeta = [
+          ...suite.filter((meta) => !recentlyFaced.has(meta.id)),
+          ...suite.filter((meta) => recentlyFaced.has(meta.id)),
+        ];
+        const fallbackMeta = Array.from(
+          { length: Math.min(orderedMeta.length, 12) },
+          (_, offset) => orderedMeta[(startIndex + offset) % orderedMeta.length],
         );
         const sources = await Promise.all(
           fallbackMeta.map((meta) => fetchArchidektResult(meta.id)),
