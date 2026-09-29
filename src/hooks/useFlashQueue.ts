@@ -2,8 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { useGameStore } from "@/stores/useGameStore";
 import type { FlashItem } from "@/components/game/game.types";
 import type { GameViewDto } from "@/protocol/game";
+import { usePreferencesStore } from "@/stores/usePreferencesStore";
 
 export function useFlashQueue(flashDurationMs: number) {
+  const commentaryMode = usePreferencesStore((state) => state.commentaryMode);
+  const pacedFlashDurationMs =
+    commentaryMode === "full" ? Math.max(flashDurationMs, 2400) :
+    commentaryMode === "key" ? Math.max(flashDurationMs, 1500) : flashDurationMs;
   const deferredQueue = useGameStore((s) => s.deferredQueue);
   const [activeFlash, setActiveFlash] = useState<FlashItem | null>(null);
   const flashQueueRef = useRef<FlashItem[]>([]);
@@ -129,10 +134,10 @@ export function useFlashQueue(flashDurationMs: number) {
     }
     const timer = setTimeout(() => {
       setActiveFlash(null);
-    }, flashDurationMs);
+    }, pacedFlashDurationMs);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFlash, flashDurationMs]);
+  }, [activeFlash, pacedFlashDurationMs]);
 
   return activeFlash;
 }
