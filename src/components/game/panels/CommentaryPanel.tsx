@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { GameLogEntry } from "@/types/gameLog";
 import { usePreferencesStore, type CommentaryMode } from "@/stores/usePreferencesStore";
+import { buildCommentaryBeats } from "@/workbench/commentary";
 
 interface CommentaryPanelProps {
   gameLog: GameLogEntry[];
@@ -22,8 +23,9 @@ export function CommentaryPanel({ gameLog, resolvePlayerName }: CommentaryPanelP
   const setMode = usePreferencesStore((state) => state.setCommentaryMode);
   const entries = useMemo(() => {
     const source = mode === "full" ? gameLog : gameLog.filter(important);
-    return source.slice(-5).reverse();
+    return source.slice(-20);
   }, [gameLog, mode]);
+  const beats = useMemo(() => buildCommentaryBeats(entries).slice(-4).reverse(), [entries]);
 
   return (
     <section className="rounded-lg border border-border/60 bg-muted/20 p-2.5">
@@ -44,13 +46,20 @@ export function CommentaryPanel({ gameLog, resolvePlayerName }: CommentaryPanelP
       </div>
       {mode !== "off" ? (
         <div className="mt-2 space-y-1.5" aria-live="polite">
-          {entries.length > 0 ? entries.map((entry, index) => (
+          {beats.length > 0 ? beats.map((beat, index) => (
             <div
-              key={`${entry.sequence ?? entry.timestampMs}-${index}`}
+              key={beat.id}
               className={`rounded-md px-2 py-1.5 text-[10px] leading-relaxed ${index === 0 ? "bg-background font-medium text-foreground" : "text-muted-foreground"}`}
             >
-              <span className="mr-1 font-mono text-[9px] opacity-60">#{entry.sequence ?? "?"}</span>
-              {sentence(entry, resolvePlayerName)}
+              <div>
+                <span className="mr-1 font-mono text-[9px] opacity-60">#{beat.sequenceStart ?? "?"}</span>
+                {beat.headline}
+              </div>
+              {mode === "full" && beat.details.length > 0 ? (
+                <div className="mt-1 space-y-0.5 border-l border-border/60 pl-2 font-normal text-muted-foreground">
+                  {beat.details.slice(-5).map((detail, detailIndex) => <div key={detailIndex}>↳ {detail}</div>)}
+                </div>
+              ) : null}
             </div>
           )) : (
             <p className="text-[10px] text-muted-foreground">Waiting for the next engine event…</p>
