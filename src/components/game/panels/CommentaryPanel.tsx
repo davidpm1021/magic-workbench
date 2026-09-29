@@ -12,13 +12,7 @@ function important(entry: GameLogEntry): boolean {
   return entry.entryType === "action" || entry.entryType === "stack" || entry.entryType === "rule" || entry.entryType === "warning";
 }
 
-function sentence(entry: GameLogEntry, resolvePlayerName: (id: string) => string): string {
-  const actor = entry.playerId ? resolvePlayerName(entry.playerId) : "";
-  const prefix = actor && !entry.message.toLowerCase().startsWith(actor.toLowerCase()) ? `${actor}: ` : "";
-  return `${prefix}${entry.message}`;
-}
-
-export function CommentaryPanel({ gameLog, resolvePlayerName }: CommentaryPanelProps) {
+export function CommentaryPanel({ gameLog }: CommentaryPanelProps) {
   const mode = usePreferencesStore((state) => state.commentaryMode);
   const setMode = usePreferencesStore((state) => state.setCommentaryMode);
   const entries = useMemo(() => {
