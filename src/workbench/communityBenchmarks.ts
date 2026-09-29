@@ -126,6 +126,28 @@ export async function loadPlayableCommunityBenchmarks(
 }
 
 
+
+export const DEFAULT_EXCLUDED_COMMANDERS = [
+  "Krenko, Mob Boss",
+  "Krenko, Tin Street Kingpin",
+] as const;
+
+export function benchmarkMatchesExcludedCommander(
+  deck: CommunityBenchmarkDeck,
+  excluded: readonly string[],
+): boolean {
+  if (excluded.length === 0) return false;
+  const haystack = `${deck.name} ${deck.description} ${deck.tags.join(" ")}`.toLowerCase();
+  return excluded.some((name) => haystack.includes(name.trim().toLowerCase()));
+}
+
+export function filterExcludedBenchmarkCommanders(
+  decks: CommunityBenchmarkDeck[],
+  excluded: readonly string[],
+): CommunityBenchmarkDeck[] {
+  return decks.filter((deck) => !benchmarkMatchesExcludedCommander(deck, excluded));
+}
+
 function hashSeed(seed: string): number {
   let value = 2166136261;
   for (let index = 0; index < seed.length; index += 1) {
