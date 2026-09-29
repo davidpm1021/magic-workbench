@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { useOwnedDecks } from "@/hooks/useOwnedDecks";
 import { buildArchidektBenchmarkCatalog } from "@/lib/archidekt";
 import {
+  DEFAULT_EXCLUDED_COMMANDERS,
+  filterExcludedBenchmarkCommanders,
   loadPlayableCommunityBenchmarks,
   sampleBenchmarkCatalog,
   toCommunityBenchmark,
@@ -34,6 +36,9 @@ export function WorkbenchBenchmarkSetup({
   const [games, setGames] = useState(16);
   const [candidates, setCandidates] = useState<CommunityBenchmarkDeck[]>([]);
   const [sampleSeed, setSampleSeed] = useState(() => crypto.randomUUID());
+  const [excludedCommandersText, setExcludedCommandersText] = useState(() =>
+    localStorage.getItem("workbench-excluded-commanders") ?? DEFAULT_EXCLUDED_COMMANDERS.join("\n"),
+  );
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,9 +66,17 @@ export function WorkbenchBenchmarkSetup({
     };
   }, [bracket]);
 
+  const excludedCommanders = useMemo(
+    () => excludedCommandersText.split(/[,\n]/).map((name) => name.trim()).filter(Boolean),
+    [excludedCommandersText],
+  );
+  const eligibleCandidates = useMemo(
+    () => filterExcludedBenchmarkCommanders(candidates, excludedCommanders),
+    [candidates, excludedCommanders],
+  );
   const suite = useMemo(
-    () => sampleBenchmarkCatalog(candidates, Math.min(48, candidates.length), sampleSeed),
-    [candidates, sampleSeed],
+    () => sampleBenchmarkCatalog(eligibleCandidates, Math.min(48, eligibleCandidates.length), sampleSeed),
+    [eligibleCandidates, sampleSeed],
   );
   const player = commanderDecks.find((entry) => entry.id === deckId);
 
@@ -207,11 +220,30 @@ export function WorkbenchBenchmarkSetup({
         </section>
 
         <section className="rounded-xl border border-border/60 p-4">
+          <label className="block space-y-1.5">
+            <span className="text-xs font-semibold">Excluded commanders</span>
+            <textarea
+              rows={3}
+              className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-xs"
+              value={excludedCommandersText}
+              placeholder="One commander per line"
+              onChange={(event) => {
+                setExcludedCommandersText(event.target.value);
+                localStorage.setItem("workbench-excluded-commanders", event.target.value);
+              }}
+            />
+            <span className="block text-[10px] text-muted-foreground">
+              Decks matching these commander names are removed before opponent sampling.
+            </span>
+          </label>
+        </section>
+
+        <section className="rounded-xl border border-border/60 p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="font-semibold">Opponent pool</p>
               <p className="text-xs text-muted-foreground">
-                {loading ? "Loading Archidekt decks…" : `${candidates.length} catalog decks · ${suite.length} sampled for this run`}
+                {loading ? "Loading Archidekt decks…" : `${eligibleCandidates.length} eligible of ${candidates.length} catalog decks · ${suite.length} sampled`}
               </p>
             </div>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
