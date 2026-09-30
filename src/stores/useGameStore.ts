@@ -204,14 +204,21 @@ async function initializeGame({
       resetSelectedGameRuntime();
       const hostedRuntime = getSelectedGameRuntime();
       const hostedDecks: Record<string, Deck> = {};
-      hostedLaunch.playerOrder.forEach((_, index) => {
-        hostedDecks[`player-${index}`] = hostedLaunch.decks[index];
+      const playerDisplayNames: Record<string, string> = {};
+      hostedLaunch.playerOrder.forEach((playerName, index) => {
+        const slot = `player-${index}`;
+        hostedDecks[slot] = hostedLaunch.decks[index];
+        playerDisplayNames[slot] =
+          index === hostedLaunch.enginePlayerIndex
+            ? playerName
+            : hostedLaunch.commanderNames[index] ?? hostedLaunch.decks[index]?.name ?? playerName;
       });
       set({
         isMultiplayer: true,
         isHost: false,
         myPlayerSlot: `player-${hostedLaunch.enginePlayerIndex}`,
         gameDecks: hostedDecks,
+        playerDisplayNames,
         debugInfo: "Joining Forge engine...",
       });
       // Forge runs on the node, or in the desktop app's own host — never in
@@ -245,8 +252,14 @@ async function initializeGame({
     }
   }
   const gameDecks: Record<string, Deck> = { "player-0": deck };
+  const playerDisplayNames: Record<string, string> = { "player-0": "You" };
   (opponentDecks ?? []).forEach((opponentDeck, index) => {
-    gameDecks[`player-${index + 1}`] = opponentDeck;
+    const slot = `player-${index + 1}`;
+    gameDecks[slot] = opponentDeck;
+    playerDisplayNames[slot] =
+      opponentDeck.commanders?.map((card) => card.identity.name).filter(Boolean).join(" + ") ||
+      opponentDeck.name ||
+      `Opponent ${index + 1}`;
   });
   const runtime = getSelectedGameRuntime();
   set({
@@ -267,6 +280,7 @@ async function initializeGame({
     selfConceded: false,
     gameConfig: { formatId: selectedFormatId, startingLife },
     gameDecks,
+    playerDisplayNames,
     isPrefetchingCards: true,
     debugInfo: "Starting engine...",
   });
@@ -345,6 +359,7 @@ export const useGameStore = create<GameState>()(
       isHost: false,
       myPlayerSlot: null,
       gameDecks: {},
+      playerDisplayNames: {},
       hiddenPlaymats: new Set<string>(),
       togglePlaymatHidden: (playerId) =>
         set((state) => {
