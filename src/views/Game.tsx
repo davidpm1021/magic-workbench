@@ -1905,9 +1905,13 @@ export default function Game({ exitTo }: GameProps = {}) {
     }
     return byId;
   }, [visibleCardsById, stackCardsBySourceId]);
+  const playerDisplayNames = useGameStore((state) => state.playerDisplayNames);
   const playerNameById = useMemo(
-    () => new Map((gameView?.players ?? []).map((p) => [p.id, p.name] as const)),
-    [gameView?.players],
+    () =>
+      new Map(
+        (gameView?.players ?? []).map((p) => [p.id, playerDisplayNames[p.id] ?? p.name] as const),
+      ),
+    [gameView?.players, playerDisplayNames],
   );
   const resolveStackCard = (stackItem: StackObjectDto): CardDto =>
     visibleCardsById.get(stackItem.sourceId) ?? stackCardsBySourceId.get(stackItem.sourceId)!;
