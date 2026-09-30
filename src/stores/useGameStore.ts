@@ -54,6 +54,8 @@ import type { EngineKind } from "@/types/server";
 import { GAME_CARD_DEFAULTS } from "@/lib/gameCard";
 import type { GameRuntime, ManualTabletopApi } from "@/game";
 import { withResolvedDeckName } from "@/lib/deckName";
+import { useWorkbenchStore } from "./useWorkbenchStore";
+import { compactWorkbenchGameView } from "@/workbench/compactGameView";
 export type { GameConfig, GameState, DisplayEvent, DeferredSnapshot } from "./gameStore.types";
 let gameLaunchGeneration = 0;
 let gameLaunchInFlight: number | null = null;
@@ -202,14 +204,21 @@ async function initializeGame({
       resetSelectedGameRuntime();
       const hostedRuntime = getSelectedGameRuntime();
       const hostedDecks: Record<string, Deck> = {};
-      hostedLaunch.playerOrder.forEach((_, index) => {
-        hostedDecks[`player-${index}`] = hostedLaunch.decks[index];
+      const playerDisplayNames: Record<string, string> = {};
+      hostedLaunch.playerOrder.forEach((playerName, index) => {
+        const slot = `player-${index}`;
+        hostedDecks[slot] = hostedLaunch.decks[index];
+        playerDisplayNames[slot] =
+          index === hostedLaunch.enginePlayerIndex
+            ? playerName
+            : hostedLaunch.commanderNames[index] ?? hostedLaunch.decks[index]?.name ?? playerName;
       });
       set({
         isMultiplayer: true,
         isHost: false,
         myPlayerSlot: `player-${hostedLaunch.enginePlayerIndex}`,
         gameDecks: hostedDecks,
+        playerDisplayNames,
         debugInfo: "Joining Forge engine...",
       });
       // Forge runs on the node, or in the desktop app's own host — never in
@@ -243,8 +252,14 @@ async function initializeGame({
     }
   }
   const gameDecks: Record<string, Deck> = { "player-0": deck };
+  const playerDisplayNames: Record<string, string> = { "player-0": "You" };
   (opponentDecks ?? []).forEach((opponentDeck, index) => {
-    gameDecks[`player-${index + 1}`] = opponentDeck;
+    const slot = `player-${index + 1}`;
+    gameDecks[slot] = opponentDeck;
+    playerDisplayNames[slot] =
+      opponentDeck.commanders?.map((card) => card.identity.name).filter(Boolean).join(" + ") ||
+      opponentDeck.name ||
+      `Opponent ${index + 1}`;
   });
   const runtime = getSelectedGameRuntime();
   set({
@@ -265,6 +280,7 @@ async function initializeGame({
     selfConceded: false,
     gameConfig: { formatId: selectedFormatId, startingLife },
     gameDecks,
+    playerDisplayNames,
     isPrefetchingCards: true,
     debugInfo: "Starting engine...",
   });
@@ -343,6 +359,7 @@ export const useGameStore = create<GameState>()(
       isHost: false,
       myPlayerSlot: null,
       gameDecks: {},
+      playerDisplayNames: {},
       hiddenPlaymats: new Set<string>(),
       togglePlaymatHidden: (playerId) =>
         set((state) => {
@@ -589,12 +606,44 @@ export const useGameStore = create<GameState>()(
         }
       },
       respond: async (output) => {
-        const promptType = get().currentPrompt?.input.type;
-        if (!promptType) {
+        const currentPrompt = get().currentPrompt;
+        const promptType = currentPrompt?.input.type;
+        if (!promptType || !currentPrompt) {
           console.warn("[store] respond() called with no active prompt");
           return;
         }
         const action = { type: promptType, output } as PromptOutput;
+        const promptId = Number(currentPrompt.promptId ?? 0);
+        const workbench = useWorkbenchStore.getState();
+        const gameView = get().gameView;
+        if (
+          workbench.recovery?.mode === "manual" &&
+          workbench.recovery.promptId === promptId &&
+          gameView
+        ) {
+          workbench.addAuditEntry({
+            id: `human-${Date.now()}-${promptId}`,
+            gameId: gameView.gameId,
+            createdAt: Date.now(),
+            source: "human",
+            status: "manual",
+            promptId,
+            promptType,
+            importance: "manual",
+            model: null,
+            latencyMs: null,
+            usage: null,
+            estimatedCostUsd: 0,
+            reason: `Manual recovery after AI error: ${workbench.recovery.error}`,
+            output,
+            error: null,
+            responseStatus: null,
+            incompleteReason: null,
+            rawModelText: null,
+            promptSnapshot: currentPrompt,
+            visibleGameState: compactWorkbenchGameView(gameView),
+          });
+        }
         // Single-prompt invariant: the engine sends exactly one prompt
         // at a time per agent and expects exactly one response. If a
         // response is already in flight, drop the duplicate — the modal
@@ -620,7 +669,6 @@ export const useGameStore = create<GameState>()(
             debugInfo: `Responding: ${output.type}`,
           });
           const { myPlayerSlot } = get();
-          const promptId = Number(get().currentPrompt?.promptId ?? 0);
           const runtime = getSelectedGameRuntime();
           await runtime.api.respond({ action, playerSlot: myPlayerSlot, promptId });
         } catch (e) {
@@ -653,6 +701,38 @@ export const useGameStore = create<GameState>()(
       },
       endGame: async () => {
         gameLaunchGeneration += 1;
+        const finalView = get().gameView;
+        if (finalView) {
+          const workbench = useWorkbenchStore.getState();
+          const alreadyLoggedTerminal = workbench.auditLog.some(
+            (entry) => entry.gameId === finalView.gameId && entry.promptType === "gameOver",
+          );
+          if (finalView.gameOver && !alreadyLoggedTerminal) {
+            workbench.addAuditEntry({
+              id: `det-${Date.now()}-game-over`,
+              gameId: finalView.gameId,
+              createdAt: Date.now(),
+              source: "deterministic",
+              status: "deterministic",
+              promptId: 0,
+              promptType: "gameOver",
+              importance: "deterministic",
+              model: null,
+              latencyMs: 0,
+              usage: null,
+              estimatedCostUsd: 0,
+              reason: `Game over. Winner: ${finalView.winnerId ?? "none recorded"}.`,
+              output: null,
+              error: null,
+              responseStatus: null,
+              incompleteReason: null,
+              rawModelText: null,
+              promptSnapshot: null,
+              visibleGameState: compactWorkbenchGameView(finalView),
+            });
+          }
+          workbench.completeGame(finalView.gameId, finalView.winnerId ?? null, finalView.turn);
+        }
         const activeSession = peekActiveGameSession();
         clearActiveGameSession();
         const runtime = getSelectedGameRuntime();

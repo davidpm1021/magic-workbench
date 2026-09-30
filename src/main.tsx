@@ -15,10 +15,21 @@ import App from "./App.tsx";
 import { registerConsoleHooks } from "./lib/consoleHooks";
 import { initAndroidSafeArea } from "./platform/androidSafeArea";
 import { initializeLocalization } from "./i18n/runtime";
+import { useWorkbenchStore } from "./stores/useWorkbenchStore";
 
 async function start(): Promise<void> {
   initAndroidSafeArea();
   registerConsoleHooks();
+  if (import.meta.env.DEV) {
+    window.addEventListener("error", (event) => {
+      const message = event.error instanceof Error ? event.error.stack ?? event.error.message : event.message;
+      useWorkbenchStore.getState().recordRuntimeError(message || "Unknown window error", "window.error");
+    });
+    window.addEventListener("unhandledrejection", (event) => {
+      const reason = event.reason instanceof Error ? event.reason.stack ?? event.reason.message : String(event.reason);
+      useWorkbenchStore.getState().recordRuntimeError(reason, "unhandledrejection");
+    });
+  }
   await initializeLocalization();
 
   createRoot(document.getElementById("root")!).render(<App />);

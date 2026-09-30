@@ -41,7 +41,7 @@ import { DeckGridCard } from "@/components/deck/DeckGridCard";
 import { DeckListControls } from "@/components/deck/DeckListControls";
 import { PublishDeckDialog } from "@/components/deck/PublishDeckDialog";
 import { cn } from "@/lib/utils";
-import { Bookmark, HelpCircle, Layers, Plus } from "lucide-react";
+import { Bookmark, HelpCircle, Layers, Plus, RefreshCw, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { ImportDeckTextDialog } from "@/components/editor/ImportDeckTextDialog";
 import { NewDeckChoiceDialog } from "@/components/editor/NewDeckChoiceDialog";
@@ -51,6 +51,8 @@ import { applyDeckFilters, presetDeckParamId, PRESET_DECK_ID_PREFIX } from "@/vi
 import type { SortBy } from "@/views/myDecks.utils";
 import { usePresetDecks, usePresetDecksResolved } from "@/stores/usePresetDecksStore";
 import { useQuickPlaytest } from "@/hooks/useQuickPlaytest";
+import { importLinkedArchidektDeck, refreshArchidektDecks } from "@/workbench/archidektDeckSync";
+import { parseArchidektUrl } from "@/lib/archidekt";
 import { useMyDeckHubEntries } from "@/hooks/useMyDeckHubEntries";
 import { useAccountDecks } from "@/hooks/useAccountDecks";
 import { useAccountDecksStore } from "@/stores/useAccountDecksStore";
@@ -179,6 +181,7 @@ export default function DeckEditor() {
   const [pendingTagCards, setPendingTagCards] = useState<string[]>([]);
   const [showSearch, setShowSearch] = useState(false);
   const [searchFocusSignal, setSearchFocusSignal] = useState(0);
+  const [archidektSyncBusy, setArchidektSyncBusy] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(() =>
     Boolean(
       (
@@ -458,11 +461,13 @@ export default function DeckEditor() {
               }
         }
         badge={
-          presetKey
-            ? "Preset copy"
-            : accountDecksSignedIn && !accountDeck
-              ? "Sync pending"
-              : undefined
+          saved.externalSource?.provider === "archidekt"
+            ? "Archidekt linked"
+            : presetKey
+              ? "Preset copy"
+              : accountDecksSignedIn && !accountDeck
+                ? "Sync pending"
+                : undefined
         }
       />
     );
@@ -660,6 +665,44 @@ export default function DeckEditor() {
     setNewTagDropOpen(false);
     setPendingTagCards([]);
   }
+  async function handleRefreshArchidekt() {
+    if (archidektSyncBusy) return;
+    setArchidektSyncBusy(true);
+    try {
+      const result = await refreshArchidektDecks();
+      if (result.linked === 0) {
+        toast.info("No Archidekt-linked decks yet. Use Link Archidekt Deck first.");
+      } else if (result.failed.length > 0) {
+        toast.warning(
+          `Archidekt refresh: ${result.updated} updated, ${result.unchanged} unchanged, ${result.failed.length} failed.`,
+        );
+      } else {
+        toast.success(`Archidekt refresh: ${result.updated} updated, ${result.unchanged} unchanged.`);
+      }
+    } finally {
+      setArchidektSyncBusy(false);
+    }
+  }
+
+  async function handleLinkArchidekt() {
+    const input = window.prompt("Paste an Archidekt deck URL or deck ID:");
+    if (!input) return;
+    const deckId = parseArchidektUrl(input);
+    if (!deckId) {
+      toast.error("That does not look like an Archidekt deck URL or ID.");
+      return;
+    }
+    setArchidektSyncBusy(true);
+    try {
+      await importLinkedArchidektDeck(deckId);
+      toast.success("Archidekt deck linked and imported. Future refreshes will update it in place.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setArchidektSyncBusy(false);
+    }
+  }
+
   if (view === "list") {
     return (
       <>
@@ -684,11 +727,31 @@ export default function DeckEditor() {
                 <span className="text-[10px] text-muted-foreground">
                   ({collectionDecks.length})
                 </span>
+                <div className="ml-auto flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={archidektSyncBusy}
+                    onClick={() => void handleLinkArchidekt()}
+                  >
+                    <Link2 className="mr-1 h-3.5 w-3.5" />
+                    Link Archidekt Deck
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={archidektSyncBusy}
+                    onClick={() => void handleRefreshArchidekt()}
+                  >
+                    <RefreshCw className={cn("mr-1 h-3.5 w-3.5", archidektSyncBusy && "animate-spin")} />
+                    Refresh Archidekt
+                  </Button>
+                </div>
                 {accountDecksAvailable && accountDecksSignedIn && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="ml-auto"
+                    className=""
                     disabled={accountDecksLoading}
                     onClick={() => void refreshAccountDecks()}
                   >

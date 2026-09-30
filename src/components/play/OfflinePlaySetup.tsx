@@ -1,4 +1,4 @@
-import { DeckVsSelector } from "@/components/lobby/DeckVsSelector";
+import { WorkbenchBenchmarkSetup } from "@/components/play/WorkbenchBenchmarkSetup";
 import type { Deck } from "@/protocol/deck";
 
 interface OfflinePlaySetupProps {
@@ -14,16 +14,12 @@ interface OfflinePlaySetupProps {
 
 export function OfflinePlaySetup({
   preSelectedDeckId,
-  preSelectedHubDeckId,
   onStart,
 }: OfflinePlaySetupProps) {
   return (
-    <div className="h-full min-h-0">
-      <DeckVsSelector
-        preSelectedDeckId={preSelectedDeckId}
-        preSelectedHubDeckId={preSelectedHubDeckId}
-        onStart={onStart}
-      />
-    </div>
+    <WorkbenchBenchmarkSetup
+      preSelectedDeckId={preSelectedDeckId}
+      onStart={onStart}
+    />
   );
 }

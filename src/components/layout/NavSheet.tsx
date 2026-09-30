@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { Menu, Swords } from "lucide-react";
+import { Menu } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { ROUTES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import {
   getMoreDestinations,
@@ -89,7 +88,6 @@ export function NavSheet({ disabled = false }: NavSheetProps) {
       <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto rounded-t-2xl px-3 pb-6">
         <SheetTitle className="sr-only">{`Menu`}</SheetTitle>
         <div className="pt-2">
-          {renderRow({ to: ROUTES.PLAY, label: `Play`, icon: Swords })}
           {direct.map(renderRow)}
           <div className="pt-3">
             <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">

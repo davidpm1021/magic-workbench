@@ -10,6 +10,10 @@ export interface ArchidektSearchResult {
   format: string;
   description: string;
   tags: string[];
+  views?: number;
+  bracket?: number;
+  updatedAt?: string;
+  cardCount?: number;
 }
 
 export interface ArchidektDeckCard {
@@ -75,6 +79,17 @@ export interface RequestOptions {
   signal?: AbortSignal;
 }
 
+function archidektUrl(path: string): string {
+  if (
+    typeof window !== "undefined" &&
+    window.location.hostname === "localhost" &&
+    window.location.port === "1420"
+  ) {
+    return `/workbench-archidekt?path=${encodeURIComponent(path)}`;
+  }
+  return `https://archidekt.com${path}`;
+}
+
 function resolveFetch(opts?: RequestOptions): FetchFn {
   const f = opts?.fetch ?? (globalThis as { fetch?: FetchFn }).fetch;
   if (!f) throw new Error("No fetch implementation available");
@@ -100,6 +115,13 @@ interface RawSearchResult {
   deckFormat?: number;
   description?: string | null;
   tags?: unknown;
+  viewCount?: number;
+  views?: number;
+  edhBracket?: number;
+  bracket?: number | { bracket?: number; id?: number; value?: number };
+  updatedAt?: string;
+  cardCount?: number;
+  size?: number;
 }
 
 interface RawSearchResponse {
@@ -114,6 +136,14 @@ function mapSearchResult(d: RawSearchResult): ArchidektSearchResult {
     format: (d.deckFormat != null && ARCHIDEKT_FORMATS[d.deckFormat]) || "",
     description: normalizeDescription(d.description),
     tags: normalizeTags(d.tags),
+    views: d.viewCount ?? d.views,
+    bracket:
+      d.edhBracket ??
+      (typeof d.bracket === "number"
+        ? d.bracket
+        : d.bracket?.bracket ?? d.bracket?.value ?? d.bracket?.id),
+    updatedAt: d.updatedAt,
+    cardCount: d.cardCount ?? d.size,
   };
 }
 
@@ -141,6 +171,63 @@ export async function searchArchidekt(
   if (!res.ok) throw new Error(`Archidekt search failed: ${res.status}`);
   const data = (await res.json()) as RawSearchResponse;
   return (data.results ?? []).map(mapSearchResult);
+}
+
+
+export interface ArchidektBenchmarkQuery {
+  bracket?: number;
+  pageSize?: number;
+  minViews?: number;
+  page?: number;
+}
+
+export async function searchArchidektBenchmarks(
+  query: ArchidektBenchmarkQuery = {},
+  opts: RequestOptions = {},
+): Promise<ArchidektSearchResult[]> {
+  const fetchFn = resolveFetch(opts);
+  const pageSize = Math.max(1, Math.min(50, query.pageSize ?? 25));
+  const params = new URLSearchParams({
+    deckFormat: String(GAME_FORMAT_TO_ARCHIDEKT.commander),
+    pageSize: String(pageSize),
+    orderBy: "-viewCount",
+    page: String(Math.max(1, query.page ?? 1)),
+  });
+  // Archidekt's deck-search API does not accept the old edhBracket filter
+  // parameter. Fetch the popular Commander page and filter the explicit
+  // bracket metadata client-side instead. This also keeps estimated/unset
+  // brackets out of a supposedly comparable benchmark pool.
+  const res = await fetchFn(archidektUrl(`/api/decks/v3/?${params.toString()}`), {
+    headers: { "User-Agent": USER_AGENT },
+    signal: opts.signal,
+  });
+  if (!res.ok) throw new Error(`Archidekt benchmark search failed: ${res.status}`);
+  const data = (await res.json()) as RawSearchResponse;
+  return (data.results ?? [])
+    .map(mapSearchResult)
+    .filter((deck) => (deck.cardCount == null || deck.cardCount === 100))
+    .filter((deck) => !query.bracket || deck.bracket === query.bracket)
+    .filter((deck) => (deck.views ?? 0) >= (query.minViews ?? 0));
+}
+
+
+export async function buildArchidektBenchmarkCatalog(
+  query: ArchidektBenchmarkQuery & { targetSize?: number; maxPages?: number } = {},
+  opts: RequestOptions = {},
+): Promise<ArchidektSearchResult[]> {
+  const targetSize = Math.max(12, Math.min(500, query.targetSize ?? 120));
+  const maxPages = Math.max(1, Math.min(20, query.maxPages ?? 12));
+  const byId = new Map<string, ArchidektSearchResult>();
+  for (let page = 1; page <= maxPages && byId.size < targetSize; page += 1) {
+    const results = await searchArchidektBenchmarks(
+      { ...query, page, pageSize: Math.min(50, query.pageSize ?? 50) },
+      opts,
+    );
+    for (const deck of results) byId.set(deck.id, deck);
+    // A page with no matching bracket decks does not imply later popular pages
+    // are empty, so continue through the configured horizon.
+  }
+  return [...byId.values()];
 }
 
 interface RawDeckResponse {
@@ -176,7 +263,7 @@ export async function fetchArchidektDeck(
   opts: RequestOptions = {},
 ): Promise<ArchidektDeck> {
   const fetchFn = resolveFetch(opts);
-  const res = await fetchFn(`https://archidekt.com/api/decks/${id}/`, {
+  const res = await fetchFn(archidektUrl(`/api/decks/${id}/`), {
     headers: { "User-Agent": USER_AGENT },
     signal: opts.signal,
   });
@@ -213,7 +300,7 @@ export async function fetchArchidektResult(
   opts: RequestOptions = {},
 ): Promise<ArchidektSearchResult> {
   const fetchFn = resolveFetch(opts);
-  const res = await fetchFn(`https://archidekt.com/api/decks/${id}/`, {
+  const res = await fetchFn(archidektUrl(`/api/decks/${id}/`), {
     headers: { "User-Agent": USER_AGENT },
     signal: opts.signal,
   });

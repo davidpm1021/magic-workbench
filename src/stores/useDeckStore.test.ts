@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeckCard } from "@/protocol/deck";
 import type { ScryfallCard } from "@/types/scryfall";
 
 vi.hoisted(() => vi.stubGlobal("__APP_VERSION__", "test"));
+vi.mock("@/platform", () => ({
+  getPlatformType: () => "web",
+}));
 vi.mock("pixi.js", () => ({
   ImageSource: class {},
   Texture: class {
@@ -13,6 +16,9 @@ vi.mock("pixi.js", () => ({
 }));
 
 let useDeckStore: typeof import("./useDeckStore").useDeckStore;
+let setWorkbenchDeckBackupTestEnabled: typeof import("./useDeckStore").setWorkbenchDeckBackupTestEnabled;
+let waitForWorkbenchDeckBackup: typeof import("./useDeckStore").waitForWorkbenchDeckBackup;
+let fetchMock: ReturnType<typeof vi.fn>;
 
 function card(id: string, setCode: string, cardNumber: string, foil = false): DeckCard {
   return {
@@ -22,10 +28,118 @@ function card(id: string, setCode: string, cardNumber: string, foil = false): De
 }
 
 beforeAll(async () => {
-  ({ useDeckStore } = await import("./useDeckStore"));
+  fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+  Object.defineProperty(globalThis, "fetch", {
+    value: fetchMock,
+    configurable: true,
+    writable: true,
+  });
+  const deckModule = await import("./useDeckStore");
+  useDeckStore = deckModule.useDeckStore;
+  setWorkbenchDeckBackupTestEnabled = deckModule.setWorkbenchDeckBackupTestEnabled;
+  waitForWorkbenchDeckBackup = deckModule.waitForWorkbenchDeckBackup;
+  setWorkbenchDeckBackupTestEnabled(true);
+  // Rehydrate after enabling backup mode so the real reconciliation lifecycle
+  // runs under the same conditions as local Workbench.
+  await useDeckStore.persist.rehydrate();
+  await waitForWorkbenchDeckBackup();
 });
 
-afterAll(() => vi.unstubAllGlobals());
+beforeEach(() => {
+  fetchMock.mockClear();
+});
+
+afterAll(() => {
+  setWorkbenchDeckBackupTestEnabled(false);
+  vi.unstubAllGlobals();
+});
+
+describe("Workbench deck disk backup", () => {
+  it("writes savedDecks directly to the local backup endpoint", async () => {
+    const id = useDeckStore.getState().addSavedDeck({
+      name: "Persistent Commander Deck",
+      format: "commander",
+      cards: [],
+      sideboard: [],
+    });
+
+    await waitForWorkbenchDeckBackup();
+
+    await vi.waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(([url, init]) => {
+          if (url !== "/workbench-data/decks" || init?.method !== "PUT") return false;
+          const payload = JSON.parse(String(init.body)) as {
+            schemaVersion?: number;
+            savedDecks?: Array<{ id?: string; deck?: { name?: string } }>;
+          };
+          return (
+            payload.schemaVersion === 1 &&
+            payload.savedDecks?.some(
+              (saved) =>
+                saved.id === id && saved.deck?.name === "Persistent Commander Deck",
+            ) === true
+          );
+        }),
+      ).toBe(true);
+    });
+
+  });
+
+  it("does not delete the disk backup when browser persistence is cleared", async () => {
+    useDeckStore.persist.clearStorage();
+
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) => url === "/workbench-data/decks" && init?.method === "DELETE",
+      ),
+    ).toBe(false);
+  });
+
+  it("restores saved decks from disk when browser storage is empty", async () => {
+    const persistedDeck = {
+      id: "disk-deck-1",
+      deck: {
+        name: "Recovered Commander Deck",
+        format: "commander",
+        cards: [],
+        sideboard: [],
+      },
+      savedAt: 1234,
+    };
+
+    localStorage.removeItem("manabrew-deck-storage");
+    useDeckStore.setState({ savedDecks: [] });
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/workbench-data/decks" && (!init?.method || init.method === "GET")) {
+        return new Response(
+          JSON.stringify({
+            schemaVersion: 1,
+            updatedAt: 2000,
+            savedDecks: [persistedDeck],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(null, { status: 204 });
+    });
+
+    await useDeckStore.persist.rehydrate();
+    await waitForWorkbenchDeckBackup();
+
+    await vi.waitFor(() => {
+      expect(
+        useDeckStore.getState().savedDecks.some(
+          (saved) =>
+            saved.id === persistedDeck.id &&
+            saved.deck.name === "Recovered Commander Deck",
+        ),
+      ).toBe(true);
+    });
+  });
+});
 
 describe("deck printing updates", () => {
   it("changes only copies of the selected printing variant", () => {
