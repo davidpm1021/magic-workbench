@@ -324,6 +324,7 @@ export function GameBoard({
       (compactBoard ? HAND_RESERVE_TRIM_COMPACT : HAND_RESERVE_TRIM),
   );
   const opponentLayout = usePreferencesStore((s) => s.opponentLayout);
+  const playerDisplayNames = useGameStore((state) => state.playerDisplayNames);
   const activePlayer = activePlayerId === me.id ? me : opponents.find((player) => player.id === activePlayerId);
   const priorityPlayer =
     priorityPlayerId === me.id ? me : opponents.find((player) => player.id === priorityPlayerId);
@@ -331,13 +332,13 @@ export function GameBoard({
     activePlayerId === me.id
       ? "YOUR TURN"
       : activePlayer
-        ? `${stripUsernameTag(activePlayer.name).toUpperCase()}'S TURN`
+        ? `${(playerDisplayNames[activePlayer.id] ?? stripUsernameTag(activePlayer.name)).toUpperCase()}'S TURN`
         : "TURN";
   const priorityLabel =
     priorityPlayerId === me.id
       ? "YOUR PRIORITY"
       : priorityPlayer
-        ? `${stripUsernameTag(priorityPlayer.name)} has priority`
+        ? `${playerDisplayNames[priorityPlayer.id] ?? stripUsernameTag(priorityPlayer.name)} has priority`
         : null;
 
   const isTargetingPrompt = promptType === "chooseBoardTargets";
@@ -1714,7 +1715,7 @@ export function GameBoard({
           <div className="rounded-full bg-background/85 px-2 py-0.5 text-[9px] font-semibold text-muted-foreground shadow">
             {priorityLabel}
             {priorityPlayerId === me.id && activePlayerId !== me.id
-              ? ` · ${activePlayer ? stripUsernameTag(activePlayer.name) : "Opponent"}'s turn`
+              ? ` · ${activePlayer ? (playerDisplayNames[activePlayer.id] ?? stripUsernameTag(activePlayer.name)) : "Opponent"}'s turn`
               : ""}
           </div>
         ) : null}
