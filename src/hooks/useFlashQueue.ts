@@ -3,9 +3,12 @@ import { useGameStore } from "@/stores/useGameStore";
 import type { FlashItem } from "@/components/game/game.types";
 import type { GameViewDto } from "@/protocol/game";
 import { usePreferencesStore } from "@/stores/usePreferencesStore";
+import { useGameUIStore } from "@/stores/useGameUIStore";
 
 export function useFlashQueue(flashDurationMs: number) {
   const commentaryMode = usePreferencesStore((state) => state.commentaryMode);
+  const commentaryPacing = usePreferencesStore((state) => state.commentaryPacing);
+  const commentaryAdvanceToken = useGameUIStore((state) => state.commentaryAdvanceToken);
   const pacedFlashDurationMs =
     commentaryMode === "full" ? Math.max(flashDurationMs, 2400) :
     commentaryMode === "key" ? Math.max(flashDurationMs, 1500) : flashDurationMs;
@@ -132,12 +135,19 @@ export function useFlashQueue(flashDurationMs: number) {
       }
       return;
     }
+    if (commentaryMode !== "off" && commentaryPacing === "step") return;
     const timer = setTimeout(() => {
       setActiveFlash(null);
     }, pacedFlashDurationMs);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFlash, pacedFlashDurationMs]);
+  }, [activeFlash, pacedFlashDurationMs, commentaryMode, commentaryPacing]);
+
+  useEffect(() => {
+    if (commentaryMode === "off" || commentaryPacing !== "step" || !activeFlash) return;
+    if (commentaryAdvanceToken <= 0) return;
+    setActiveFlash(null);
+  }, [commentaryAdvanceToken, commentaryMode, commentaryPacing]);
 
   return activeFlash;
 }
