@@ -136,6 +136,10 @@ export function useFlashQueue(flashDurationMs: number) {
       return;
     }
     if (commentaryMode !== "off" && commentaryPacing === "step") return;
+    // Display flashes currently represent card plays and turn changes. In key-pause
+    // mode, card plays are held for explicit acknowledgement while turn banners
+    // continue automatically.
+    if (commentaryMode !== "off" && commentaryPacing === "key-pause" && activeFlash.kind === "card") return;
     const timer = setTimeout(() => {
       setActiveFlash(null);
     }, pacedFlashDurationMs);
@@ -144,10 +148,13 @@ export function useFlashQueue(flashDurationMs: number) {
   }, [activeFlash, pacedFlashDurationMs, commentaryMode, commentaryPacing]);
 
   useEffect(() => {
-    if (commentaryMode === "off" || commentaryPacing !== "step" || !activeFlash) return;
-    if (commentaryAdvanceToken <= 0) return;
+    if (commentaryMode === "off" || !activeFlash) return;
+    const needsAdvance =
+      commentaryPacing === "step" ||
+      (commentaryPacing === "key-pause" && activeFlash.kind === "card");
+    if (!needsAdvance || commentaryAdvanceToken <= 0) return;
     setActiveFlash(null);
-  }, [commentaryAdvanceToken, commentaryMode, commentaryPacing]);
+  }, [commentaryAdvanceToken, commentaryMode, commentaryPacing, activeFlash]);
 
   return activeFlash;
 }
