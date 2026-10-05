@@ -1,7 +1,25 @@
-import { fetchArchidektDeck } from "@/lib/archidekt";
+import { fetchArchidektDeck, type ArchidektDeck } from "@/lib/archidekt";
 import { resolveDeckTextImport } from "@/components/editor/useDeckTextImport";
 import { useDeckStore, type SavedDeck } from "@/stores/useDeckStore";
 import type { EditorDeck } from "@/types/manabrew";
+
+
+function fingerprintArchidektSource(source: ArchidektDeck): string {
+  return [
+    ...source.commanders.map((card) => `C|${card.count}|${card.name}`),
+    ...source.cards.map((card) => `M|${card.count}|${card.name}`),
+  ].sort().join("\n");
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
 
 function fingerprintDeck(deck: EditorDeck): string {
   const rows = [
@@ -11,8 +29,7 @@ function fingerprintDeck(deck: EditorDeck): string {
   return rows.join("\n");
 }
 
-async function resolveArchidektEditorDeck(deckId: string): Promise<{ deck: EditorDeck; fingerprint: string }> {
-  const source = await fetchArchidektDeck(deckId);
+async function resolveArchidektSource(source: ArchidektDeck): Promise<{ deck: EditorDeck; fingerprint: string }> {
   const entries = [
     ...source.commanders.map((card) => ({
       name: card.name,
@@ -56,6 +73,11 @@ async function resolveArchidektEditorDeck(deckId: string): Promise<{ deck: Edito
   return { deck, fingerprint: fingerprintDeck(deck) };
 }
 
+async function resolveArchidektEditorDeck(deckId: string): Promise<{ deck: EditorDeck; fingerprint: string }> {
+  const source = await withTimeout(fetchArchidektDeck(deckId), 15000, "Archidekt fetch");
+  return resolveArchidektSource(source);
+}
+
 export interface ArchidektRefreshSummary {
   linked: number;
   updated: number;
@@ -65,6 +87,7 @@ export interface ArchidektRefreshSummary {
 
 export async function refreshArchidektDecks(
   savedDecks: SavedDeck[] = useDeckStore.getState().savedDecks,
+  onProgress?: (completed: number, total: number, name: string) => void,
 ): Promise<ArchidektRefreshSummary> {
   const linked = savedDecks.filter((saved) => saved.externalSource?.provider === "archidekt");
   const summary: ArchidektRefreshSummary = {
@@ -75,18 +98,27 @@ export async function refreshArchidektDecks(
   };
   for (const saved of linked) {
     try {
-      const source = saved.externalSource!;
-      const resolved = await resolveArchidektEditorDeck(source.deckId);
-      const nextSource = {
-        ...source,
-        lastSyncedAt: Date.now(),
-        fingerprint: resolved.fingerprint,
-      };
-      if (resolved.fingerprint === source.fingerprint) {
-        useDeckStore.getState().replaceSavedDeckFromExternal(saved.id, saved.deck, nextSource);
+      const external = saved.externalSource!;
+      const source = await withTimeout(fetchArchidektDeck(external.deckId), 15000, `Archidekt fetch for ${saved.deck.name}`);
+      const rawFingerprint = fingerprintArchidektSource(source);
+      // New sync records store a source-list fingerprint. Older records stored
+      // the resolved deck fingerprint, so migrate them once by comparing the
+      // already-saved deck before paying the Scryfall resolution cost.
+      const savedFingerprint = fingerprintDeck(saved.deck);
+      if (external.fingerprint === rawFingerprint || external.fingerprint === savedFingerprint) {
+        useDeckStore.getState().replaceSavedDeckFromExternal(saved.id, saved.deck, {
+          ...external,
+          lastSyncedAt: Date.now(),
+          fingerprint: rawFingerprint,
+        });
         summary.unchanged += 1;
       } else {
-        useDeckStore.getState().replaceSavedDeckFromExternal(saved.id, resolved.deck, nextSource);
+        const resolved = await withTimeout(resolveArchidektSource(source), 45000, `Card resolution for ${saved.deck.name}`);
+        useDeckStore.getState().replaceSavedDeckFromExternal(saved.id, resolved.deck, {
+          ...external,
+          lastSyncedAt: Date.now(),
+          fingerprint: rawFingerprint,
+        });
         summary.updated += 1;
       }
     } catch (error) {
@@ -94,6 +126,8 @@ export async function refreshArchidektDecks(
         name: saved.deck.name,
         error: error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      onProgress?.(summary.updated + summary.unchanged + summary.failed.length, linked.length, saved.deck.name);
     }
   }
   return summary;
@@ -106,6 +140,6 @@ export async function importLinkedArchidektDeck(deckId: string): Promise<string>
     deckId,
     url: `https://archidekt.com/decks/${encodeURIComponent(deckId)}`,
     lastSyncedAt: Date.now(),
-    fingerprint: resolved.fingerprint,
+    fingerprint: fingerprintArchidektSource(await withTimeout(fetchArchidektDeck(deckId), 15000, "Archidekt fingerprint fetch")),
   });
 }
