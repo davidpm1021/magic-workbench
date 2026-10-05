@@ -12,7 +12,10 @@ function isResolution(entry: GameLogEntry): boolean {
   return entry.entryType === "stack" && /\b(resolv|resolved)\b/i.test(entry.message);
 }
 function isTrigger(entry: GameLogEntry): boolean {
-  return /\btrigger(?:ed|s)?\b/i.test(entry.message) || /triggered ability/i.test(entry.message);
+  // A trigger being emitted starts a causal beat. A later "trigger resolved"
+  // stack entry belongs to that same beat and must not start another one.
+  return !isResolution(entry) &&
+    (/\btrigger(?:ed|s)?\b/i.test(entry.message) || /triggered ability/i.test(entry.message));
 }
 function isCast(entry: GameLogEntry): boolean {
   return entry.entryType === "action" && /\b(cast|casts|play|plays|activate|activates)\b/i.test(entry.message);
