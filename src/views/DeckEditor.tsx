@@ -182,6 +182,7 @@ export default function DeckEditor() {
   const [showSearch, setShowSearch] = useState(false);
   const [searchFocusSignal, setSearchFocusSignal] = useState(0);
   const [archidektSyncBusy, setArchidektSyncBusy] = useState(false);
+  const [archidektSyncProgress, setArchidektSyncProgress] = useState<string | null>(null);
   const [importDialogOpen, setImportDialogOpen] = useState(() =>
     Boolean(
       (
@@ -669,7 +670,9 @@ export default function DeckEditor() {
     if (archidektSyncBusy) return;
     setArchidektSyncBusy(true);
     try {
-      const result = await refreshArchidektDecks();
+      const result = await refreshArchidektDecks(undefined, (completed, total, name) => {
+        setArchidektSyncProgress(`${completed}/${total} · ${name}`);
+      });
       if (result.linked === 0) {
         toast.info("No Archidekt-linked decks yet. Use Link Archidekt Deck first.");
       } else if (result.failed.length > 0) {
@@ -679,8 +682,11 @@ export default function DeckEditor() {
       } else {
         toast.success(`Archidekt refresh: ${result.updated} updated, ${result.unchanged} unchanged.`);
       }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
     } finally {
       setArchidektSyncBusy(false);
+      setArchidektSyncProgress(null);
     }
   }
 
@@ -744,7 +750,7 @@ export default function DeckEditor() {
                     onClick={() => void handleRefreshArchidekt()}
                   >
                     <RefreshCw className={cn("mr-1 h-3.5 w-3.5", archidektSyncBusy && "animate-spin")} />
-                    Refresh Archidekt
+                    {archidektSyncBusy && archidektSyncProgress ? archidektSyncProgress : "Refresh Archidekt"}
                   </Button>
                 </div>
                 {accountDecksAvailable && accountDecksSignedIn && (
