@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import type { GameLogEntry } from "@/types/gameLog";
-import { usePreferencesStore, type CommentaryMode } from "@/stores/usePreferencesStore";
+import { usePreferencesStore, type CommentaryMode, type CommentaryPacing } from "@/stores/usePreferencesStore";
+import { useGameUIStore } from "@/stores/useGameUIStore";
+import { Button } from "@/components/ui/button";
 import { buildCommentaryBeats } from "@/workbench/commentary";
 
 interface CommentaryPanelProps {
@@ -15,6 +17,9 @@ function important(entry: GameLogEntry): boolean {
 export function CommentaryPanel({ gameLog }: CommentaryPanelProps) {
   const mode = usePreferencesStore((state) => state.commentaryMode);
   const setMode = usePreferencesStore((state) => state.setCommentaryMode);
+  const pacing = usePreferencesStore((state) => state.commentaryPacing);
+  const setPacing = usePreferencesStore((state) => state.setCommentaryPacing);
+  const advanceCommentary = useGameUIStore((state) => state.advanceCommentary);
   const entries = useMemo(() => {
     const source = mode === "full" ? gameLog : gameLog.filter(important);
     return source.slice(-20);
@@ -39,6 +44,23 @@ export function CommentaryPanel({ gameLog }: CommentaryPanelProps) {
         </select>
       </div>
       {mode !== "off" ? (
+        <>
+        <div className="mt-2 flex items-center gap-1.5">
+          <select
+            className="h-7 min-w-0 flex-1 rounded border border-border bg-background px-1.5 text-[10px]"
+            value={pacing}
+            onChange={(event) => setPacing(event.target.value as CommentaryPacing)}
+          >
+            <option value="auto">Auto pace</option>
+            <option value="key-pause">Pause on key events</option>
+            <option value="step">Step every event</option>
+          </select>
+          {pacing === "step" ? (
+            <Button size="sm" variant="primary" className="h-7 px-2 text-[10px]" onClick={advanceCommentary}>
+              Next event
+            </Button>
+          ) : null}
+        </div>
         <div className="mt-2 space-y-1.5" aria-live="polite">
           {beats.length > 0 ? beats.map((beat, index) => (
             <div
@@ -59,6 +81,7 @@ export function CommentaryPanel({ gameLog }: CommentaryPanelProps) {
             <p className="text-[10px] text-muted-foreground">Waiting for the next engine event…</p>
           )}
         </div>
+        </>
       ) : null}
     </section>
   );
