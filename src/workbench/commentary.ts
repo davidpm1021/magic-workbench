@@ -9,7 +9,7 @@ export interface CommentaryBeat {
 }
 
 function isResolution(entry: GameLogEntry): boolean {
-  return entry.entryType === "stack" && /\b(resolv|resolved)\b/i.test(entry.message);
+  return entry.entryType === "stack" && /\b(resolv(?:e|es|ed|ing)?)\b/i.test(entry.message);
 }
 function isTrigger(entry: GameLogEntry): boolean {
   // A trigger being emitted starts a causal beat. A later "trigger resolved"
