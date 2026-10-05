@@ -64,6 +64,7 @@ interface GameUIState {
   isActionPanelCollapsed: boolean;
   rightPanelTab: "workbench" | "log" | "snapshots" | "dev";
   promptModalHidden: boolean;
+  commentaryAdvanceToken: number;
   zoneBrowserStates: Record<string, CardBrowserState>;
   saveZoneBrowserState: (key: string, state: CardBrowserState) => void;
 
@@ -79,6 +80,7 @@ interface GameUIState {
   toggleDevPanel: () => void;
   hidePromptModal: () => void;
   showPromptModal: () => void;
+  advanceCommentary: () => void;
   resetAll: () => void;
 }
 
@@ -91,6 +93,7 @@ export const useGameUIStore = create<GameUIState>()(
       isActionPanelCollapsed: true,
       rightPanelTab: "workbench",
       promptModalHidden: false,
+      commentaryAdvanceToken: 0,
       zoneBrowserStates: {},
       saveZoneBrowserState: (key, state) =>
         set((current) => ({ zoneBrowserStates: { ...current.zoneBrowserStates, [key]: state } })),
@@ -118,6 +121,7 @@ export const useGameUIStore = create<GameUIState>()(
       },
       hidePromptModal: () => set({ promptModalHidden: true }),
       showPromptModal: () => set({ promptModalHidden: false, viewingZone: null }),
+      advanceCommentary: () => set((state) => ({ commentaryAdvanceToken: state.commentaryAdvanceToken + 1 })),
 
       resetAll: () =>
         set({
