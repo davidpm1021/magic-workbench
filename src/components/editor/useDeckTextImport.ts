@@ -26,13 +26,33 @@ export async function resolveDeckTextImport(
   onProgress: (fraction: number) => void,
 ): Promise<ResolvedDeckTextImport> {
   onProgress(0.05);
-  const scryfallMap = await useScryfallStore.getState().fetchCardCollection(
-    entries.map((e) => ({
-      name: e.name,
-      setCode: e.setCode,
-      collectorNumber: e.collectorNumber,
-    })),
-  );
+  let scryfallMap: Map<string, import("@/types/scryfall").ScryfallCard>;
+  try {
+    scryfallMap = await useScryfallStore.getState().fetchCardCollection(
+      entries.map((e) => ({
+        name: e.name,
+        setCode: e.setCode,
+        collectorNumber: e.collectorNumber,
+      })),
+    );
+  } catch (collectionError) {
+    // Some desktop/browser transport paths can reject Scryfall's POST
+    // /cards/collection even though ordinary named-card GETs work. A bulk
+    // transport failure must not invalidate an otherwise valid Commander deck.
+    console.warn("[import] Scryfall collection lookup failed; falling back to individual names", collectionError);
+    scryfallMap = new Map();
+    let completed = 0;
+    for (const entry of entries) {
+      try {
+        const card = await useScryfallStore.getState().fetchCardByFuzzyName(entry.name);
+        scryfallMap.set(scryfallCardKey(entry.name), card);
+      } catch (error) {
+        console.warn(`[import] fallback lookup "${entry.name}" failed`, error);
+      }
+      completed += 1;
+      onProgress(0.05 + 0.4 * (completed / Math.max(entries.length, 1)));
+    }
+  }
   const exactPrintingMisses = entries.filter(
     (entry) =>
       entry.setCode &&
