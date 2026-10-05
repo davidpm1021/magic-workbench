@@ -55,9 +55,9 @@ export function CommentaryPanel({ gameLog }: CommentaryPanelProps) {
             <option value="key-pause">Pause on key events</option>
             <option value="step">Step every event</option>
           </select>
-          {pacing === "step" ? (
+          {pacing === "step" || pacing === "key-pause" ? (
             <Button size="sm" variant="primary" className="h-7 px-2 text-[10px]" onClick={advanceCommentary}>
-              Next event
+              Continue
             </Button>
           ) : null}
         </div>
