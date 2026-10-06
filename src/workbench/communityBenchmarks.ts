@@ -103,6 +103,16 @@ export interface SkippedCommunityBenchmark {
   reason: string;
 }
 
+function withBenchmarkTimeout<T>(promise: Promise<T>, ms = 30_000): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Community deck validation timed out after ${Math.round(ms / 1000)}s`)), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 export async function loadPlayableCommunityBenchmarks(
   candidates: CommunityBenchmarkDeck[],
   count: number,
@@ -114,7 +124,7 @@ export async function loadPlayableCommunityBenchmarks(
   for (const benchmark of candidates) {
     if (loaded.length >= count) break;
     try {
-      loaded.push({ benchmark, deck: await loadCommunityBenchmarkDeck(benchmark) });
+      loaded.push({ benchmark, deck: await withBenchmarkTimeout(loadCommunityBenchmarkDeck(benchmark)) });
     } catch (error) {
       onSkip?.({
         benchmark,
