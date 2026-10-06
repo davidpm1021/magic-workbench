@@ -2599,6 +2599,25 @@ public final class ManaBrewInteractiveController extends PlayerController implem
         return new ArrayList<>(selected);
     }
 
+    private static String relatedCardId(final SpellAbility sa) {
+        if (sa == null) {
+            return null;
+        }
+        // Effects such as Dack Fayden, Helping Hand choose a player for a
+        // particular permanent. Forge keeps that object in the ability's
+        // related/remembered context rather than making it the host card.
+        // Prefer the first targeted/remembered card when available so the
+        // player-choice prompt shows the object being assigned, not Dack.
+        try {
+            if (sa.getTargets() != null && sa.getTargets().getFirstTargetedCard() != null) {
+                return String.valueOf(sa.getTargets().getFirstTargetedCard().getId());
+            }
+        } catch (RuntimeException ignored) {
+            // Fall through to the source card when this ability has no card target.
+        }
+        return null;
+    }
+
     private <T extends GameEntity> T chooseSingleEntityGeneric(
             final FCollectionView<T> optionList, final SpellAbility sa, final String title, final boolean isOptional) {
         final List<T> opts = new ArrayList<>();
@@ -2612,7 +2631,15 @@ public final class ManaBrewInteractiveController extends PlayerController implem
         for (final T option : opts) {
             labels.add(option == null ? "?" : option.toString());
         }
-        final List<Integer> chosen = session.awaitModeChoice(me(), labels, isOptional ? 0 : 1, 1, sourceName(sa));
+        final String relatedCardId = relatedCardId(sa);
+        final List<Integer> chosen = session.awaitModeChoice(
+                me(),
+                ManaBrewInteractiveSession.unweightedOptions(labels),
+                isOptional ? 0 : 1,
+                1,
+                sourceName(sa),
+                title,
+                relatedCardId != null ? relatedCardId : sourceCardId(sa));
         if (chosen.isEmpty()) {
             return null;
         }
