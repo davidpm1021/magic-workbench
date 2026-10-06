@@ -57,6 +57,21 @@ import { withResolvedDeckName } from "@/lib/deckName";
 import { useWorkbenchStore } from "./useWorkbenchStore";
 import { compactWorkbenchGameView } from "@/workbench/compactGameView";
 export type { GameConfig, GameState, DisplayEvent, DeferredSnapshot } from "./gameStore.types";
+
+const WORKBENCH_FORGE_LAUNCH_TIMEOUT_MS = 60_000;
+function withGameLaunchTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${Math.round(WORKBENCH_FORGE_LAUNCH_TIMEOUT_MS / 1000)} seconds`)),
+      WORKBENCH_FORGE_LAUNCH_TIMEOUT_MS,
+    );
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 let gameLaunchGeneration = 0;
 let gameLaunchInFlight: number | null = null;
 export function cancelPendingGameLaunch(): void {
@@ -179,13 +194,17 @@ async function initializeGame({
     });
     let hosted: Awaited<ReturnType<typeof launchForge>> | null = null;
     try {
-      const hostedLaunch = await launchForge({
-        playerDeck: deck,
-        opponentDecks,
-        formatId: selectedFormatId,
-        commanderName: commanderName ?? null,
-        aiController: usePreferencesStore.getState().aiController,
-      });
+      set({ debugInfo: "Starting Forge room and opponents..." });
+      const hostedLaunch = await withGameLaunchTimeout(
+        launchForge({
+          playerDeck: deck,
+          opponentDecks,
+          formatId: selectedFormatId,
+          commanderName: commanderName ?? null,
+          aiController: usePreferencesStore.getState().aiController,
+        }),
+        "Forge room startup",
+      );
       hosted = hostedLaunch;
       if (!isLaunchCurrent()) {
         await useServerStore.getState().leaveRoom();
@@ -201,6 +220,7 @@ async function initializeGame({
         relayPort: hostedLaunch.relay?.port,
         relayPassword: hostedLaunch.relay?.password,
       });
+      set({ debugInfo: "Forge room ready. Starting rules engine..." });
       resetSelectedGameRuntime();
       const hostedRuntime = getSelectedGameRuntime();
       const hostedDecks: Record<string, Deck> = {};
@@ -225,14 +245,14 @@ async function initializeGame({
       // this tab, and never under a "forge" runtime, so the launch is the only
       // place that can name it.
       beginGame(forgeHostLabel(platformType === "tauri"));
-      await hostedRuntime.api.startMultiplayerGame({
+      await withGameLaunchTimeout(hostedRuntime.api.startMultiplayerGame({
         playerNames: hostedLaunch.playerOrder,
         decks: hostedLaunch.decks,
         commanderNames: hostedLaunch.commanderNames,
         enginePlayerIndex: hostedLaunch.enginePlayerIndex,
         localIsHost: false,
         startingLife: hostedLaunch.startingLife,
-      });
+      }), "Forge rules engine startup");
       if (!isLaunchCurrent()) {
         await hostedRuntime.api.endGame();
         throw new GameLaunchCancelledError();
