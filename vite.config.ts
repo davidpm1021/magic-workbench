@@ -529,6 +529,22 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/hub-api/, ""),
       },
+      "/workbench-scryfall": {
+        target: "https://api.scryfall.com",
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq) => {
+            proxyReq.setHeader(
+              "User-Agent",
+              "MagicWorkbench/0.1 (+https://github.com/davidpm1021/magic-workbench)",
+            );
+            proxyReq.setHeader("Accept", "application/json;q=0.9,*/*;q=0.8");
+            proxyReq.removeHeader("origin");
+            proxyReq.removeHeader("referer");
+          });
+        },
+        rewrite: (p) => p.replace(/^\/workbench-scryfall/, ""),
+      },
       "/spellbook-api": {
         target: "https://backend.commanderspellbook.com",
         changeOrigin: true,
