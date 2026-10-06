@@ -27,6 +27,7 @@ export async function resolveDeckTextImport(
 ): Promise<ResolvedDeckTextImport> {
   onProgress(0.05);
   let scryfallMap: Map<string, import("@/types/scryfall").ScryfallCard>;
+  let bulkLookupAvailable = true;
   try {
     scryfallMap = await useScryfallStore.getState().fetchCardCollection(
       entries.map((e) => ({
@@ -40,6 +41,7 @@ export async function resolveDeckTextImport(
     // /cards/collection even though ordinary named-card GETs work. A bulk
     // transport failure must not invalidate an otherwise valid Commander deck.
     console.warn("[import] Scryfall collection lookup failed; falling back to individual names", collectionError);
+    bulkLookupAvailable = false;
     scryfallMap = new Map();
     let completed = 0;
     for (const entry of entries) {
@@ -59,11 +61,18 @@ export async function resolveDeckTextImport(
       entry.collectorNumber &&
       !scryfallMap.has(scryfallCardKey(entry.name, entry.setCode, entry.collectorNumber)),
   );
-  if (exactPrintingMisses.length > 0) {
-    const fallbacks = await useScryfallStore
-      .getState()
-      .fetchCardCollection(exactPrintingMisses.map((entry) => ({ name: entry.name })));
-    for (const [key, card] of fallbacks) scryfallMap.set(key, card);
+  if (exactPrintingMisses.length > 0 && bulkLookupAvailable) {
+    try {
+      const fallbacks = await useScryfallStore
+        .getState()
+        .fetchCardCollection(exactPrintingMisses.map((entry) => ({ name: entry.name })));
+      for (const [key, card] of fallbacks) scryfallMap.set(key, card);
+    } catch (error) {
+      // Printing fidelity is optional. If the collection transport fails here,
+      // retain the already-resolved name fallback instead of aborting the deck.
+      bulkLookupAvailable = false;
+      console.warn("[import] printing fallback collection failed; keeping name-resolved cards", error);
+    }
   }
   const lookup = (entry: ParsedDeckEntry) => {
     if (entry.setCode && entry.collectorNumber) {
