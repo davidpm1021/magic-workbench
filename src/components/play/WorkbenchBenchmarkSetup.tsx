@@ -41,6 +41,7 @@ export function WorkbenchBenchmarkSetup({
   );
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [startStage, setStartStage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -83,6 +84,7 @@ export function WorkbenchBenchmarkSetup({
   async function run() {
     if (!player || suite.length < 3 || starting) return;
     setStarting(true);
+    setStartStage("Loading and validating community opponents…");
     setError(null);
     try {
       // A Commander benchmark is a real four-player pod: the user's deck plus
@@ -99,6 +101,7 @@ export function WorkbenchBenchmarkSetup({
         );
       }
       const opponents = loaded.map((item) => item.deck);
+      setStartStage("Opponents ready. Starting Forge…");
       const started = await onStart(
         player.deck,
         opponents,
@@ -106,6 +109,7 @@ export function WorkbenchBenchmarkSetup({
         player.deck.commanders?.[0]?.identity.name,
       );
       if (!started) throw new Error("Forge could not start the benchmark pod.");
+      setStartStage("Game ready.");
       if (testMode === "ai-benchmark") useWorkbenchStore.getState().startDeckTest(
         games,
         loaded.map((item) => item.benchmark).concat(suite.filter((deck) => !loaded.some((item) => item.benchmark.id === deck.id))).map((deck) => ({
@@ -133,6 +137,7 @@ export function WorkbenchBenchmarkSetup({
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
       setStarting(false);
+      setStartStage(null);
     }
   }
 
@@ -276,7 +281,7 @@ export function WorkbenchBenchmarkSetup({
         >
           {starting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
           {starting
-            ? "Starting game…"
+            ? startStage ?? "Starting game…"
             : testMode === "manual"
               ? "Start manual 4-player playtest"
               : `Run ${games}-game AI benchmark`}
