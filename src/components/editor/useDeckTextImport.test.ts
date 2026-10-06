@@ -131,6 +131,31 @@ describe("deck text import printing resolution", () => {
     expect(fetchCardByFuzzyName).toHaveBeenCalledTimes(2);
   });
 
+  it("does not retry the broken collection endpoint for printing fallbacks", async () => {
+    fetchCardCollection.mockRejectedValue(new Error("Failed to fetch card collection from Scryfall (HTTP 404)"));
+    fetchCardByFuzzyName.mockImplementation(async (name: string) => scryfallCard(name));
+
+    const result = await resolveDeckTextImport(
+      [
+        {
+          name: "Cultivate",
+          count: 1,
+          side: false,
+          maybe: false,
+          commander: false,
+          setCode: "m21",
+          collectorNumber: "177",
+        },
+      ],
+      () => undefined,
+    );
+
+    expect(result.cards).toHaveLength(1);
+    expect(result.cards[0].identity.name).toBe("Cultivate");
+    expect(fetchCardCollection).toHaveBeenCalledTimes(1);
+    expect(fetchCardByFuzzyName).toHaveBeenCalledWith("Cultivate");
+  });
+
 });
 
 function scryfallCard(name: string, typeLine = "Instant"): ScryfallCard {
