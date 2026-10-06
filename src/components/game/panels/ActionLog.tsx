@@ -5,6 +5,9 @@ import { useTheme } from "@/hooks/useTheme";
 import { useLongPressPreview } from "@/hooks/useLongPressPreview";
 import type { LogCardPreviewOptions } from "@/components/game/game.types";
 import { usePreferencesStore } from "@/stores/usePreferencesStore";
+import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
 interface ActionLogProps {
   gameLog: GameLogEntry[];
   resolveCardName: (cardId: string) => string;
@@ -21,7 +24,27 @@ export function ActionLog({
   resolvePlayerName,
   onHoverLogCard,
 }: ActionLogProps) {
-  const visibleLog = gameLog.filter((entry) => entry.entryType !== "rule");
+  const [filter, setFilter] = useState<GameLogEntryType | "all">("all");
+  const visibleLog = useMemo(
+    () => gameLog.filter((entry) => filter === "all" || entry.entryType === filter),
+    [filter, gameLog],
+  );
+  const exportLog = () => {
+    const payload = {
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      entries: gameLog,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `magic-workbench-engine-log-${Date.now()}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
   const { appTheme, gameTheme: themeColors } = useTheme();
   const cardPreviewMode = usePreferencesStore((state) => state.cardPreviewMode);
   const longPress = useLongPressPreview<string>({
@@ -106,21 +129,39 @@ export function ActionLog({
   if (visibleLog.length === 0) {
     return (
       <div className="rounded-lg p-2.5 min-h-0 flex-1 flex flex-col bg-muted/20">
-        <p className="text-xs font-semibold text-muted-foreground mb-2">Game Log</p>
+        <p className="text-xs font-semibold text-muted-foreground mb-2">Engine Event Log</p>
         <p className="text-xs text-muted-foreground italic">No log entries yet.</p>
       </div>
     );
   }
   return (
     <div className="rounded-lg p-2.5 min-h-0 flex-1 flex flex-col bg-muted/20">
-      <p className="text-xs font-semibold text-muted-foreground mb-2">Game Log</p>
+      <div className="mb-2 flex items-center gap-1">
+        <p className="mr-auto text-xs font-semibold text-muted-foreground">Engine Event Log</p>
+        <select
+          className="h-6 rounded border border-border bg-background px-1 text-[9px]"
+          value={filter}
+          onChange={(event) => setFilter(event.target.value as GameLogEntryType | "all")}
+        >
+          <option value="all">All ({gameLog.length})</option>
+          <option value="stack">Stack</option>
+          <option value="rule">Rules</option>
+          <option value="action">Actions</option>
+          <option value="priority">Priority</option>
+          <option value="warning">Warnings</option>
+          <option value="info">Info</option>
+        </select>
+        <Button size="sm" variant="ghost" className="h-6 px-1.5" title="Export full engine event log" onClick={exportLog}>
+          <Download className="h-3 w-3" />
+        </Button>
+      </div>
       <div
         className="min-h-0 flex-1 overflow-y-auto text-xs text-muted-foreground flex flex-col-reverse pr-1"
         {...longPress}
         onContextMenu={handleContextMenu}
       >
         {visibleLog
-          .slice(-200)
+          .slice()
           .reverse()
           .map((entry, i) => {
             const style = getStyleForType(entry.entryType, entry.message);
@@ -152,6 +193,7 @@ export function ActionLog({
                         ? `TURN`
                         : typeLabel[entry.entryType]}
                   </span>
+                  <span className="text-[9px] font-mono text-muted-foreground/70">#{entry.sequence ?? "?"}</span>
                   <span className="text-[10px] text-muted-foreground/80">
                     {formatTs(entry.timestampMs)}
                   </span>

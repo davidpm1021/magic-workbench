@@ -6,7 +6,8 @@ import type { Prompt } from "@/protocol";
 import { validCardIdsInCards, type BoardTargetBuckets } from "@/lib/boardTargets";
 import type { PreviewPointerInput } from "@/lib/cardPreview";
 import { stripUsernameTag } from "@/lib/username";
-import { nextHandOrderMode } from "@/lib/handOrder";
+import { cn } from "@/lib/utils";
+import { HAND_ORDER_OPTIONS, nextHandOrderMode } from "@/lib/handOrder";
 import { type ZonePanelItem } from "@/stores/usePreferencesStore";
 import { BoardCanvas, type BoardCanvasLayout, type BoardCanvasRegion } from "@/pixi/BoardCanvas";
 import {
@@ -323,6 +324,22 @@ export function GameBoard({
       (compactBoard ? HAND_RESERVE_TRIM_COMPACT : HAND_RESERVE_TRIM),
   );
   const opponentLayout = usePreferencesStore((s) => s.opponentLayout);
+  const playerDisplayNames = useGameStore((state) => state.playerDisplayNames);
+  const activePlayer = activePlayerId === me.id ? me : opponents.find((player) => player.id === activePlayerId);
+  const priorityPlayer =
+    priorityPlayerId === me.id ? me : opponents.find((player) => player.id === priorityPlayerId);
+  const activeTurnName =
+    activePlayerId === me.id
+      ? "YOUR TURN"
+      : activePlayer
+        ? `${(playerDisplayNames[activePlayer.id] ?? stripUsernameTag(activePlayer.name)).toUpperCase()}'S TURN`
+        : "TURN";
+  const priorityLabel =
+    priorityPlayerId === me.id
+      ? "YOUR PRIORITY"
+      : priorityPlayer
+        ? `${playerDisplayNames[priorityPlayer.id] ?? stripUsernameTag(priorityPlayer.name)} has priority`
+        : null;
 
   const isTargetingPrompt = promptType === "chooseBoardTargets";
   const chooseActionPrompt = promptOf(currentPrompt, "chooseAction");
@@ -1683,6 +1700,26 @@ export function GameBoard({
       className="game-board-surface relative flex flex-col min-h-0 flex-1 overflow-hidden"
     >
       <ReconnectBanner />
+      <div className="pointer-events-none absolute left-1/2 top-2 z-[9060] flex -translate-x-1/2 flex-col items-center gap-0.5">
+        <div
+          className={cn(
+            "rounded-full border px-4 py-1 text-xs font-black tracking-[0.16em] shadow-lg backdrop-blur",
+            activePlayerId === me.id
+              ? "border-primary/70 bg-primary/90 text-primary-foreground"
+              : "border-border/70 bg-background/90 text-foreground",
+          )}
+        >
+          {activeTurnName}
+        </div>
+        {priorityLabel ? (
+          <div className="rounded-full bg-background/85 px-2 py-0.5 text-[9px] font-semibold text-muted-foreground shadow">
+            {priorityLabel}
+            {priorityPlayerId === me.id && activePlayerId !== me.id
+              ? ` · ${activePlayer ? (playerDisplayNames[activePlayer.id] ?? stripUsernameTag(activePlayer.name)) : "Opponent"}'s turn`
+              : ""}
+          </div>
+        ) : null}
+      </div>
       <GlobalStateRail
         dayTime={dayTime}
         monarchName={
@@ -1768,6 +1805,14 @@ export function GameBoard({
         onToggleSelfPhase={toggleSelfStop}
         onToggleOpponentPhase={toggleOpponentStop}
       />
+      <button
+        type="button"
+        className="absolute bottom-2 left-1/2 z-[9050] -translate-x-1/2 rounded-md border border-border/70 bg-background/90 px-2 py-1 text-[10px] font-semibold text-foreground shadow-md backdrop-blur hover:bg-muted"
+        title="Cycle hand display order"
+        onClick={() => setHandOrderModeFromBoard(nextHandOrderMode(handOrderMode))}
+      >
+        Sort: {HAND_ORDER_OPTIONS.find((option) => option.value === handOrderMode)?.label ?? "Default"}
+      </button>
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {a11ySummary}
       </div>

@@ -12,6 +12,8 @@ export interface GameLogEntry {
   cardId?: string;
   sourceCardId?: string;
   targetCardId?: string;
+  sequence?: number;
+  raw?: unknown;
 }
 
 export function normalizeGameLogPayload(payload: unknown): GameLogEntry {
@@ -21,6 +23,7 @@ export function normalizeGameLogPayload(payload: unknown): GameLogEntry {
       message: payload,
       entryType: "info",
       timestampMs: now,
+      raw: payload,
     };
   }
 
@@ -37,6 +40,8 @@ export function normalizeGameLogPayload(payload: unknown): GameLogEntry {
       cardId: typeof obj.cardId === "string" ? obj.cardId : undefined,
       sourceCardId: typeof obj.sourceCardId === "string" ? obj.sourceCardId : undefined,
       targetCardId: typeof obj.targetCardId === "string" ? obj.targetCardId : undefined,
+      sequence: typeof obj.sequence === "number" ? obj.sequence : undefined,
+      raw: payload,
     };
   }
 

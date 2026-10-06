@@ -381,6 +381,17 @@ export function DeckVsSelector({
   }
   async function startFight(opponentCount: number) {
     if (!playerDeck || !opponentDeck || starting) return;
+
+    for (const selected of [playerDeck, opponentDeck]) {
+      if (selected.source !== "local" || selected.sourceId !== "current") continue;
+      const store = useDeckStore.getState();
+      if (
+        store.currentDeck.cards.length > 0 ||
+        (store.currentDeck.commanders?.length ?? 0) > 0
+      ) {
+        store.saveCurrentDeck();
+      }
+    }
     const empty = [playerDeck, opponentDeck].find(
       (d) => d.sourceDeck.cards.length === 0 && (d.sourceDeck.commanders?.length ?? 0) === 0,
     );

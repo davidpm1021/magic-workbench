@@ -2,8 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { useGameStore } from "@/stores/useGameStore";
 import type { FlashItem } from "@/components/game/game.types";
 import type { GameViewDto } from "@/protocol/game";
+import { usePreferencesStore } from "@/stores/usePreferencesStore";
+import { useGameUIStore } from "@/stores/useGameUIStore";
 
 export function useFlashQueue(flashDurationMs: number) {
+  const commentaryMode = usePreferencesStore((state) => state.commentaryMode);
+  const commentaryPacing = usePreferencesStore((state) => state.commentaryPacing);
+  const commentaryAdvanceToken = useGameUIStore((state) => state.commentaryAdvanceToken);
+  const pacedFlashDurationMs =
+    commentaryMode === "full" ? Math.max(flashDurationMs, 2400) :
+    commentaryMode === "key" ? Math.max(flashDurationMs, 1500) : flashDurationMs;
   const deferredQueue = useGameStore((s) => s.deferredQueue);
   const [activeFlash, setActiveFlash] = useState<FlashItem | null>(null);
   const flashQueueRef = useRef<FlashItem[]>([]);
@@ -127,12 +135,26 @@ export function useFlashQueue(flashDurationMs: number) {
       }
       return;
     }
+    if (commentaryMode !== "off" && commentaryPacing === "step") return;
+    // Display flashes currently represent card plays and turn changes. In key-pause
+    // mode, card plays are held for explicit acknowledgement while turn banners
+    // continue automatically.
+    if (commentaryMode !== "off" && commentaryPacing === "key-pause" && activeFlash.kind === "card") return;
     const timer = setTimeout(() => {
       setActiveFlash(null);
-    }, flashDurationMs);
+    }, pacedFlashDurationMs);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFlash, flashDurationMs]);
+  }, [activeFlash, pacedFlashDurationMs, commentaryMode, commentaryPacing]);
+
+  useEffect(() => {
+    if (commentaryMode === "off" || !activeFlash) return;
+    const needsAdvance =
+      commentaryPacing === "step" ||
+      (commentaryPacing === "key-pause" && activeFlash.kind === "card");
+    if (!needsAdvance || commentaryAdvanceToken <= 0) return;
+    setActiveFlash(null);
+  }, [commentaryAdvanceToken, commentaryMode, commentaryPacing, activeFlash]);
 
   return activeFlash;
 }

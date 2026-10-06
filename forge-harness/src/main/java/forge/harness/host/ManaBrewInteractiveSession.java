@@ -1761,6 +1761,7 @@ public final class ManaBrewInteractiveSession {
         publishAgentPrompt(
                 "player-" + playerId,
                 source == null ? null : SnapshotExtractor.javaCardId(source),
+                sa,
                 new ChooseBoardTargetsInput(
                         presentation("Sacrifice", null),
                         candidateRefs, true, enumFromWire("sacrifice", TargetingIntent.class),
@@ -2441,6 +2442,7 @@ public final class ManaBrewInteractiveSession {
         publishAgentPrompt(
                 "player-" + playerId,
                 source == null ? null : SnapshotExtractor.javaCardId(source),
+                ability,
                 new ChooseBoardTargetsInput(
                         presentation(title, null),
                         candidateRefs, isHostileIntent(intent),
@@ -2648,12 +2650,24 @@ public final class ManaBrewInteractiveSession {
     }
 
     private void publishAgentPrompt(final String decidingPlayerId, final String sourceCardId, final JsonObject input) {
+        publishAgentPrompt(decidingPlayerId, sourceCardId, null, input);
+    }
+
+    private void publishAgentPrompt(
+            final String decidingPlayerId,
+            final String sourceCardId,
+            final SpellAbility explicitAbility,
+            final JsonObject input
+    ) {
         promptedPlayerIndex = parsePlayerSlot(decidingPlayerId);
+        final String abilityText = explicitAbility != null
+                ? InteractiveSnapshotExtractor.sourceAbilityText(explicitAbility)
+                : sourceAbilityText(sourceCardId);
         latestPromptJson = ManabrewProtocolAdapter.agentPrompt(
                 ++promptSeq,
                 decidingPlayerId,
                 sourceCard(sourceCardId),
-                sourceAbilityText(sourceCardId),
+                abilityText,
                 input);
     }
 
@@ -2672,6 +2686,19 @@ public final class ManaBrewInteractiveSession {
 
     private void publishAgentPrompt(final String decidingPlayerId, final String sourceCardId, final Object typedInput) {
         publishAgentPrompt(decidingPlayerId, sourceCardId, GSON.toJsonTree(typedInput).getAsJsonObject());
+    }
+
+    private void publishAgentPrompt(
+            final String decidingPlayerId,
+            final String sourceCardId,
+            final SpellAbility explicitAbility,
+            final Object typedInput
+    ) {
+        publishAgentPrompt(
+                decidingPlayerId,
+                sourceCardId,
+                explicitAbility,
+                GSON.toJsonTree(typedInput).getAsJsonObject());
     }
 
     private static <T> T enumFromWire(final String wire, final Class<T> type) {

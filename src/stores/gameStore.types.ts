@@ -91,6 +91,7 @@ export interface GameState {
    *  Card renderers resolve the owner deck first, then recover source stubs
    *  from the other active decks when the producer omitted the owner slot. */
   gameDecks: Record<string, Deck>;
+  playerDisplayNames: Record<string, string>;
   /** Local view-only set of player slots whose playmat the viewer has hidden.
    *  Never synced — it only affects this client's board. Cleared on game end. */
   hiddenPlaymats: Set<string>;

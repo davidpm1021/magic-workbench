@@ -1,173 +1,130 @@
-import { LibraryBig, Swords, Users } from "lucide-react";
-import { useEffect, useState } from "react";
-import { UpdateCallout } from "@/components/layout/UpdateCallout";
-import { FeatureTile } from "@/components/play/FeatureTile";
-import { PlayDeckShelf } from "@/components/play/PlayDeckShelf";
-import { PlayHomeLinks } from "@/components/play/PlayHomeLinks";
-import { RejoinMatchCard } from "@/components/play/RejoinMatchCard";
-import { isFeatureEnabled } from "@/featureFlags";
-import { useQuickPlay } from "@/hooks/useQuickPlay";
-import { peekActiveGameSession } from "@/lib/activeGameSession";
+import { Download, FlaskConical, Layers, Play, Trophy } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 import { ROUTES } from "@/lib/constants";
-import { cn } from "@/lib/utils";
-import { relayUsername } from "@/lib/relayUsername";
-import { usePreferencesStore } from "@/stores/usePreferencesStore";
-import { useAuthStore } from "@/stores/useAuthStore";
-import { useServerStore } from "@/stores/useServerStore";
-const MODES = [
-  {
-    to: ROUTES.PLAY_OFFLINE_CONSTRUCTED,
-    label: `Play Offline`,
-    desc: "Choose your decks and play against the AI at your own pace.",
-    icon: Swords,
-    tone: "primary",
-  },
-  {
-    to: ROUTES.LOBBY,
-    label: `Multiplayer`,
-    desc: "Join an open table or create a room for your group.",
-    icon: Users,
-    tone: "secondary",
-  },
-];
+import { useWorkbenchStore } from "@/stores/useWorkbenchStore";
+import { downloadWorkbenchAudit } from "@/workbench/auditExport";
+import { formatUsd } from "@/workbench/pricing";
+
 export function PlayHome() {
-  const { quickPlay, quickPlayPreset, quickPlayCommunity, pendingDeckId, playersDialog } =
-    useQuickPlay();
-  const [resumeSession, setResumeSession] = useState(peekActiveGameSession);
-  const resumePending = resumeSession !== null;
-  const connected = useServerStore((state) => state.connected);
-  const connecting = useServerStore((state) => state.connecting);
-  const connectionError = useServerStore((state) => state.error);
-  const rooms = useServerStore((state) => state.rooms);
-  const players = useServerStore((state) => state.players);
-  const connectPreferred = useServerStore((state) => state.connectPreferred);
-  const listRooms = useServerStore((state) => state.listRooms);
-  const listPlayers = useServerStore((state) => state.listPlayers);
-  const serverUsername = usePreferencesStore((state) => state.serverUsername);
-  const accountHandle = useAuthStore((s) =>
-    s.status === "signedIn" ? (s.account?.handle ?? null) : null,
-  );
-  const openTables = rooms.filter((room) => room.status === "Lobby").length;
-  const lobbyTeaser =
-    connected && (openTables > 0 || players.length > 0)
-      ? `${openTables} ${openTables === 1 ? "table" : "tables"} open · ${players.length} online`
-      : null;
-  const communityEnabled = isFeatureEnabled("deckHub");
-  useEffect(() => {
-    const name = relayUsername();
-    if (!resumePending && !connected && !connecting && !connectionError && name) {
-      void connectPreferred(name);
-    }
-  }, [
-    connectPreferred,
-    connected,
-    connecting,
-    connectionError,
-    resumePending,
-    serverUsername,
-    accountHandle,
-  ]);
-  useEffect(() => {
-    if (!connected || resumePending) return;
-    listRooms();
-    listPlayers();
-    const id = setInterval(() => {
-      listRooms();
-      listPlayers();
-    }, 5000);
-    return () => clearInterval(id);
-  }, [connected, listPlayers, listRooms, resumePending]);
+  const lastCompletedGame = useWorkbenchStore((state) => state.lastCompletedGame);
+  const auditLog = useWorkbenchStore((state) => state.auditLog);
+  const runtimeErrors = useWorkbenchStore((state) => state.runtimeErrors);
+  const deckTestSession = useWorkbenchStore((state) => state.deckTestSession);
+  const completedAuditEntries = lastCompletedGame
+    ? auditLog.filter((entry) => entry.gameId === lastCompletedGame.gameId)
+    : [];
+
   return (
-    <div className="relative h-full min-h-0 overflow-hidden">
-      <div className="relative z-10 h-full overflow-y-auto">
-        <div className="flex min-h-full w-full flex-col gap-6 px-4 py-6 sm:gap-7 sm:px-6 sm:py-9 lg:px-8">
-          <header className="max-w-xl sm:pt-2">
-            <h1 className="font-serif text-3xl font-light tracking-[0.02em] text-foreground sm:text-4xl">
-              Ready to play?
-            </h1>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground sm:text-base">
-              Start a match your way, or open a deck from your collection.
-            </p>
-          </header>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-9">
+        <header>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+            Magic Workbench
+          </p>
+          <h1 className="mt-1 font-serif text-3xl font-light sm:text-4xl">
+            Test the deck. Find the problem. Make it better.
+          </h1>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            Import or open one of your decks, launch it in Forge, then use Thinking AI and
+            community benchmark suites to collect repeatable deck-performance evidence.
+          </p>
+        </header>
 
-          <UpdateCallout />
+        <section className="grid gap-3 sm:grid-cols-2">
+          <Button asChild variant="primary" className="h-auto justify-start gap-3 p-4 text-left">
+            <Link to={ROUTES.DECK_EDITOR}>
+              <Layers className="h-5 w-5 shrink-0" />
+              <span>
+                <span className="block font-semibold">My Decks</span>
+                <span className="block text-xs font-normal opacity-80">
+                  Import, open, and manage the decks you want to test.
+                </span>
+              </span>
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="h-auto justify-start gap-3 p-4 text-left">
+            <Link to={ROUTES.PLAY_OFFLINE_CONSTRUCTED}>
+              <Play className="h-5 w-5 shrink-0" />
+              <span>
+                <span className="block font-semibold">Start a Test Game</span>
+                <span className="block text-xs font-normal text-muted-foreground">
+                  Choose your deck and launch Forge against a test opponent.
+                </span>
+              </span>
+            </Link>
+          </Button>
+        </section>
 
-          {resumeSession && (
-            <RejoinMatchCard session={resumeSession} onAbandoned={() => setResumeSession(null)} />
-          )}
-
-          <div
-            className={cn(
-              "flex flex-col gap-4 motion-safe:animate-onboard-fade-up sm:gap-5",
-              resumePending && "hidden",
-            )}
-          >
-            <section aria-label={`Play modes`} className="grid gap-4 md:grid-cols-2">
-              {MODES.map(({ to, label, desc, icon, tone }) => (
-                <FeatureTile
-                  key={to}
-                  to={to}
-                  label={label}
-                  desc={desc}
-                  icon={icon}
-                  tone={tone}
-                  size="lg"
-                  footer={
-                    to === ROUTES.LOBBY && lobbyTeaser ? (
-                      <span className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-primary">
-                        <span className="relative flex h-1.5 w-1.5">
-                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
-                          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
-                        </span>
-                        {lobbyTeaser}
-                      </span>
-                    ) : undefined
-                  }
-                />
-              ))}
-            </section>
-          </div>
-
-          <div
-            className={cn("motion-safe:animate-onboard-fade-up", resumePending && "hidden")}
-            style={{ animationDelay: "80ms" }}
-          >
-            <PlayDeckShelf
-              onPlay={quickPlay}
-              onPlayPreset={quickPlayPreset}
-              onPlayCommunity={quickPlayCommunity}
-              pendingDeckId={pendingDeckId}
-            />
-          </div>
-
-          {communityEnabled && (
-            <div
-              className={cn("motion-safe:animate-onboard-fade-up", resumePending && "hidden")}
-              style={{ animationDelay: "140ms" }}
-            >
-              <FeatureTile
-                to={ROUTES.HUB}
-                label={`Explore community decks`}
-                desc="Browse complete decklists, discover popular builds, and save a version to your collection."
-                icon={LibraryBig}
-                tone="community"
-                size="sm"
-              />
+        {deckTestSession.status !== "idle" ? (
+          <section className="rounded-xl border border-border/60 bg-muted/20 p-4">
+            <div className="flex items-start gap-3">
+              <FlaskConical className="mt-0.5 h-5 w-5 text-primary" />
+              <div className="min-w-0">
+                <p className="font-semibold">Current deck test</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {deckTestSession.status} · {deckTestSession.reports.length}/
+                  {deckTestSession.targetGames} games complete
+                  {(deckTestSession.benchmarkOpponents?.length ?? 0) > 0
+                    ? ` · ${deckTestSession.benchmarkOpponents?.length} community opponents`
+                    : ""}
+                </p>
+                {deckTestSession.error ? (
+                  <p className="mt-1 text-xs text-destructive">{deckTestSession.error}</p>
+                ) : null}
+              </div>
             </div>
-          )}
+          </section>
+        ) : null}
 
-          <div
-            className={cn(
-              "mt-auto flex flex-col gap-6 motion-safe:animate-onboard-fade-up sm:gap-8",
-              resumePending && "hidden",
-            )}
-            style={{ animationDelay: "200ms" }}
-          >
-            <PlayHomeLinks />
+        {lastCompletedGame && completedAuditEntries.length > 0 ? (
+          <section className="rounded-xl border border-border/60 bg-muted/20 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <Trophy className="mt-0.5 h-5 w-5 text-primary" />
+                <div>
+                  <p className="font-semibold">Last completed Workbench game</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Turn {lastCompletedGame.turn} · {lastCompletedGame.paidAiCalls} AI calls ·
+                    {" "}{formatUsd(lastCompletedGame.estimatedCostUsd)}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {lastCompletedGame.entries} audited decisions · {lastCompletedGame.errors} AI
+                    errors · {runtimeErrors.length} captured runtime errors
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  downloadWorkbenchAudit({
+                    gameId: lastCompletedGame.gameId,
+                    entries: completedAuditEntries,
+                    winnerId: lastCompletedGame.winnerId,
+                    turn: lastCompletedGame.turn,
+                    filenamePrefix: "magic-workbench-completed",
+                    runtimeErrors,
+                  })
+                }
+              >
+                <Download className="mr-1.5 h-4 w-4" />
+                Export audit
+              </Button>
+            </div>
+          </section>
+        ) : null}
+
+        <section className="rounded-xl border border-border/60 p-4">
+          <p className="font-semibold">Workflow</p>
+          <div className="mt-3 grid gap-2 text-sm text-muted-foreground sm:grid-cols-4">
+            <div><strong className="text-foreground">1.</strong> Open deck</div>
+            <div><strong className="text-foreground">2.</strong> Start Forge</div>
+            <div><strong className="text-foreground">3.</strong> Run benchmark</div>
+            <div><strong className="text-foreground">4.</strong> Review evidence</div>
           </div>
-        </div>
+        </section>
       </div>
-      {playersDialog}
     </div>
   );
 }

@@ -11,6 +11,7 @@ import { useKeybindings } from "@/hooks/useKeybindings";
 import { usePreferencesStore } from "@/stores/usePreferencesStore";
 import { usePromptPreferencesStore } from "@/stores/usePromptPreferencesStore";
 import { useAutoResolvePrompt } from "@/components/prompts/internal/useAutoResolvePrompt";
+import { useWorkbenchController } from "@/workbench/useWorkbenchController";
 import { useShallow } from "zustand/react/shallow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CardChoiceDto, CardDto, StackObjectDto } from "@/protocol/game";
@@ -238,6 +239,7 @@ export default function Game({ exitTo }: GameProps = {}) {
   );
   const interruption = useMultiplayerInterruption();
   useAutoResolvePrompt(interruption.waiting);
+  useWorkbenchController(interruption.waiting);
   const rawGameView = useGameStore((s) => s.gameView);
   const myPlayerSlot = useGameStore((s) => s.myPlayerSlot);
   const currentPrompt = useGameStore((s) => s.currentPrompt);
@@ -1903,9 +1905,13 @@ export default function Game({ exitTo }: GameProps = {}) {
     }
     return byId;
   }, [visibleCardsById, stackCardsBySourceId]);
+  const playerDisplayNames = useGameStore((state) => state.playerDisplayNames);
   const playerNameById = useMemo(
-    () => new Map((gameView?.players ?? []).map((p) => [p.id, p.name] as const)),
-    [gameView?.players],
+    () =>
+      new Map(
+        (gameView?.players ?? []).map((p) => [p.id, playerDisplayNames[p.id] ?? p.name] as const),
+      ),
+    [gameView?.players, playerDisplayNames],
   );
   const resolveStackCard = (stackItem: StackObjectDto): CardDto =>
     visibleCardsById.get(stackItem.sourceId) ?? stackCardsBySourceId.get(stackItem.sourceId)!;

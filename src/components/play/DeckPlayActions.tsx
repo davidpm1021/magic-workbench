@@ -1,4 +1,4 @@
-import { ArrowLeft, Bot, Loader2, Pencil, Users } from "lucide-react";
+import { ArrowLeft, FlaskConical, Loader2, Pencil } from "lucide-react";
 import { Link } from "react-router-dom";
 import { DeckCoverImage } from "@/components/deck/deckCover";
 import { resolveCoverCard } from "@/components/deck/deckCover.utils";
@@ -78,14 +78,8 @@ export function DeckPlayActions({ savedDeckId }: DeckPlayActionsProps) {
                     to={ROUTES.PLAY_OFFLINE_CONSTRUCTED}
                     state={{ preSelectedDeckId: savedDeck.id }}
                   >
-                    <Bot className="h-5 w-5" />
-                    Play Offline
-                  </Link>
-                </Button>
-                <Button size="lg" variant="secondary" asChild className="w-full justify-start">
-                  <Link to={ROUTES.LOBBY} state={{ preferredSavedDeckId: savedDeck.id }}>
-                    <Users className="h-5 w-5" />
-                    Multiplayer
+                    <FlaskConical className="h-5 w-5" />
+                    Benchmark Deck
                   </Link>
                 </Button>
                 <Button

@@ -1,0 +1,86 @@
+name: Build Forge WASM assets
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - workbench-v0.1
+    paths:
+      - ".github/workflows/workbench-forge-wasm.yml"
+      - "forge"
+      - "forge-harness/**"
+      - "packages/forge-wasm/**"
+      - "scripts/build-forge-wasm.sh"
+      - "scripts/harness.mjs"
+      - "manabrew-rs/crates/forge-cardset-archive/**"
+
+permissions:
+  contents: read
+
+env:
+  GRAALVM_EA_TAG: jdk-25i3-25.0.4.1-ea.03
+  BINARYEN_VERSION: "123"
+
+jobs:
+  build:
+    name: Forge browser engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          clean: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: yarn
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Yarn
+        run: npm install --global yarn
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Install Web Image toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/webimage"
+          cd "$HOME/.local/webimage"
+
+          curl -fsSL -o graalvm.tar.gz \
+            "https://github.com/graalvm/oracle-graalvm-ea-builds/releases/download/${GRAALVM_EA_TAG}/graalvm-jdk-${GRAALVM_EA_TAG#jdk-}_linux-x64_bin.tar.gz"
+          tar xzf graalvm.tar.gz
+          rm graalvm.tar.gz
+
+          curl -fsSL -o binaryen.tar.gz \
+            "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz"
+          tar xzf binaryen.tar.gz
+          rm binaryen.tar.gz
+
+      - name: Build Forge browser engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/webimage/binaryen-version_${BINARYEN_VERSION}/bin:$PATH"
+          export WEBIMAGE_GRAALVM_HOME="$(echo "$HOME"/.local/webimage/graalvm-*)"
+          scripts/build-forge-wasm.sh
+          test -s packages/forge-wasm/forgeharness.js
+          test -s packages/forge-wasm/forgeharness.js.wasm
+          ls -lh packages/forge-wasm/forgeharness.js*
+
+      - name: Upload Forge WASM assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-wasm-assets
+          path: |
+            packages/forge-wasm/forgeharness.js
+            packages/forge-wasm/forgeharness.js.wasm
+          if-no-files-found: error
+          retention-days: 7

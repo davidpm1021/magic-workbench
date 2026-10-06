@@ -62,8 +62,9 @@ interface GameUIState {
   playModePicker: PlayModePickerState | null;
   viewingZone: ViewingZoneState | null;
   isActionPanelCollapsed: boolean;
-  rightPanelTab: "log" | "snapshots" | "dev";
+  rightPanelTab: "workbench" | "log" | "snapshots" | "dev";
   promptModalHidden: boolean;
+  commentaryAdvanceToken: number;
   zoneBrowserStates: Record<string, CardBrowserState>;
   saveZoneBrowserState: (key: string, state: CardBrowserState) => void;
 
@@ -75,10 +76,11 @@ interface GameUIState {
   closeZoneViewer: () => void;
   toggleActionPanel: () => void;
   setActionPanelCollapsed: (collapsed: boolean) => void;
-  setRightPanelTab: (tab: "log" | "snapshots" | "dev") => void;
+  setRightPanelTab: (tab: "workbench" | "log" | "snapshots" | "dev") => void;
   toggleDevPanel: () => void;
   hidePromptModal: () => void;
   showPromptModal: () => void;
+  advanceCommentary: () => void;
   resetAll: () => void;
 }
 
@@ -89,8 +91,9 @@ export const useGameUIStore = create<GameUIState>()(
       playModePicker: null,
       viewingZone: null,
       isActionPanelCollapsed: true,
-      rightPanelTab: "log",
+      rightPanelTab: "workbench",
       promptModalHidden: false,
+      commentaryAdvanceToken: 0,
       zoneBrowserStates: {},
       saveZoneBrowserState: (key, state) =>
         set((current) => ({ zoneBrowserStates: { ...current.zoneBrowserStates, [key]: state } })),
@@ -118,6 +121,7 @@ export const useGameUIStore = create<GameUIState>()(
       },
       hidePromptModal: () => set({ promptModalHidden: true }),
       showPromptModal: () => set({ promptModalHidden: false, viewingZone: null }),
+      advanceCommentary: () => set((state) => ({ commentaryAdvanceToken: state.commentaryAdvanceToken + 1 })),
 
       resetAll: () =>
         set({
@@ -125,6 +129,7 @@ export const useGameUIStore = create<GameUIState>()(
           playModePicker: null,
           viewingZone: null,
           isActionPanelCollapsed: true,
+          rightPanelTab: "workbench",
           promptModalHidden: false,
           zoneBrowserStates: {},
         }),

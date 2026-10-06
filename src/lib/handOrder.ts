@@ -1,30 +1,14 @@
 import type { CardDto } from "@/protocol/game";
-export type HandOrderMode = "manual" | "color" | "mana-value";
+export type HandOrderMode = "manual" | "mana-value" | "mana-value-desc" | "name";
 export const HAND_ORDER_OPTIONS: readonly {
   value: HandOrderMode;
   label: string;
 }[] = [
-  {
-    value: "manual",
-    label: `Manual`,
-  },
-  {
-    value: "color",
-    label: `Color`,
-  },
-  {
-    value: "mana-value",
-    label: `Mana value`,
-  },
+  { value: "manual", label: "Default" },
+  { value: "mana-value", label: "CMC ↑" },
+  { value: "mana-value-desc", label: "CMC ↓" },
+  { value: "name", label: "Name" },
 ];
-const COLOR_ORDER = "WUBRG";
-function colorRank(color: string): number {
-  if (color.length === 1) {
-    const rank = COLOR_ORDER.indexOf(color);
-    if (rank >= 0) return rank;
-  }
-  return color.length > 1 ? COLOR_ORDER.length : COLOR_ORDER.length + 1;
-}
 export function reconcileHandOrder(order: readonly string[], cards: readonly CardDto[]): string[] {
   const present = new Set(cards.map((card) => card.id));
   const next = order.filter((id) => present.has(id));
@@ -48,13 +32,14 @@ export function orderHandCards(
   const stableIndex = (card: CardDto) => indexById.get(card.id) ?? sorted.length;
   if (mode === "manual") {
     sorted.sort((left, right) => stableIndex(left) - stableIndex(right));
-  } else if (mode === "color") {
-    sorted.sort(
-      (left, right) =>
-        colorRank(left.color) - colorRank(right.color) || stableIndex(left) - stableIndex(right),
-    );
-  } else {
+  } else if (mode === "mana-value") {
     sorted.sort((left, right) => left.cmc - right.cmc || stableIndex(left) - stableIndex(right));
+  } else if (mode === "mana-value-desc") {
+    sorted.sort((left, right) => right.cmc - left.cmc || stableIndex(left) - stableIndex(right));
+  } else {
+    sorted.sort((left, right) =>
+      left.identity.name.localeCompare(right.identity.name) || stableIndex(left) - stableIndex(right),
+    );
   }
   return sorted;
 }
