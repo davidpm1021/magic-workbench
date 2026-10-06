@@ -115,6 +115,40 @@ async function rejoinAfterRelayRestart() {
     rejoinInFlight = false;
   }
 }
+
+function appendDerivedDisplayLog(event: DisplayEvent) {
+  const raw = event as unknown as Record<string, unknown>;
+  let message: string | null = null;
+  let playerId: string | undefined;
+  let cardId: string | undefined;
+  if (event.kind === "cardPlayed") {
+    const cardName = typeof raw.cardName === "string" ? raw.cardName : "a card";
+    playerId = typeof raw.playerId === "string" ? raw.playerId : undefined;
+    cardId = typeof raw.cardId === "string" ? raw.cardId : undefined;
+    message = `Played ${cardName}`;
+  } else if (event.kind === "turnChanged") {
+    const activeName = typeof raw.activePlayerName === "string" ? raw.activePlayerName : "Player";
+    const turn = typeof raw.turnNumber === "number" ? raw.turnNumber : null;
+    playerId = typeof raw.activePlayerId === "string" ? raw.activePlayerId : undefined;
+    message = `${activeName}'s turn${turn == null ? "" : ` · turn ${turn}`}`;
+  }
+  if (!message) return;
+  setState((state) => {
+    const previous = state.gameLog[state.gameLog.length - 1];
+    if (previous?.message === message && previous.playerId === playerId) return {};
+    const entry: GameLogEntry = {
+      entryType: event.kind === "cardPlayed" ? "action" : "info",
+      message,
+      playerId,
+      cardId,
+      timestampMs: Date.now(),
+      sequence: state.gameLog.length + 1,
+      raw: event,
+    };
+    return { gameLog: [...state.gameLog, entry] };
+  });
+}
+
 function toastOpponentPublicAction(entry: GameLogEntry) {
   if (!entry.playerId) return;
   const players = getState().gameView?.players ?? [];
@@ -251,6 +285,7 @@ export function useGameEventListeners() {
         platform.events.on<DisplayEvent>("game:display", (payload) => {
           if (!payload?.kind) return;
           applyDisplay(payload, "Event", setState, getState);
+          appendDerivedDisplayLog(payload);
         }),
       );
       unsubscribers.push(
@@ -350,6 +385,7 @@ export function useGameEventListeners() {
         }>("game:remote_display", (payload) => {
           if (!payload.event?.kind) return;
           applyDisplay(payload.event, "Remote", setState, getState);
+          appendDerivedDisplayLog(payload.event);
         }),
       );
       unsubscribers.push(
